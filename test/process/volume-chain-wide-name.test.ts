@@ -8,7 +8,7 @@
  * 正文文件为装置真实性照常落盘）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
@@ -17,21 +17,17 @@ import { readManifest, writeManifest, upsertEntry } from '../../src/document/man
 import { generateDocId } from '../../src/document/stable-id.js'
 import { computeRevision } from '../../src/document/revision.js'
 
-const dirs: string[] = []
-
 beforeEach(() => {
   process.env['CLWRITING_DRIVER'] = 'mock'
 })
 
 afterEach(() => {
   delete process.env['CLWRITING_DRIVER']
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
 /** 造书（volumeSize=3）：specs 逐章给宽容命名 + 是否放章摘要；定稿基线走 manifest */
 function makeBookWideNamed(specs: Array<{ no: number; name: string; withSummary: boolean }>): string {
   const root = mkdtempTracked(join(tmpdir(), 'clw-r1010b-volchain-'))
-  dirs.push(root)
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })

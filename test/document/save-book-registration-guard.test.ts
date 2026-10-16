@@ -15,8 +15,8 @@
  * 非 sleep 赌时序，r1010b waitForBodyArmed 同思路），悬持窗内改签 books.jsonl 登记，
  * 放行后保存携旧世界继续走链——确定性问题复现，钉「重验失败不落盘」。
  */
-import { describe, it, expect, afterEach } from 'vitest'
-import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { describe, it, expect } from 'vitest'
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -79,15 +79,9 @@ function makeRig(withRegistry: boolean): Rig {
   }
 }
 
-const rigs: Rig[] = []
 function makeTracked(withRegistry: boolean): Rig {
-  const r = makeRig(withRegistry)
-  rigs.push(r)
-  return r
+  return makeRig(withRegistry)
 }
-afterEach(() => {
-  for (const r of rigs.splice(0)) rmSync(r.workDir, { recursive: true, force: true })
-})
 
 function save(svc: DocumentService, expectedRevision: `sha256:${string}`) {
   return svc.save(DOC_ID, REL, {

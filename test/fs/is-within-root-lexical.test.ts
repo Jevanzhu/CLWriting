@@ -7,21 +7,15 @@
  * 判定（不用 realpath——目标不存在时 realpath 必抛）；存在路径双侧 realpath 口径
  * 不变。
  */
-import { describe, it, expect, afterAll } from 'vitest'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { describe, it, expect } from 'vitest'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { isWithinRoot } from '../../src/fs/safe-path.js'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 
-const dirs: string[] = []
 function mk(): string {
-  const d = tempDirTracked('r51-d4-')
-  dirs.push(d)
-  return d
+  return tempDirTracked('r51-d4-')
 }
-afterAll(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
-})
 
 describe('R51-D-4: isWithinRoot 不存在路径词法校验', () => {
   it('不存在但词法在 root 内 → 放行（新建场景契约保留）', () => {

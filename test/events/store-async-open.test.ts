@@ -9,21 +9,13 @@
  * 4) 并发首开（等待窗内双检路径）不重复建库、不抛错；
  * 5) migrateBookSession 转 async 后契约不变（fresh 书 no-op 迁移 true）。
  */
-import { describe, expect, it, afterEach } from 'vitest'
-import { rmSync } from 'node:fs'
+import { describe, expect, it } from 'vitest'
 import { openSessionStore, openSessionStoreAsync, migrateBookSession, bookHash } from '../../src/events/store.js'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 
-const dirs: string[] = []
 function tmpRoot(): string {
-  const d = tempDirTracked('r34d-async-open-')
-  dirs.push(d)
-  return d
+  return tempDirTracked('r34d-async-open-')
 }
-
-afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
-})
 
 describe('R34D-19 openSessionStoreAsync 异步开库孪生', () => {
   it('首开建库全链可用（createSession → appendEvents → listEvents）', async () => {

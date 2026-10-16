@@ -2,21 +2,13 @@
  * F1-P2 workspace 会话单测：每书一个 ws 会话承载链路事件，惰性创建复用，
  * 且不干扰对话恢复（latestSession 排除 ws）。
  */
-import { describe, expect, it, afterEach } from 'vitest'
-import { rmSync } from 'node:fs'
+import { describe, expect, it } from 'vitest'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 
-const dirs: string[] = []
 function tmpRoot(): string {
-  const d = tempDirTracked('f1-ws-')
-  dirs.push(d)
-  return d
+  return tempDirTracked('f1-ws-')
 }
-
-afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
-})
 
 describe('F1-P2 workspaceSession', () => {
   it('惰性创建且复用——多次调用返回同一 session_id（ws- 前缀）', () => {

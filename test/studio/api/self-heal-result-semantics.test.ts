@@ -21,7 +21,8 @@ import {
   type SelfHealOpts,
 } from '../../../src/ai/orchestrate/self-heal.js'
 import type { CheckOutcome } from '../../../src/studio/server/api/check.js'
-import type { DriverEvent, Session, StudioDriver } from '../../../src/driver/index.js'
+import type { DriverEvent } from '../../../src/driver/index.js'
+import { makeFakeDriver } from '../../ai/fake-driver.js'
 import type { ChapterMeta } from '../../../src/format/types.js'
 import type { saveDraft } from '../../../src/studio/server/api/draft.js'
 import { checkAiCallBudget } from '../../../src/ai/calls.js'
@@ -66,29 +67,6 @@ function makeSave(calls: SaveCall[]): typeof saveDraft {
   }
 }
 
-function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-    cancelStream(): void {},
-    interrupt(): void {},
-    isRunning(): boolean {
-      return false
-    },
-    isWriterRunning(): boolean {
-      return false
-    },
-    registerCtrl(): void {},
-    unregisterCtrl(): void {},
-  }
-}
-
 function makeGenFn(texts: string[]): NonNullable<SelfHealOpts['genFn']> {
   let idx = 0
   return async (_prompt, _kind, _signal, onText) => {
@@ -109,7 +87,7 @@ function setup(texts: string[], check: (p: string) => CheckOutcome, extra?: Part
   const workDir = trackTempDir(makeDualTrackWorkdir())
   const bookRoot = join(workDir, '短篇', SHORT_BOOK)
   const emitted: DriverEvent[] = []
-  const driver = makeEmitDriver(emitted)
+  const driver = makeFakeDriver({ emitted })
   const saves: SaveCall[] = []
   const opts: SelfHealOpts = {
     driver,
@@ -243,7 +221,7 @@ describe('F2 self-heal 语义统一（无稿 failed / 有稿 escalate）', () =>
     }
     const workDir = trackTempDir(makeDualTrackWorkdir())
     const emitted: DriverEvent[] = []
-    const driver = makeEmitDriver(emitted)
+    const driver = makeFakeDriver({ emitted })
     const opts: SelfHealOpts = {
       driver,
       mainSession: { id: 'main', cwd: workDir, closed: false },

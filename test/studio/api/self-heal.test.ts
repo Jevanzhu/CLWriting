@@ -24,7 +24,8 @@ import type { CheckOutcome } from '../../../src/studio/server/api/check.js'
 // R0916-7-P3-6：mock 快路的组装期注入点（生产由 createStudioServer 装配；本文件不起
 // 服务，直接驱动 runSelfHeal，故在用例内装配——见 X-P1-2 两条的注入注释）
 import { configureRunnerMockFastPath } from '../../../src/ai/runner.js'
-import type { DriverEvent, Session, StudioDriver } from '../../../src/driver/index.js'
+import type { DriverEvent } from '../../../src/driver/index.js'
+import { makeFakeDriver } from '../../ai/fake-driver.js'
 import type { ChapterMeta } from '../../../src/format/types.js'
 import type { saveDraft } from '../../../src/studio/server/api/draft.js'
 
@@ -70,30 +71,6 @@ function makeSave(calls: SaveCall[]): typeof saveDraft {
   }
 }
 
-/** 最小 driver（仅 emit 用于 SSE 进度回流；stream 不再被 self-heal 调用） */
-function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-    cancelStream(): void {},
-    interrupt(): void {},
-    isRunning(): boolean {
-      return false
-    },
-    isWriterRunning(): boolean {
-      return false
-    },
-    registerCtrl(): void {},
-    unregisterCtrl(): void {},
-  }
-}
-
 /** mock genFn：每次调用吐一段固定文本，记录 prompt */
 function makeGenFn(texts: string[]): { genFn: NonNullable<SelfHealOpts['genFn']>; prompts: string[] } {
   const prompts: string[] = []
@@ -122,7 +99,7 @@ function setup(texts: string[], check: (p: string) => CheckOutcome, extra?: Part
   const workDir = trackTempDir(makeDualTrackWorkdir())
   const bookRoot = join(workDir, '短篇', SHORT_BOOK)
   const emitted: DriverEvent[] = []
-  const driver = makeEmitDriver(emitted)
+  const driver = makeFakeDriver({ emitted })
   const { genFn, prompts } = makeGenFn(texts)
   const saves: SaveCall[] = []
   const opts: SelfHealOpts = {
@@ -448,7 +425,7 @@ function setupLongBook(
   const emitted: DriverEvent[] = []
   const { genFn, prompts } = makeGenFn([`${FM}山门外的钟声在雨夜里连响了三下。`])
   const opts: SelfHealOpts = {
-    driver: makeEmitDriver(emitted),
+    driver: makeFakeDriver({ emitted }),
     mainSession: { id: 'main', cwd: workDir, closed: false },
     userDataPath: trackTempDir(tempUserData()),
     cwd: workDir,

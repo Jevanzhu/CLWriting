@@ -24,15 +24,9 @@ import { mkdtempTracked } from '../../helpers/temp-dir.js'
 // 的迁移行为另见 task-gate-lock-format.test.ts
 const lockName = (action: string, book: string): string => lockFileName(book, action)
 
-const roots: string[] = []
 function freshDir(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'r75-xproc-gate-'))
-  roots.push(d)
-  return d
+  return mkdtempTracked(join(tmpdir(), 'r75-xproc-gate-'))
 }
-afterAll(() => {
-  for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true })
-})
 
 describe('R75-5 crossProcessHeldTaskGatesFor 单元语义', () => {
   it('活 pid 载荷（他进程在持）→ 返回该 action', () => {

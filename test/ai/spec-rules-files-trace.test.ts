@@ -7,7 +7,7 @@
  * 一并登记（与 user prompt 材料 promptFiles 同通道）；空源（无词表/无命中）不登记
  * （Q-5「空段不登记」口径）。
  */
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, vi, afterEach } from 'vitest'
@@ -29,11 +29,8 @@ vi.mock('../../src/ai/gen.js', async (importOriginal) => {
 import { runSpec, type TaskSpec } from '../../src/ai/tasks/spec.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 
-const workDirs: string[] = []
 function tempDir(prefix: string): string {
-  const d = mkdtempTracked(join(tmpdir(), prefix))
-  workDirs.push(d)
-  return d
+  return mkdtempTracked(join(tmpdir(), prefix))
 }
 
 function writeProviders(userDataPath: string): void {
@@ -77,14 +74,6 @@ function readCallFiles(ud: string, bookRoot: string): string[] {
 }
 
 describe('Y-2（第五十七轮）：rules 注入段源文件登记', () => {
-  afterEach(() => {
-    try {
-      for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
-    } catch {
-      // Windows 清理竞态（防病毒/句柄占用偶发 EPERM）——best-effort 忽略
-    }
-  })
-
   it('AI味词表与 rule-hits 均注入时，两源进 promptMeta.files', async () => {
     const ud = tempDir('clw-y2-ud-')
     writeProviders(ud)
@@ -139,11 +128,6 @@ vi.mock('../../src/ai/rule-hits.js', async (importOriginal) => {
 
 describe('A8（五十九轮）：rules 注入与登记单源派生', () => {
   afterEach(() => {
-    try {
-      for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
-    } catch {
-      // Windows 清理竞态（防病毒/句柄占用偶发 EPERM）——best-effort 忽略
-    }
     vi.mocked(topRuleHits).mockClear()
   })
 

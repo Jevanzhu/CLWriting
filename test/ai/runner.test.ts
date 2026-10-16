@@ -35,8 +35,6 @@ import { formatTimeoutText } from '../../src/shared/text.js'
 import { mkdtempTracked, tempDirTracked } from '../helpers/temp-dir.js'
 import { listenSafe } from '../helpers/safe-port.js'
 
-// tempBookRoot 等书根目录仍走本地数组清理；tempUserData 已收编 mkdtempTracked（幂等并存）
-const workDirs: string[] = []
 function tempUserData(): string {
   return tempDirTracked('clwriting-runner-ud-')
 }
@@ -63,7 +61,6 @@ beforeAll(async () => {
 })
 
 afterEach(() => {
-  for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
   delete process.env.CLWRITING_DRIVER
   processProviderRuntime().__resetForTest()
 })
@@ -774,7 +771,6 @@ describe('R42-24（四十二轮）：探测实例降级记忆按目标库路由'
 describe('R0912-3：usage 值类型守卫（错型走兜底，行为与缺失一致）', () => {
   function tempBookRoot(): string {
     const d = mkdtempTracked(join(tmpdir(), 'clwriting-runner-book-'))
-    workDirs.push(d)
     mkdirSync(join(d, '.cache'), { recursive: true })
     return d
   }

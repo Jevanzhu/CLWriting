@@ -9,7 +9,7 @@
  *   少量超大文档驻留膨胀；同步/异步孪生共享同一计账。断言：超预算逐出最旧、
  *   最新条目恒保留、覆写同键不双计、delete 扣账、字节观测钩子一致。
  */
-import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { mkdirSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -23,12 +23,9 @@ import {
 import { readMdTextCached, readMdTextCachedAsync, __mdTextCacheTestHooks } from '../../../src/fs/md-text-cache.js'
 import { sleep } from '../../helpers/wait-for.js'
 
-let roots: string[] = []
-
 /** 建书：2 条伏笔 + 30 章正文（跨 >25 章触发异步索引至少一次让出切片）。 */
 function makeTree(chapters = 30): string {
   const root = mkdtempTracked(join(tmpdir(), 'pm1-foreshadow-'))
-  roots.push(root)
   mkdirSync(join(root, '设定', '伏笔'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   writeFileSync(
@@ -55,8 +52,6 @@ function makeTree(chapters = 30): string {
 
 afterEach(() => {
   foreshadowCache.resetStats()
-  for (const r of roots) rmSync(r, { recursive: true, force: true })
-  roots = []
   __mdTextCacheTestHooks.clear()
   __mdTextCacheTestHooks.setMaxEntriesForTest(null)
   __mdTextCacheTestHooks.setMaxBytesForTest(null)
@@ -121,7 +116,6 @@ describe('PM-8 md-text-cache 字节预算', () => {
     __mdTextCacheTestHooks.clear()
     __mdTextCacheTestHooks.setMaxBytesForTest(1024)
     const dir = mkdtempTracked(join(tmpdir(), 'pm8-bytes-'))
-    roots.push(dir)
     // 3 × ~600B 文件：预算 1KB 只容最新 1-2 条
     for (const name of ['a.md', 'b.md', 'c.md']) {
       writeFileSync(join(dir, name), '字'.repeat(200), 'utf-8') // 600B
@@ -139,7 +133,6 @@ describe('PM-8 md-text-cache 字节预算', () => {
     __mdTextCacheTestHooks.clear()
     __mdTextCacheTestHooks.setMaxBytesForTest(64 * 1024 * 1024)
     const dir = mkdtempTracked(join(tmpdir(), 'pm8-overwrite-'))
-    roots.push(dir)
     const fp = join(dir, 'x.md')
     writeFileSync(fp, '旧'.repeat(100), 'utf-8')
     expect(readMdTextCached(fp)).not.toBeNull()

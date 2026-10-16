@@ -20,7 +20,7 @@ import { join } from 'node:path'
 import { makeDualTrackWorkdir, LONG_BOOK, tempUserData } from '../fixtures.js'
 import { trackTempDir } from '../../helpers/temp-dir.js'
 import { runSelfHeal, type SelfHealOpts } from '../../../src/ai/orchestrate/self-heal.js'
-import type { DriverEvent, Session, StudioDriver } from '../../../src/driver/index.js'
+import { makeFakeDriver } from '../../ai/fake-driver.js'
 import type { saveDraft } from '../../../src/studio/server/api/draft.js'
 
 // 计数器走 vi.hoisted（vi.mock 工厂提升后不触外层未初始化绑定——口径同
@@ -55,24 +55,7 @@ const FM = '---\n章号: 1\n标题: 测试章\n---\n'
 function setup(): SelfHealOpts {
   const workDir = trackTempDir(makeDualTrackWorkdir())
   const bookRoot = join(workDir, '长篇', LONG_BOOK)
-  const driver: StudioDriver = {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(): void {},
-    cancelStream(): void {},
-    interrupt(): void {},
-    isRunning(): boolean {
-      return false
-    },
-    isWriterRunning(): boolean {
-      return false
-    },
-    registerCtrl(): void {},
-    unregisterCtrl(): void {},
-  }
+  const driver = makeFakeDriver()
   const save: typeof saveDraft = async (root, _chapter, content) => {
     const relPath = '写作/正文/1-测试章.md'
     mkdirSync(join(root, '写作', '正文'), { recursive: true })

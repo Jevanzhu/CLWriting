@@ -7,24 +7,19 @@
  * R40-17（四十轮）：CRLF 宿主注入后不再混排、BOM 宿主不再静默丢 BOM
  * （joinFrontMatter R39-10 + BOM 记账补回）——批一翻转后的保真契约。
  */
-import { describe, expect, it, afterEach } from 'vitest'
-import { rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
+import { describe, expect, it } from 'vitest'
+import { writeFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { commitKnowledgeFile } from '../../src/knowledge/update.js'
 import { KNOWLEDGE_MANIFEST } from '../../src/knowledge/manifest.js'
 
-const dirs: string[] = []
 function tempProject(): string {
   const d = mkdtempTracked(join(tmpdir(), 'knowledge-fm-fidelity-'))
-  dirs.push(d)
   mkdirSync(join(d, '知识层'), { recursive: true })
   return d
 }
-afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
-})
 
 function writeManifest(root: string, entries: unknown[]): void {
   writeFileSync(

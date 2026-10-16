@@ -10,11 +10,11 @@
  * 手法：mock gen 层捕获进请求的 systemPrompt 终值 → runSpec → 重开事件库读回
  * workspace 链的 llm/call 事件，断言 promptMeta.hash === promptMeta(system, user)。
  */
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 
 vi.mock('../../src/ai/gen.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/ai/gen.js')>()
@@ -37,11 +37,8 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const generateMock = generate as ReturnType<typeof vi.fn>
 
-const workDirs: string[] = []
 function tempDir(prefix: string): string {
-  const d = mkdtempTracked(join(tmpdir(), prefix))
-  workDirs.push(d)
-  return d
+  return mkdtempTracked(join(tmpdir(), prefix))
 }
 
 function writeProviders(userDataPath: string): void {
@@ -77,14 +74,6 @@ function hash16(full: string): string {
 }
 
 describe('N-10（第十二轮）：runSpec 动态 system 进 trace promptMeta', () => {
-  afterEach(() => {
-    try {
-      for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
-    } catch {
-      // Windows 清理竞态（防病毒/句柄占用偶发 EPERM）——best-effort 忽略
-    }
-  })
-
   it('llm/call 的 promptMeta.hash 哈希了 system 终值 + userPrompt（不只 userPrompt）', async () => {
     const ud = tempDir('clw-n10-ud-')
     writeProviders(ud)

@@ -11,7 +11,6 @@
  * 不可错」/血缘回写全在），比纯 fake store 更能证明恢复路径可用。
  */
 import { describe, expect, it, vi, afterEach } from 'vitest'
-import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openSessionStore, type SessionStore, type NewEvent } from '../../src/events/store.js'
@@ -25,15 +24,12 @@ import {
 import { log } from '../../src/log/index.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
-const dirs: string[] = []
 function openTmp(): { store: SessionStore; ud: string } {
   const d = mkdtempTracked(join(tmpdir(), 'r0912-cap-'))
-  dirs.push(d)
   return { store: openSessionStore(d, '/books/a')!, ud: d }
 }
 
 afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
   vi.restoreAllMocks()
 })
 

@@ -14,7 +14,7 @@
  *    第三方以 0ms 档抢布线锁必须失败）再等清单锁，P1 释放后 P2 完成，全程有界。
  */
 import { describe, it, expect, afterEach } from 'vitest'
-import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -38,10 +38,8 @@ import { VERSIONS_DIR_NAME } from '../../src/document/version.js'
 const BODY = '玉佩在火光里泛出微芒。'
 const LEAD_REL = join('布线', '悬念', '悬念-001-玉佩.md')
 
-let roots: string[] = []
 function makeWiredBook(): { root: string; docId: string; leadAbs: string; manifestPath: string } {
   const root = mkdtempTracked(join(tmpdir(), 'r30-lockorder-'))
-  roots.push(root)
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   writeFileSync(
     join(root, '写作', '正文', '0001-开篇.md'),
@@ -70,8 +68,6 @@ function makeWiredBook(): { root: string; docId: string; leadAbs: string; manife
 afterEach(() => {
   __setLeadFinalizeLockTimeoutForTest(5_000)
   __setManifestLockTimeoutForTest(5_000)
-  for (const r of roots) rmSync(r, { recursive: true, force: true })
-  roots = []
 })
 
 /** 探针锁（pid=本进程，对其他进程即「他进程在持」）。 */

@@ -11,7 +11,7 @@
  * 「至少插队一次」+ globalThis.setImmediate spy 计让出下界（graceful-shutdown
  * setTimeout spy 同款先例）。
  */
-import { mkdirSync, rmSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -21,12 +21,9 @@ import { writeAnalysis, type Envelope } from '../../../src/document/analysis.js'
 import { readManifest, writeManifest, upsertEntry } from '../../../src/document/manifest.js'
 import { generateDocId } from '../../../src/document/stable-id.js'
 
-let roots: string[] = []
-
 /** 建书：manifest 登记 N 章正文档 + 每章一个 score 信封（MISS 读面逐 doc 展开）。 */
 function makeBook(docCount: number): string {
   const root = mkdtempTracked(join(tmpdir(), 'r44-ao-yield-'))
-  roots.push(root)
   mkdirSync(join(root, '项目', '分析'), { recursive: true })
   const manifestPath = join(root, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)
@@ -53,8 +50,6 @@ function makeBook(docCount: number): string {
 afterEach(() => {
   analysisOverviewCache.resetStats()
   vi.restoreAllMocks()
-  for (const r of roots) rmSync(r, { recursive: true, force: true })
-  roots = []
 })
 
 describe('R44-10 analysis-overview MISS 分批让出', () => {

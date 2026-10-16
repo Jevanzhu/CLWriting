@@ -15,7 +15,7 @@
  *    运行由 acquire 侧探测兜住，删掉等于替旧版放闸）。
  */
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, afterAll } from 'vitest'
@@ -39,16 +39,13 @@ const newName = (action: string, book: string): string =>
 const legacyName = (action: string, book: string): string =>
   `${createHash('sha256').update(`${action}\u0000${book}`).digest('hex').slice(0, 16)}.lock`
 
-const roots: string[] = []
 function freshDir(): string {
   const d = mkdtempTracked(join(tmpdir(), 'r0916-task-gate-format-'))
   mkdirSync(d, { recursive: true })
-  roots.push(d)
   return d
 }
 afterAll(() => {
   configureTaskGateLockRoot(null)
-  for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true })
 })
 
 /** 写一枚「他进程在持」锁文件（活 pid = 本进程，探测必活）。 */

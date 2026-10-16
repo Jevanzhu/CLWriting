@@ -23,7 +23,8 @@ import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { withFakeProvider, tempUserData as fixturesTempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { runChat } from '../../src/ai/orchestrate/chat.js'
 import { tempDirTracked } from '../helpers/temp-dir.js'
-import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
+import type { DriverEvent } from '../../src/driver/types.js'
+import { makeFakeDriver } from './fake-driver.js'
 
 // tempBookRoot 等书根目录仍走本地数组清理；tempUserData 只登记（与 afterEach 兜底幂等并存）
 const dirs: string[] = []
@@ -280,26 +281,7 @@ describe('R34D-9：assistant/message 事件与 chat_done 同用 attemptsUsage �
     withFakeProvider(ud, fake.url)
     const events: DriverEvent[] = []
     await runChat({
-      driver: {
-        async startSession(cwd: string): Promise<Session> {
-          return { id: 'mock', cwd, closed: false }
-        },
-        async *stream(): AsyncGenerator<DriverEvent> {},
-        dispose(): void {},
-        emit(_s, ev): void {
-          events.push(ev)
-        },
-        cancelStream(): void {},
-        interrupt(): void {},
-        isRunning(): boolean {
-          return false
-        },
-        isWriterRunning(): boolean {
-          return false
-        },
-        registerCtrl(): void {},
-        unregisterCtrl(): void {},
-      } satisfies StudioDriver,
+      driver: makeFakeDriver({ emitted: events }),
       mainSession: { id: 's1', cwd: bookRoot, closed: false },
       userDataPath: ud,
       bookRoot,

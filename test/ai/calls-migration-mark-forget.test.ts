@@ -8,23 +8,17 @@
  * books.ts 删书/改名接线（forgetBookKeyedCaches 同位）在 r47 静态面之外，由既有
  * books-delete / books-rename 家族回归兜底，此处直测导出函数本身。
  */
-import { rmSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { checkAiCallBudget, forgetMigratedRoots } from '../../src/ai/calls.js'
 import type { BookConfig } from '../../src/format/types.js'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 
-const dirs: string[] = []
 function tempBook(): string {
-  const d = tempDirTracked('clwriting-r47-calls-')
-  dirs.push(d)
-  return d
+  return tempDirTracked('clwriting-r47-calls-')
 }
-afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
-})
 
 const CONFIG = { budget: { calls_per_chapter: 3 } } as unknown as BookConfig
 const OLD = (chapter: number): string =>

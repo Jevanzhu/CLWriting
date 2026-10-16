@@ -6,12 +6,11 @@
  * - A-6：握手超时 kill 路径改经注入 killWaitMs——kill 升级等待不再钉模块常量
  *   （默认值=常量，生产行为不变；注入口径完备）。
  */
-import { describe, it, expect, afterAll, vi } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { rmSync } from 'node:fs'
 import { createStudioServerManager } from '../../src/desktop/server-manager.js'
 import type { ServerManagerDeps } from '../../src/desktop/server-manager.js'
 
@@ -35,15 +34,9 @@ interface ForkRecord {
   child: FakeChild
 }
 
-const tmpDirs: string[] = []
 function mkUserData(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'r51-mgr-ud-'))
-  tmpDirs.push(d)
-  return d
+  return mkdtempTracked(join(tmpdir(), 'r51-mgr-ud-'))
 }
-afterAll(() => {
-  for (const d of tmpDirs) rmSync(d, { recursive: true, force: true })
-})
 
 function mkHarness(extra: ServerManagerDeps = {}): {
   forkRecords: ForkRecord[]

@@ -14,7 +14,7 @@
  * 各 test 的计数以紧邻断言前的 mockClear 为窗（写链内部 bak/复验也走 readFileSync，
  * 不计入窗口）。
  */
-import { rmSync, utimesSync, writeFileSync, readFileSync } from 'node:fs'
+import { utimesSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
@@ -41,12 +41,9 @@ function makeConf(id: string, apiKey: string): ProviderConf {
   }
 }
 
-const dirs: string[] = []
-
 /** 造一个已落盘的 userData 目录（saveProviders 走 vault 加密），返回其路径 */
 async function saveDir(tag: string, apiKey: string): Promise<string> {
   const d = mkdtempTracked(join(tmpdir(), `clw-mtime-lru-${tag}-`))
-  dirs.push(d)
   const store = emptySettings()
   store.providers = [makeConf(`prov-${tag}`, apiKey)]
   store.currentId = `prov-${tag}`
@@ -60,7 +57,6 @@ beforeEach(() => {
 
 afterEach(() => {
   processProviderRuntime().__clearProvidersCacheForTest()
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
 /** spy 的 readFileSync 对指定路径的调用次数（缓存命中观测面） */

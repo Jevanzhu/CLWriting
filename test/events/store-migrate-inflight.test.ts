@@ -6,21 +6,15 @@
  * refs>1 收紧为 refs>0——refs==1（首个在途调用方）同样是活跃持有者。验证：
  * refs≥1 → 迁移放弃（false，源库原地完整）；全部收口（refs=0）→ 迁移成功。
  */
-import { rmSync, existsSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { openSessionStore, migrateBookSession, bookHash } from '../../src/events/store.js'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 
-const dirs: string[] = []
 function tmpRoot(): string {
-  const d = tempDirTracked('n8-migrate-')
-  dirs.push(d)
-  return d
+  return tempDirTracked('n8-migrate-')
 }
-afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
-})
 
 describe('N8 migrateBookSession 在途引用断言', () => {
   it('refs>0（在途引用，含 refs==1）→ 迁移放弃 false 且源库原地保留；全部收口后迁移成功', async () => {

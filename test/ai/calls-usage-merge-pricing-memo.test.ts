@@ -11,7 +11,7 @@
  * - resolveModelPricing memo：同 (userDataPath, model) 且 providers.json mtime 未变
  *   → 命中缓存；文件改写（mtime bump）→ 失效重解析出新价。
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync, utimesSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -35,14 +35,10 @@ import { recordUsageBoth, recordAiCall, recordTaskUsage } from '../../src/ai/cal
 import { resolveModelPricing } from '../../src/ai/pricing.js'
 import type { TokenUsage } from '../../src/ai/provider/index.js'
 
-const dirs: string[] = []
 function tempBook(): string {
-  const d = tempDirTracked('pm11-calls-')
-  dirs.push(d)
-  return d
+  return tempDirTracked('pm11-calls-')
 }
 afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
   atomicWrites.n = 0
 })
 
@@ -142,11 +138,9 @@ describe('PM-11 recordUsageBoth 合并记账（合并批自 stash 并入 recordU
 })
 
 describe('PM-11 resolveModelPricing memo', () => {
-  // USER 目录每用例自建（模块级创建会被前一个 describe 的 afterEach splice+rmSync 误删）
+  // USER 目录每用例自建（模块级共享目录会被逐用例兜底清理删掉）
   function makeUser(): string {
-    const d = mkdtempTracked(join(tmpdir(), 'pm11-pricing-'))
-    dirs.push(d)
-    return d
+    return mkdtempTracked(join(tmpdir(), 'pm11-pricing-'))
   }
 
   function writeProviders(user: string, input: number): void {

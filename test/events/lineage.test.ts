@@ -4,8 +4,7 @@
  * - SessionRecorder 批内 sourceSeqs → 全局 seq 转换（assistant 引用 settings/revision）
  * - recordForeshadowChanges（foreshadow/change 变化登记 + 静默降级）
  */
-import { describe, expect, it, afterEach } from 'vitest'
-import { rmSync } from 'node:fs'
+import { describe, expect, it } from 'vitest'
 import { openSessionStore, bookHash, type NewEvent } from '../../src/events/store.js'
 import { SessionRecorder, sessionStartEvent, userMessageEvent, turnStartEvent } from '../../src/events/chat-bridge.js'
 import {
@@ -19,16 +18,9 @@ import { digest16, verifyVisibleRecorded, recordedSnapshots } from '../../src/ev
 import type { ChatEvent } from '../../src/events/types.js'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 
-const dirs: string[] = []
 function tmpRoot(): string {
-  const d = tempDirTracked('f1-lineage-')
-  dirs.push(d)
-  return d
+  return tempDirTracked('f1-lineage-')
 }
-
-afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
-})
 
 describe('F1-P3 digest16', () => {
   it('sha256 前 16 位：稳定、长度 16、不同内容不同指纹', () => {

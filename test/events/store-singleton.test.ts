@@ -2,8 +2,7 @@
  * Y-P1-1 / Y-P2-6 / Y-P2-7 回归锚：连接单例（引用计数）、活跃会话跳过孤儿修复、
  * clearChatHistory 双钥匙清库。
  */
-import { describe, expect, it, afterEach } from 'vitest'
-import { rmSync } from 'node:fs'
+import { describe, expect, it } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { join } from 'node:path'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
@@ -11,16 +10,9 @@ import { SessionRecorder, sessionStartEvent } from '../../src/events/chat-bridge
 import { clearChatHistory } from '../../src/ai/orchestrate/chat.js'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 
-const dirs: string[] = []
 function tmpRoot(): string {
-  const d = tempDirTracked('y-store-')
-  dirs.push(d)
-  return d
+  return tempDirTracked('y-store-')
 }
-
-afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
-})
 
 /** 回拨事件时间戳越过孤儿修复宽限期（RB-IF-P2-2 后陈旧孤儿才补 end） */
 function backdateEvents(ud: string, bookRoot: string): void {

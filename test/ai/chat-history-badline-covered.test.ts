@@ -15,11 +15,9 @@
  * ②截断契约不回归——安全窗截断仍 truncated:true + total=骨架事件行数（含坏行）。
  */
 import { describe, expect, it, vi } from 'vitest'
-import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { afterAll } from 'vitest'
 import { bookHash, openSessionStore, type NewEvent, type SessionStore } from '../../src/events/store.js'
 import {
   turnStartEvent,
@@ -45,16 +43,10 @@ function referenceView(store: SessionStore, bookName: string, limit?: number) {
   }
 }
 
-const uds: string[] = []
-afterAll(() => {
-  for (const ud of uds.splice(0)) rmSync(ud, { recursive: true, force: true })
-})
-
 describe('0918四轮修复批 B403: 坏行降级下「已触底」判定不误报', () => {
   it('表尾插坏 JSON（落入初始尾窗）→ 窗口翻倍至全量，窗外头部历史找回，truncated/total 契约不变', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const ud = mkdtempTracked(join(tmpdir(), 'b403-badline-'))
-    uds.push(ud)
     try {
       const store = openSessionStore(ud, '/b403/坏行尾窗书')!
       const sid = store.createSession('坏行尾窗书')

@@ -5,7 +5,7 @@
  *   无限期误拒；活句柄由续期定时器刷 mtime 保持「新鲜活标记」语义（自愈重写）。
  * - R71-25：墓碑在搬移前预写；迁移失败回滚后旧位完整活库且无墓碑残留。
  */
-import { afterAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { rmSync, existsSync, mkdirSync, writeFileSync, statSync, utimesSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
@@ -14,15 +14,9 @@ import { openSessionStore, migrateBookSession, bookHash, configureOpenMarkerRene
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { LIVE_FOREIGN_PID } from '../helpers/dead-pid.js'
 
-const roots: string[] = []
 function freshUd(): string {
-  const ud = mkdtempTracked(join(tmpdir(), 'r71-marker-'))
-  roots.push(ud)
-  return ud
+  return mkdtempTracked(join(tmpdir(), 'r71-marker-'))
 }
-afterAll(() => {
-  for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true })
-})
 
 describe('R71-24 开口标记 pid 复用防护', () => {
   it('活 pid + 标记超龄（>10min 无续期）→ 视同死残留 GC，迁移放行', async () => {

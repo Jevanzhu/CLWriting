@@ -7,7 +7,7 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -16,11 +16,9 @@ import { flushLogsForTest } from '../../../src/log/index.js'
 import { mkdtempTracked } from '../../helpers/temp-dir.js'
 
 const servers: http.Server[] = []
-const dirs: string[] = []
 
 afterAll(() => {
   for (const s of servers) s.close()
-  for (const d of dirs) rmSync(d, { recursive: true, force: true })
 })
 
 /** boot 并等 listening 就绪（startServerSafe 已代等 listening） */
@@ -47,7 +45,6 @@ function makeBrokenBook(root: string): void {
 
 function makeWorkdir(withBrokenBook: boolean): string {
   const workDir = mkdtempTracked(join(tmpdir(), 'clw-notices-'))
-  dirs.push(workDir)
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   const name = withBrokenBook ? '坏书' : '好书'
   const path = withBrokenBook ? `坏/${name}` : `好/${name}`
@@ -63,7 +60,6 @@ describe('GET /api/startup-notices（A4 批 0）', () => {
   it('干净书库：无通告', async () => {
     const workDir = makeWorkdir(false)
     const userData = mkdtempTracked(join(tmpdir(), 'clw-notices-ud-'))
-    dirs.push(userData)
     const baseUrl = await bootReady(workDir, userData)
     const r = await getNotices(baseUrl)
     expect(r.status).toBe(200)
@@ -73,7 +69,6 @@ describe('GET /api/startup-notices（A4 批 0）', () => {
   it('v2 迁移失败注入：通告可见（kind + 人话 message）', async () => {
     const workDir = makeWorkdir(true)
     const userData = mkdtempTracked(join(tmpdir(), 'clw-notices-ud-'))
-    dirs.push(userData)
     const baseUrl = await bootReady(workDir, userData)
     const r = await getNotices(baseUrl)
     expect(r.status).toBe(200)
@@ -90,7 +85,6 @@ describe('GET /api/startup-notices（A4 批 0）', () => {
   it('日志同步落痕：失败通告同时写入 userData/logs/ JSONL', async () => {
     const workDir = makeWorkdir(true)
     const userData = mkdtempTracked(join(tmpdir(), 'clw-notices-ud-'))
-    dirs.push(userData)
     await bootReady(workDir, userData)
     // startServer 内 log.error 排队异步落盘。R63-16/O1 起两代以轮询窗口等待（5s→10s
     // →20s），全量并行争用下 fs 线程池饥饿仍可越窗假红（单跑恒绿）——窗口加宽是对症

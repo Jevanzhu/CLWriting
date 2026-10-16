@@ -6,7 +6,7 @@
  * - B2 自举脚本（execSync 集成）：幸存者判定两路 + 候选 md 产出 + 误报率统计
  * - B2 corpus:commit：勾选行入库 round-trip（去重合并）
  */
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { execSync, spawnSync } from 'node:child_process'
 import type { AddressInfo } from 'node:net'
 import { rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
@@ -25,16 +25,8 @@ import { generateDocId } from '../../src/document/stable-id.js'
 import { writeVersion, VERSIONS_DIR_NAME } from '../../src/document/version.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
-const dirs: string[] = []
-
-afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
-})
-
 function tmpDir(prefix: string): string {
-  const d = mkdtempTracked(join(tmpdir(), prefix))
-  dirs.push(d)
-  return d
+  return mkdtempTracked(join(tmpdir(), prefix))
 }
 
 /** 造书：N 章正文 + 布线（含账本 leak_keywords 可选）+ 清单登记 */

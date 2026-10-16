@@ -7,8 +7,8 @@
  * - R40-51：buildIndex 部分成功续传的 chunkCount/chapterCount = 本事务实际新嵌落库数
  *   （此前恒报 0/0，进度与实际嵌入数偏差）。
  */
-import { describe, expect, it, afterEach } from 'vitest'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { describe, expect, it } from 'vitest'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 import { buildIndex, ragIndexState, recallDetailed, resetRagIndex } from '../../src/rag/index.js'
@@ -16,15 +16,9 @@ import { openRagDb, setRagMeta } from '../../src/rag/store.js'
 import { type embed } from '../../src/rag/embed.js'
 import type { RagConfig } from '../../src/rag/config.js'
 
-const dirs: string[] = []
 function tempBook(): string {
-  const d = tempDirTracked('clw-r40-rag-')
-  dirs.push(d)
-  return d
+  return tempDirTracked('clw-r40-rag-')
 }
-afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
-})
 
 const CONFIG: RagConfig = { enabled: true, endpoint: 'http://embed.local', model: 'test-embed' }
 // embed 线格式：embed(endpoint, model, apiKey, texts, options?) → number[][] | null；

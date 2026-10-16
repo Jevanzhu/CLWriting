@@ -17,11 +17,10 @@
  *    store.countEvents 骨架事件行数（含无法解析行；全量投影消息数需全量 parse，与
  *    真尾窗 O(尾窗) 相抵，前端「共约多少条」提示由事件行数承担）。
  */
-import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { afterAll, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { bookHash, openSessionStore, type NewEvent, type SessionStore } from '../../src/events/store.js'
 import {
@@ -80,16 +79,11 @@ function expectMatchesReference(store: SessionStore, bookName: string, branchId?
 }
 
 /** 每用例独立 tmp userData + 独立 bookHash（互不串库） */
-const uds: string[] = []
 function makeStore(bookKey: string): { store: SessionStore; sid: string; ud: string } {
   const ud = mkdtempTracked(join(tmpdir(), 'pm10-tail-'))
-  uds.push(ud)
   const store = openSessionStore(ud, '/pm10/' + bookKey)!
   return { store, sid: store.createSession(bookKey, { book: bookKey }), ud }
 }
-afterAll(() => {
-  for (const ud of uds) rmSync(ud, { recursive: true, force: true })
-})
 
 describe('PM-10：chat/history limit 尾窗与「全量投影 + slice」参照逐位一致', () => {
   it('小库全形态：文本/块结构/连续 tool-result 合成/跨行正文——各 limit 与参照逐位一致', () => {

@@ -8,8 +8,8 @@
  * 档源：r30-batch-a.test.ts（三十轮批 A）拆分——R30-4/10/12 provider 半（本文件）
  * 与 R30-3 写锁半（ai-calls-lock-async.test.ts）按被测域分家。断言逐条保留、去重 0 条。
  */
-import { describe, it, expect, afterEach } from 'vitest'
-import { rmSync, readFileSync, writeFileSync } from 'node:fs'
+import { describe, it, expect } from 'vitest'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
@@ -18,16 +18,9 @@ import { resolveProvider } from '../../src/ai/runner.js'
 import { createAnthropicProvider } from '../../src/ai/provider/anthropic-adapter.js'
 import type { GenEvent, GenRequest, ProviderConf } from '../../src/ai/provider/index.js'
 
-const workDirs: string[] = []
 function tempDir(prefix: string): string {
-  const d = mkdtempTracked(join(tmpdir(), prefix))
-  workDirs.push(d)
-  return d
+  return mkdtempTracked(join(tmpdir(), prefix))
 }
-
-afterEach(() => {
-  for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
-})
 
 // ── R30-4：降级记忆显式 path 贯穿 ───────────────────────────────────────
 

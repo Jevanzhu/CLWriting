@@ -10,7 +10,8 @@ import { makeDualTrackWorkdir, SHORT_BOOK } from '../fixtures.js'
 import { runSelfHeal, abortSelfHeal, type SelfHealOpts } from '../../../src/ai/orchestrate/self-heal.js'
 import { openSessionStore, bookHash } from '../../../src/events/store.js'
 import type { CheckOutcome } from '../../../src/studio/server/api/check.js'
-import type { DriverEvent, Session, StudioDriver } from '../../../src/driver/index.js'
+import type { DriverEvent } from '../../../src/driver/index.js'
+import { makeFakeDriver } from '../../ai/fake-driver.js'
 import type { ChapterMeta } from '../../../src/format/types.js'
 import type { saveDraft } from '../../../src/studio/server/api/draft.js'
 import { mkdtempTracked, trackTempDir } from '../../helpers/temp-dir.js'
@@ -53,29 +54,6 @@ function makeSave(): typeof saveDraft {
   }
 }
 
-function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-    cancelStream(): void {},
-    interrupt(): void {},
-    isRunning(): boolean {
-      return false
-    },
-    isWriterRunning(): boolean {
-      return false
-    },
-    registerCtrl(): void {},
-    unregisterCtrl(): void {},
-  }
-}
-
 function readChain(ud: string, bookRoot: string) {
   const store = openSessionStore(ud, bookRoot)!
   try {
@@ -93,7 +71,7 @@ test('红→绿：check/report（含红项）+ retry/attempt 落库，最终 pas
     const emitted: DriverEvent[] = []
     let checks = 0
     const opts: SelfHealOpts = {
-      driver: makeEmitDriver(emitted),
+      driver: makeFakeDriver({ emitted }),
       mainSession: { id: 'main', cwd: workDir, closed: false },
       userDataPath: ud,
       cwd: workDir,
@@ -133,7 +111,7 @@ test('触顶 escalate：多次红 → retry/attempt 记录每轮 + 最终 escala
   try {
     const emitted: DriverEvent[] = []
     const opts: SelfHealOpts = {
-      driver: makeEmitDriver(emitted),
+      driver: makeFakeDriver({ emitted }),
       mainSession: { id: 'main', cwd: workDir, closed: false },
       userDataPath: ud,
       cwd: workDir,
@@ -180,7 +158,7 @@ test('F5：章节任务清单（todo/write）+ 修复目标（goal/change）随 
     const emitted: DriverEvent[] = []
     let checks = 0
     const opts: SelfHealOpts = {
-      driver: makeEmitDriver(emitted),
+      driver: makeFakeDriver({ emitted }),
       mainSession: { id: 'main', cwd: workDir, closed: false },
       userDataPath: ud,
       cwd: workDir,
@@ -231,7 +209,7 @@ test('F5 审阅批：中止 → goal pause（非终态，不再悬置 active）'
   const ud = mkdtempTracked(join(tmpdir(), 'clwriting-sh-chain-f5pause-'))
   try {
     const opts: SelfHealOpts = {
-      driver: makeEmitDriver([]),
+      driver: makeFakeDriver({ emitted: [] }),
       mainSession: { id: 'main', cwd: workDir, closed: false },
       userDataPath: ud,
       cwd: workDir,
@@ -264,7 +242,7 @@ test('F5 审阅批：机检崩溃（CHECK_ERROR）→ goal block 附原因（非
   const ud = mkdtempTracked(join(tmpdir(), 'clwriting-sh-chain-f5cf-'))
   try {
     const opts: SelfHealOpts = {
-      driver: makeEmitDriver([]),
+      driver: makeFakeDriver({ emitted: [] }),
       mainSession: { id: 'main', cwd: workDir, closed: false },
       userDataPath: ud,
       cwd: workDir,

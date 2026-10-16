@@ -51,8 +51,6 @@ import type { BookConfig } from '../../src/format/types.js'
 // R0916-7-P3-6（并发批次）：mock 快路选择点收归组装根，测试侧同点注入（见 beforeEach）
 import { configureRunnerMockFastPath } from '../../src/ai/runner.js'
 
-const dirs: string[] = []
-
 beforeEach(() => {
   process.env['CLWRITING_DRIVER'] = 'mock'
   // R0916-7-P3-6（并发批次）：mock 快路选择点收归组装根，测试侧同点注入
@@ -62,13 +60,11 @@ beforeEach(() => {
 afterEach(() => {
   configureRunnerMockFastPath(false)
   delete process.env['CLWRITING_DRIVER']
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
 /** 造书：N 章（每章有 fm 正文）+ 布线 + 清单登记；finalized=true 时给前 n 章落定稿基线 */
 function makeBook(chapters: number, finalized = 0): string {
   const root = mkdtempTracked(join(tmpdir(), 'clw-summary-'))
-  dirs.push(root)
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
@@ -391,7 +387,6 @@ describe('定稿即生成 afterFinalizeGenerateSummary（挂点一，best-effort
   /** 造书（单章，文件名裸数字 0012.md）——makeBook 的 `0012-第12章.md` 命名覆盖不到该形态 */
   function makeBareNamedBook(): { root: string; id: string } {
     const root = mkdtempTracked(join(tmpdir(), 'clw-summary-bare-name-'))
-    dirs.push(root)
     mkdirSync(join(root, '布线', '悬念'), { recursive: true })
     mkdirSync(join(root, '写作', '正文'), { recursive: true })
     mkdirSync(join(root, '项目'), { recursive: true })
@@ -566,7 +561,6 @@ describe('R65-31: 摘要读失败降级', () => {
   // 重评-0914-三轮 P3-11：读失败注入改 fs-deny 平台分派（win 臂 spy 注入 EACCES），摘除 skipIf(win32)
   it('章摘要不可读（EACCES）→ chapterSummaryState 按 missing、body 按 null，均不抛', () => {
     const root = mkdtempTracked(join(tmpdir(), 'clw-r65-31-'))
-    dirs.push(root)
     try {
       const bodyAbs = join(root, '写作', '正文', '1-第一章.md')
       mkdirSync(join(root, '写作', '正文'), { recursive: true })

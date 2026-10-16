@@ -2,7 +2,6 @@
  * F1-P1 桥接层单测：loadHistoryWithSeqs 映射重建 + SessionRecorder 录制/遮蔽。
  */
 import { describe, expect, it, afterEach, beforeEach, vi } from 'vitest'
-import { rmSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -24,16 +23,10 @@ import type { SanitizeReport } from '../../src/ai/prompts/chat.js'
 import { log } from '../../src/log/index.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
-const dirs: string[] = []
 function openTmp(): { store: SessionStore; ud: string } {
   const d = mkdtempTracked(join(tmpdir(), 'f1-bridge-'))
-  dirs.push(d)
   return { store: openSessionStore(d, '/books/a')!, ud: d }
 }
-
-afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
-})
 
 describe('F1-P1 loadHistoryWithSeqs', () => {
   it('还原 msgs + 每条消息的 seq 映射（tool_result 合并）', () => {

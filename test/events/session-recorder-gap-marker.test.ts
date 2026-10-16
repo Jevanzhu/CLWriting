@@ -16,7 +16,6 @@
  * ④投影/校验链/历史恢复对 gap 事件安全忽略。
  */
 import { describe, expect, it, vi, afterEach } from 'vitest'
-import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openSessionStore, type SessionStore, type NewEvent } from '../../src/events/store.js'
@@ -31,15 +30,12 @@ import { foldSurface, validateEventStream } from '../../src/events/projection.js
 import { log } from '../../src/log/index.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
-const dirs: string[] = []
 function openTmp(): { store: SessionStore; ud: string } {
   const d = mkdtempTracked(join(tmpdir(), 'b406-gap-'))
-  dirs.push(d)
   return { store: openSessionStore(d, '/books/gap')!, ud: d }
 }
 
 afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
   vi.restoreAllMocks()
 })
 

@@ -18,7 +18,7 @@
  * api/snapshots.ts R44-9 头注）；forgetVersionStatsCache 显式失效不受节流影响。
  * getVersionStatsCached 同步转 async（MISS 计算体分批让出），调用点补 await。
  */
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -31,12 +31,9 @@ import {
 import { readManifest, writeManifest, upsertEntry } from '../../../src/document/manifest.js'
 import { sleep } from '../../helpers/wait-for.js'
 
-let roots: string[] = []
-
 /** 建书：1 个 pinned 定稿快照 + manifest 登记 doc_1 且 finalizedRevision 非空。 */
 function makeBook(): string {
   const root = mkdtempTracked(join(tmpdir(), 'r36-vs-cache-'))
-  roots.push(root)
   const vdir = join(root, '工作区', '.版本', 'doc_1')
   mkdirSync(vdir, { recursive: true })
   writeFileSync(join(vdir, 'a.md'), '---\n来源: manual\n永久: true\n---\n定稿内容\n', 'utf-8')
@@ -51,8 +48,6 @@ function makeBook(): string {
 
 afterEach(() => {
   versionStatsCache.resetStats()
-  for (const r of roots) rmSync(r, { recursive: true, force: true })
-  roots = []
 })
 
 describe('R36-7 version-stats 缓存', () => {

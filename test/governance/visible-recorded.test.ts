@@ -33,7 +33,8 @@ import {
 import { openSessionStore } from '../../src/events/store.js'
 import { digest16, verifyVisibleRecorded, type VisibleInjection } from '../../src/events/lineage.js'
 import type { ChatEvent } from '../../src/events/types.js'
-import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
+import type { DriverEvent } from '../../src/driver/types.js'
+import { makeFakeDriver } from '../ai/fake-driver.js'
 
 let fake: FakeProvider
 const dirs: string[] = []
@@ -65,34 +66,11 @@ function setup(): string {
   return ud
 }
 
-function makeDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-    cancelStream(): void {},
-    interrupt(): void {},
-    isRunning(): boolean {
-      return false
-    },
-    isWriterRunning(): boolean {
-      return false
-    },
-    registerCtrl(): void {},
-    unregisterCtrl(): void {},
-  }
-}
-
 /** 跑一轮真实（fake provider）对话管线；chapter 传入则以章节上下文运行 */
 async function runOne(ud: string, bookName: string, message: string, chapter?: number): Promise<void> {
   const events: DriverEvent[] = []
   await runChat({
-    driver: makeDriver(events),
+    driver: makeFakeDriver({ emitted: events }),
     mainSession: { id: 's1', cwd: bookRoot, closed: false },
     userDataPath: ud,
     bookRoot,

@@ -5,25 +5,19 @@
  * 已持有的锁文件从此查询/续期失联）。修复后：覆盖非空旧值（且值实际变化）时
  * log.warn 带旧/新路径留痕；覆盖本身仍是合法操作（单进程单锁根契约，注释如实记）。
  */
-import { readdirSync, rmSync } from 'node:fs'
+import { readdirSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { tempDirTracked } from '../../helpers/temp-dir.js'
 import { configureTaskGateLockRoot, acquireTaskGate, isTaskGateHeld } from '../../../src/studio/server/api/task-gate.js'
 import { log } from '../../../src/log/index.js'
 
-let dirs: string[] = []
-
 function tmpLockDir(): string {
-  const d = tempDirTracked('r37-tg-lock-')
-  dirs.push(d)
-  return d
+  return tempDirTracked('r37-tg-lock-')
 }
 
 afterEach(() => {
   configureTaskGateLockRoot(null) // 复位模块态（测试进程初值即 null）
   vi.restoreAllMocks()
-  for (const d of dirs) rmSync(d, { recursive: true, force: true })
-  dirs = []
 })
 
 describe('R37-21 task-gate 锁根覆盖告警', () => {

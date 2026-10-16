@@ -26,7 +26,7 @@
  * analysis 侧「re-analyze 即时可见」用例改节流语义：TTL 窗内命中旧值，TTL 到期重探
  * 后见新值；「就地直写」边界用例行为不变（探针本就不可见，TTL 兜底语义同前）。
  */
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -39,8 +39,6 @@ import { generateDocId } from '../../../src/document/stable-id.js'
 import { atomicWriteFile } from '../../../src/fs/atomic.js'
 import { sleep } from '../../helpers/wait-for.js'
 
-let roots: string[] = []
-
 function envOf(payload: unknown): Envelope {
   return { generatedAt: new Date().toISOString(), model: 'mock', sourceHash: '0'.repeat(64), payload }
 }
@@ -48,7 +46,6 @@ function envOf(payload: unknown): Envelope {
 /** 建书：manifest 登记 doc_1（定稿）+ .版本/doc_1 一个 pinned 快照。 */
 function makeSnapshotBook(): string {
   const root = mkdtempTracked(join(tmpdir(), 'r37-probe-vs-'))
-  roots.push(root)
   const vdir = join(root, '工作区', '.版本', 'doc_1')
   mkdirSync(vdir, { recursive: true })
   writeFileSync(join(vdir, 'a.md'), '---\n来源: manual\n永久: true\n---\n定稿内容若干字\n', 'utf-8')
@@ -63,7 +60,6 @@ function makeSnapshotBook(): string {
 /** 建书：manifest 登记 doc_1 + score 信封（口径同 analysis-overview-cache）。 */
 function makeAnalysisBook(): string {
   const root = mkdtempTracked(join(tmpdir(), 'r37-probe-ao-'))
-  roots.push(root)
   const manifestPath = join(root, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)
   const docId1 = generateDocId()
@@ -78,8 +74,6 @@ afterEach(() => {
   versionStatsCache.resetStats()
   analysisOverviewCache.resetStats()
   analysisOverviewCache.resetStats()
-  for (const r of roots) rmSync(r, { recursive: true, force: true })
-  roots = []
 })
 
 describe('R37-17 version-stats 两级探针', () => {

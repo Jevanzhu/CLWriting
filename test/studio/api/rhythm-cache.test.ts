@@ -9,7 +9,7 @@
  * 断言用「全量重算计数」观测口（rhythmCache.stats().misses），确定性不依赖墙钟 5s
  *（先例 search-cache / version-stats-cache）。
  */
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -22,12 +22,9 @@ import {
 } from '../../../src/studio/server/api/rhythm.js'
 import { sleep } from '../../helpers/wait-for.js'
 
-let roots: string[] = []
-
 /** 建书：长篇（book.yaml + 写作/正文 2 章 + 大纲/章纲 3 章含字数目标）。 */
 function makeLongBook(): string {
   const root = mkdtempTracked(join(tmpdir(), 'rhythm-cache-'))
-  roots.push(root)
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
   writeFileSync(
@@ -57,8 +54,6 @@ function makeLongBook(): string {
 
 afterEach(() => {
   rhythmCache.resetStats()
-  for (const r of roots) rmSync(r, { recursive: true, force: true })
-  roots = []
 })
 
 describe('R44-8 rhythm 缓存壳', () => {

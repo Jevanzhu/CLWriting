@@ -7,7 +7,7 @@
  * 行为不变。
  */
 import { describe, expect, it, vi, afterEach, type MockInstance } from 'vitest'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
@@ -15,11 +15,8 @@ import { parseDocumentRole, readTrashManifest, readTrashManifestStrict } from '.
 import { log } from '../../src/log/index.js'
 import type { DocumentRole } from '../../src/document/layout.js'
 
-const dirs: string[] = []
-
 function makeRoot(lines: string[]): string {
   const root = mkdtempTracked(join(tmpdir(), 'r0916-role-'))
-  dirs.push(root)
   mkdirSync(join(root, '工作区', '.trash'), { recursive: true })
   writeFileSync(join(root, '工作区', '.trash', '.trash-manifest.jsonl'), lines.join('\n') + '\n', 'utf-8')
   return root
@@ -44,7 +41,6 @@ function roleWarns(spy: MockInstance<typeof log.warn>): Array<Record<string, unk
 }
 
 afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
   vi.restoreAllMocks()
 })
 

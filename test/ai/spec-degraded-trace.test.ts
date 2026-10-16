@@ -16,7 +16,7 @@
  * 链的 llm/call 事件，断言 degraded / usage 字段（修复前：degraded 恒缺失、失败 usage
  * 恒 {input:0, output:0}）。
  */
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, vi, afterEach } from 'vitest'
@@ -36,11 +36,8 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const generateMock = generate as unknown as ReturnType<typeof vi.fn>
 
-const workDirs: string[] = []
 function tempDir(prefix: string): string {
-  const d = mkdtempTracked(join(tmpdir(), prefix))
-  workDirs.push(d)
-  return d
+  return mkdtempTracked(join(tmpdir(), prefix))
 }
 
 function writeProviders(userDataPath: string): void {
@@ -89,11 +86,6 @@ function readLlmCalls(ud: string, bookRoot: string): LlmCallEvent[] {
 describe('B-2/B-12（第六十轮）：degraded 透传与失败 usage 的 llm/call 全链', () => {
   afterEach(() => {
     generateMock.mockReset()
-    try {
-      for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
-    } catch {
-      // Windows 清理竞态（防病毒/句柄占用偶发 EPERM）——best-effort 忽略
-    }
   })
 
   it('B-2：降级参数面成功 → runSpec 回调带 degraded → llm/call 事件带 degraded:true（三断点全闭合）', async () => {

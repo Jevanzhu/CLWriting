@@ -12,7 +12,7 @@
  *    不因锁等待作废（与 journal appendLine 降级口径一致）。
  */
 import { test, expect, afterEach, vi } from 'vitest'
-import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
@@ -62,16 +62,13 @@ async function withMockDriver<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-const cleanup: string[] = []
 afterEach(() => {
   __setLeadUpdateLockTimeoutForTest(5_000)
-  for (const d of cleanup.splice(0)) rmSync(d, { recursive: true, force: true })
   vi.restoreAllMocks()
 })
 
 test('R73-46: 正常生成落盘成功，锁文件不残留', async () => {
   const root = makeBook()
-  cleanup.push(root)
   const r = await withMockDriver(() => generateLeadUpdateDraft(root, 1, null))
   expect(r.ok).toBe(true)
   const main = readFileSync(join(root, '工作区', '账本推进.md'), 'utf-8')
@@ -81,7 +78,6 @@ test('R73-46: 正常生成落盘成功，锁文件不残留', async () => {
 
 test('R73-46: 他进程持锁 → 降级裸跑成功、warn 留痕、他人在位锁不删', async () => {
   const root = makeBook()
-  cleanup.push(root)
   __setLeadUpdateLockTimeoutForTest(80) // 缩短锁等待保测试快
   const lockPath = join(root, LOCK_REL)
   mkdirSync(join(lockPath, '..'), { recursive: true })

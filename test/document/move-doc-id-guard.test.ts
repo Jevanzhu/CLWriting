@@ -6,23 +6,17 @@
  * 验证：非法 docId → PATH_ESCAPE，仓库外无 journal 文件；writeVersion 对非法
  * docId 的静默 null 改为 warn 留痕（留底纪律失守可诊断）。
  */
-import { test, expect, afterEach } from 'vitest'
-import { rmSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
+import { test, expect } from 'vitest'
+import { mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { DocumentService } from '../../src/document/service.js'
 import { writeVersion } from '../../src/document/version.js'
 import { initLogging, flushLogsForTest } from '../../src/log/index.js'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 
-const dirs: string[] = []
 function tmpRoot(): string {
-  const d = tempDirTracked('n1-docid-')
-  dirs.push(d)
-  return d
+  return tempDirTracked('n1-docid-')
 }
-afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
-})
 
 /** 造书：正文一章 + 清单登记一个 id 非法（路径穿越）但 path 合法的条目。 */
 function makeBookWithEvilDocId(): { root: string; svc: DocumentService } {

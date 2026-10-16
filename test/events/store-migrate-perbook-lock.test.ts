@@ -8,7 +8,7 @@
  * 3. 同书新路径持锁 → 迁移同样放弃（rename 窗口两侧互斥不漏）。
  */
 import { describe, expect, it, afterEach } from 'vitest'
-import { rmSync, existsSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   openSessionStore,
@@ -20,16 +20,12 @@ import {
 import { acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 
-const dirs: string[] = []
 function tmpRoot(): string {
-  const d = tempDirTracked('r73-evlock-')
-  dirs.push(d)
-  return d
+  return tempDirTracked('r73-evlock-')
 }
 
 afterEach(() => {
   __setSessionMigrateLockTimeoutForTest(5_000)
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
 describe('R73-38 / per-book 迁移锁', () => {

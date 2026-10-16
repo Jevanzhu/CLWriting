@@ -51,11 +51,8 @@ vi.mock('node:fs', async (importOriginal) => {
 
 import { migrateBookSession, openSessionStore, bookHash } from '../../src/events/store.js'
 
-const dirs: string[] = []
 function tmpRoot(): string {
-  const d = tempDirTracked('f1-r38-migrate-')
-  dirs.push(d)
-  return d
+  return tempDirTracked('f1-r38-migrate-')
 }
 
 afterEach(() => {
@@ -63,7 +60,6 @@ afterEach(() => {
   failState.permanent = false
   failState.lazySidecarFor = null
   failState.failTombstoneRename = false
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
 /** 造一本有会话数据的旧库（openSessionStore 单源，含 sessions 表），返回路径。 */

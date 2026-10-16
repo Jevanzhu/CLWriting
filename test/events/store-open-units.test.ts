@@ -6,7 +6,7 @@
  * 分层：开库门面行为（引用计数、锁、并发壳、损坏包装、孤儿修复）仍由 store*.test.ts
  * 各族覆盖；本件只直测拆出的命名单元与本文件契约（DDL 幂等、存量库补列、墓碑两态）。
  */
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
@@ -25,16 +25,9 @@ import { SqliteSchemaTooNewError } from '../../src/shared/sqlite-migrate.js'
 import { SessionFormatUnsupportedError } from '../../src/events/store-rows.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
-const dirs: string[] = []
 function tmpRoot(prefix = 'ev-open-units-'): string {
-  const d = mkdtempTracked(join(tmpdir(), prefix))
-  dirs.push(d)
-  return d
+  return mkdtempTracked(join(tmpdir(), prefix))
 }
-
-afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
-})
 
 /** 会话库目录 + 库路径（与 firstOpenStore 落址口径同式） */
 function sessionDbPath(userDataPath: string, bookRoot: string): string {

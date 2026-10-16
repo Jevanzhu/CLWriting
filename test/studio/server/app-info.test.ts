@@ -10,7 +10,7 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -26,11 +26,9 @@ import {
 import { UPDATE_CACHE_DIRNAME, UPDATE_RESULT_FILENAME } from '../../../src/update/cache.js'
 
 const servers: http.Server[] = []
-const dirs: string[] = []
 
 afterAll(() => {
   for (const s of servers) s.close()
-  for (const d of dirs) rmSync(d, { recursive: true, force: true })
 })
 
 let savedVersion: string | undefined
@@ -56,7 +54,6 @@ interface AppInfo {
 async function bootReady(): Promise<{ baseUrl: string; userData: string }> {
   const workDir = mkdtempTracked(join(tmpdir(), 'clw-appinfo-'))
   const userData = mkdtempTracked(join(tmpdir(), 'clw-appinfo-ud-'))
-  dirs.push(workDir, userData)
   const server = await startServerSafe({ port: 0, workDir, userDataPath: userData })
   servers.push(server)
   const addr = server.address() as AddressInfo

@@ -19,33 +19,11 @@ import { tmpdir } from 'node:os'
 import { makeDualTrackWorkdir, LONG_BOOK } from '../fixtures.js'
 import { runSelfHeal, type SelfHealOpts } from '../../../src/ai/orchestrate/self-heal.js'
 import { runSpec } from '../../../src/ai/tasks/spec.js'
-import type { DriverEvent, Session, StudioDriver } from '../../../src/driver/index.js'
+import type { DriverEvent } from '../../../src/driver/index.js'
+import { makeFakeDriver } from '../../ai/fake-driver.js'
 import { mkdtempTracked } from '../../helpers/temp-dir.js'
 
 vi.mock('../../../src/ai/tasks/spec.js', () => ({ runSpec: vi.fn() }))
-
-function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-    cancelStream(): void {},
-    interrupt(): void {},
-    isRunning(): boolean {
-      return false
-    },
-    isWriterRunning(): boolean {
-      return false
-    },
-    registerCtrl(): void {},
-    unregisterCtrl(): void {},
-  }
-}
 
 function writeProviders(userDataPath: string): void {
   writeFileSync(
@@ -71,7 +49,7 @@ function writeProviders(userDataPath: string): void {
 
 function makeOpts(userDataPath: string, workDir: string, emitted: DriverEvent[]): SelfHealOpts {
   return {
-    driver: makeEmitDriver(emitted),
+    driver: makeFakeDriver({ emitted }),
     mainSession: { id: 'main', cwd: workDir, closed: false },
     userDataPath,
     cwd: workDir,

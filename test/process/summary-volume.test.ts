@@ -5,7 +5,7 @@
  * - C4 token 系数（查表/前缀匹配/兜底）+ 拟合函数与报告快照
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
@@ -44,8 +44,6 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 
 import type { BookConfig } from '../../src/format/types.js'
 
-const dirs: string[] = []
-
 beforeEach(() => {
   process.env['CLWRITING_DRIVER'] = 'mock'
   configureRunnerMockFastPath(true)
@@ -54,13 +52,11 @@ beforeEach(() => {
 afterEach(() => {
   configureRunnerMockFastPath(false)
   delete process.env['CLWRITING_DRIVER']
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
 /** 造书：volumeSize=2（卷 1 = 章 1/2，卷 2 = 章 3/4……便于小规模测卷边界）；finalizedN 章落定稿基线 */
 function makeBook(chapters: number, finalizedN: number, volumeSize = 2): string {
   const root = mkdtempTracked(join(tmpdir(), 'clw-volumesum-'))
-  dirs.push(root)
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })

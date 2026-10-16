@@ -1,6 +1,6 @@
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -8,11 +8,9 @@ import { startServerSafe } from '../../helpers/safe-port.js'
 import { mkdtempTracked } from '../../helpers/temp-dir.js'
 
 const servers: http.Server[] = []
-const roots: string[] = []
 
 function makeWorkDir(book: string): string {
   const workDir = mkdtempTracked(join(tmpdir(), 'clwriting-reentrant-'))
-  roots.push(workDir)
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(
     join(workDir, '.clwriting', 'books.jsonl'),
@@ -28,7 +26,6 @@ function listen(server: http.Server): string {
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((s) => new Promise<void>((r) => s.close(() => r()))))
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
 describe('startServer 路由表隔离', () => {

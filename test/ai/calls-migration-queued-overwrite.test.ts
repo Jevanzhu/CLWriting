@@ -7,24 +7,18 @@
  * M 随后执行——修复前写 enqueue 前的 migrated@T0 无账快照覆盖 A 刚落的账（丢账），
  * 修复后段内重读、仅当仍是旧格式才落盘。
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { checkAiCallBudget, recordTaskUsage } from '../../src/ai/calls.js'
 import { acquireCrossProcessLockAsync } from '../../src/fs/cross-process-lock.js'
 import type { BookConfig } from '../../src/format/types.js'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 import { waitFor as waitForShared } from '../helpers/wait-for.js'
 
-const dirs: string[] = []
 function tempBook(): string {
-  const d = tempDirTracked('clwriting-r48-calls-')
-  dirs.push(d)
-  return d
+  return tempDirTracked('clwriting-r48-calls-')
 }
-afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
-})
 
 const CONFIG = { budget: { calls_per_chapter: 3 } } as unknown as BookConfig
 const OLD = (chapter: number): string =>

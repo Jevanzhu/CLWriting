@@ -9,7 +9,7 @@
  * manifest-malformed-shape-guard.test.ts 同族锁定，此处保留 null 行的登记侧回归锁）。
  */
 import { describe, expect, it, afterEach, vi } from 'vitest'
-import { rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
+import { writeFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
@@ -17,15 +17,12 @@ import { commitKnowledgeFile } from '../../src/knowledge/update.js'
 import { KNOWLEDGE_MANIFEST } from '../../src/knowledge/manifest.js'
 import { log } from '../../src/log/index.js'
 
-const dirs: string[] = []
 function tempProject(): string {
   const d = mkdtempTracked(join(tmpdir(), 'knowledge-commit-dedup-'))
-  dirs.push(d)
   mkdirSync(join(d, '知识层'), { recursive: true })
   return d
 }
 afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
   vi.restoreAllMocks()
 })
 

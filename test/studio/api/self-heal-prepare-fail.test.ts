@@ -21,7 +21,8 @@ import { runSelfHeal, type SelfHealOpts } from '../../../src/ai/orchestrate/self
 import { prepareMaterials } from '../../../src/process/materials.js'
 import { runSpec } from '../../../src/ai/tasks/spec.js'
 import type { CheckOutcome } from '../../../src/studio/server/api/check.js'
-import type { DriverEvent, Session, StudioDriver } from '../../../src/driver/index.js'
+import type { DriverEvent } from '../../../src/driver/index.js'
+import { makeFakeDriver } from '../../ai/fake-driver.js'
 import type { saveDraft } from '../../../src/studio/server/api/draft.js'
 
 vi.mock('../../../src/process/materials.js', () => ({ prepareMaterials: vi.fn() }))
@@ -40,29 +41,6 @@ function greenOutcome(): CheckOutcome {
   }
 }
 
-function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-    cancelStream(): void {},
-    interrupt(): void {},
-    isRunning(): boolean {
-      return false
-    },
-    isWriterRunning(): boolean {
-      return false
-    },
-    registerCtrl(): void {},
-    unregisterCtrl(): void {},
-  }
-}
-
 function setup(): { opts: SelfHealOpts; workDir: string; bookRoot: string } {
   const workDir = makeDualTrackWorkdir()
   const bookRoot = join(workDir, '长篇', LONG_BOOK)
@@ -74,7 +52,7 @@ function setup(): { opts: SelfHealOpts; workDir: string; bookRoot: string } {
     snapshotted: false,
   })
   const opts: SelfHealOpts = {
-    driver: makeEmitDriver(emitted),
+    driver: makeFakeDriver({ emitted }),
     mainSession: { id: 'main', cwd: workDir, closed: false },
     userDataPath: mkdtempTracked(join(tmpdir(), 'clw-r4-appdata-')),
     cwd: workDir,

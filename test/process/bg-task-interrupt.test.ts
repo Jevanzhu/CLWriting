@@ -27,6 +27,7 @@ import { afterFinalizeGenerateSummary, afterFinalizeGenerateSummaryBatch } from 
 import { runRegisteredBgTask } from '../../src/process/bg-task.js'
 import { ccDriver } from '../../src/driver/cc.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/index.js'
+import { makeFakeDriver } from '../ai/fake-driver.js'
 import { hasBackgroundTasks, waitBackgroundTasks } from '../../src/ai/orchestrate/background.js'
 import { runSelfHeal, type SelfHealOpts } from '../../src/ai/orchestrate/self-heal.js'
 import { makeDualTrackWorkdir, tempUserData, LONG_BOOK } from '../studio/fixtures.js'
@@ -182,29 +183,6 @@ const META: ChapterMeta = {
   情绪定位: '铺垫',
 }
 
-function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-    cancelStream(): void {},
-    interrupt(): void {},
-    isRunning(): boolean {
-      return false
-    },
-    isWriterRunning(): boolean {
-      return false
-    },
-    registerCtrl(): void {},
-    unregisterCtrl(): void {},
-  }
-}
-
 test('R0912-1: self-heal pass → 账本草稿后台任务以 bg-lead-draft:<book> 独立登记，settle 后注销', async () => {
   // 长篇夹具带 布线/ → exitPass 触发账本草稿后台任务（ud 空 → 取 provider 失败快速留痕收口）
   const workDir = trackTempDir(makeDualTrackWorkdir())
@@ -213,7 +191,7 @@ test('R0912-1: self-heal pass → 账本草稿后台任务以 bg-lead-draft:<boo
   const registered: Array<{ session: Session; ctrl: AbortController; owner?: string }> = []
   const unregistered: AbortController[] = []
   const driver: StudioDriver = {
-    ...makeEmitDriver([]),
+    ...makeFakeDriver({ emitted: [] }),
     registerCtrl(session, ctrl, owner) {
       registered.push({ session, ctrl, owner })
     },

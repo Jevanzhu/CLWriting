@@ -12,7 +12,6 @@
  * 断言用观测口（analysisOverviewCache.stats() 的 probes/signatures/misses 三计数），
  * 确定性不依赖墙钟 5s（先例 version-stats-probe-ttl 同款）。
  */
-import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -23,8 +22,6 @@ import { readManifest, writeManifest, upsertEntry } from '../../../src/document/
 import { generateDocId } from '../../../src/document/stable-id.js'
 import { sleep } from '../../helpers/wait-for.js'
 
-let roots: string[] = []
-
 function envOf(payload: unknown): Envelope {
   return { generatedAt: new Date().toISOString(), model: 'mock', sourceHash: '0'.repeat(64), payload }
 }
@@ -32,7 +29,6 @@ function envOf(payload: unknown): Envelope {
 /** 建书：manifest 登记 doc_1 + score 信封（口径同 two-tier-signature-probe makeAnalysisBook）。 */
 function makeAnalysisBook(): { root: string; docId1: string } {
   const root = mkdtempTracked(join(tmpdir(), 're2-ao-probe-'))
-  roots.push(root)
   const manifestPath = join(root, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)
   const docId1 = generateDocId()
@@ -46,8 +42,6 @@ afterEach(() => {
   analysisOverviewCache.resetStats()
   analysisOverviewCache.resetStats()
   analysisOverviewCache.resetStats()
-  for (const r of roots) rmSync(r, { recursive: true, force: true })
-  roots = []
 })
 
 describe('重评2-P3-④ analysis-overview 探针 TTL 节流', () => {

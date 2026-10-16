@@ -7,7 +7,7 @@
  * fresh/stale 判定被正文污染。对齐章摘要侧 chapterSummaryState 先例（先 split 再搜 fm）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
@@ -26,8 +26,6 @@ import { generateDocId } from '../../src/document/stable-id.js'
 // R0916-7-P3-6（并发批次）：mock 快路选择点收归组装根，测试侧同点注入（见 beforeEach）
 import { configureRunnerMockFastPath } from '../../src/ai/runner.js'
 
-const dirs: string[] = []
-
 beforeEach(() => {
   process.env['CLWRITING_DRIVER'] = 'mock'
   configureRunnerMockFastPath(true)
@@ -36,13 +34,11 @@ beforeEach(() => {
 afterEach(() => {
   configureRunnerMockFastPath(false)
   delete process.env['CLWRITING_DRIVER']
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
 /** 造书：volumeSize=2、章 1/2 定稿并生成章摘要（链完整，卷 1 可判定指纹） */
 function makeBook(): string {
   const root = mkdtempTracked(join(tmpdir(), 'clw-r42-volhash-'))
-  dirs.push(root)
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })

@@ -6,7 +6,7 @@
  * - 归属释放：release 走锁原语的 payload 校验版（R65-35②）——锁文件内容已非本进程
  *   写入串（被接管/被重建）时不删，他人在位的新锁得以幸存。
  */
-import { afterAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { rmSync, existsSync, writeFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -14,15 +14,9 @@ import { acquireTaskGate, isTaskGateHeld, lockFileName } from '../../../src/stud
 import { tryAcquireCrossProcessLock } from '../../../src/fs/cross-process-lock.js'
 import { mkdtempTracked } from '../../helpers/temp-dir.js'
 
-const roots: string[] = []
 function freshDir(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'r71-task-gate-'))
-  roots.push(d)
-  return d
+  return mkdtempTracked(join(tmpdir(), 'r71-task-gate-'))
 }
-afterAll(() => {
-  for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true })
-})
 
 /** 锁名走生产导出（R0916-7-P3-14 起 = `${action}.${hash(book)}.lock`）。 */
 function lockPathOf(dir: string, book: string, action: string): string {

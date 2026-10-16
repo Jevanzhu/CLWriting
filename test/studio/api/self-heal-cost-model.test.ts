@@ -18,7 +18,8 @@ import { makeDualTrackWorkdir, LONG_BOOK } from '../fixtures.js'
 import { runSelfHeal, type SelfHealOpts } from '../../../src/ai/orchestrate/self-heal.js'
 import { runSpec } from '../../../src/ai/tasks/spec.js'
 import type { CheckOutcome } from '../../../src/studio/server/api/check.js'
-import type { DriverEvent, Session, StudioDriver } from '../../../src/driver/index.js'
+import type { DriverEvent } from '../../../src/driver/index.js'
+import { makeFakeDriver } from '../../ai/fake-driver.js'
 import type { saveDraft } from '../../../src/studio/server/api/draft.js'
 import { mkdtempTracked } from '../../helpers/temp-dir.js'
 
@@ -34,29 +35,6 @@ function greenOutcome(): CheckOutcome {
     hasRed: false,
     chapter: { 章号: 5, 标题: '第五章', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' },
     body: '正文',
-  }
-}
-
-function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-    cancelStream(): void {},
-    interrupt(): void {},
-    isRunning(): boolean {
-      return false
-    },
-    isWriterRunning(): boolean {
-      return false
-    },
-    registerCtrl(): void {},
-    unregisterCtrl(): void {},
   }
 }
 
@@ -93,7 +71,7 @@ test('Y-15: done.cost 按请求时刻模型（TaskOk.model）计价，不随档�
     }),
   )
   const opts: SelfHealOpts = {
-    driver: makeEmitDriver(emitted),
+    driver: makeFakeDriver({ emitted }),
     mainSession: { id: 'main', cwd: workDir, closed: false },
     userDataPath,
     cwd: workDir,
@@ -162,7 +140,7 @@ test('R73-10: done.usage 取全 attempt 累计（attemptsUsage 优先于末次 u
     }),
   )
   const opts: SelfHealOpts = {
-    driver: makeEmitDriver(emitted),
+    driver: makeFakeDriver({ emitted }),
     mainSession: { id: 'main', cwd: workDir, closed: false },
     userDataPath,
     cwd: workDir,

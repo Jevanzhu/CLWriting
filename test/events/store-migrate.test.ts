@@ -7,7 +7,7 @@
  * （唯一副本在 -wal）迁移后新位置完整；checkpoint 忙（另一连接持锁）或任一步
  * 失败 → 返回 false 整体放弃，源库主库+侧车原地完整，绝不半搬。
  */
-import { describe, expect, it, afterEach } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { rmSync, existsSync, copyFileSync, mkdirSync, writeFileSync, renameSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { join } from 'node:path'
@@ -21,16 +21,9 @@ import {
 import { acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 
-const dirs: string[] = []
 function tmpRoot(): string {
-  const d = tempDirTracked('f1-migrate-')
-  dirs.push(d)
-  return d
+  return tempDirTracked('f1-migrate-')
 }
-
-afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
-})
 
 describe('migrateBookSession', () => {
   it('迁移后新名可读到原会话（对话 + 工作区），旧库文件被移走', async () => {

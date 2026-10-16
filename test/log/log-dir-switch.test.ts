@@ -6,18 +6,15 @@
  * 「日志同步落痕」全量偶红的根因；旧「泵首 mkdir」只做一次且目标是旧目录，兜不住
  * 此形态）。修复：泵内逐行盯目录，目标目录与上次落盘目录不符即幂等 mkdir。
  */
-import { readdirSync, readFileSync, rmSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { flushLogsForTest, debugLogQueueForTest, initLogging, log, resetLoggingForTest } from '../../src/log/index.js'
 
-const dirs: string[] = []
-
 afterEach(() => {
   resetLoggingForTest()
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
 function readJsonl(dir: string): string {
@@ -36,7 +33,6 @@ describe('IR-9 日志泵换目录不丢行', () => {
     const parentB = mkdtempTracked(join(tmpdir(), 'clw-log-b-'))
     const dirA = join(parentA, 'logs')
     const dirB = join(parentB, 'logs')
-    dirs.push(parentA, parentB)
 
     // 800 行串行落盘（每行一次真实 fs 往返）把排空窗拉到几十 ms 量级：20ms 的等待
     // 落在「泵已起（首部仅 ~3 次 fs 往返）且远未排空」的窗口内——换目录必命中在途
@@ -64,7 +60,6 @@ describe('IR-9 日志泵换目录不丢行', () => {
   it('同一 tick 内连续多次换目录：零丢行（积压行按最后一次 init 目标目录落盘）', async () => {
     const dirA = mkdtempTracked(join(tmpdir(), 'clw-log-c-'))
     const dirB = mkdtempTracked(join(tmpdir(), 'clw-log-d-'))
-    dirs.push(dirA, dirB)
 
     // 三个 emit 与两次换目录在同一同步 tick 内完成——泵恢复排空时 state.logsDir 已是
     // 最后一次 init 的目标（D2 既有语义：积压行落「当前指向」目录，不按入队时目录归属）。

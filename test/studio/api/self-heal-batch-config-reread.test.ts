@@ -23,7 +23,8 @@ import { tmpdir } from 'node:os'
 import { makeDualTrackWorkdir, SHORT_BOOK } from '../fixtures.js'
 import { runSelfHeal, type SelfHealOpts } from '../../../src/ai/orchestrate/self-heal.js'
 import type { CheckOutcome } from '../../../src/studio/server/api/check.js'
-import type { DriverEvent, Session, StudioDriver } from '../../../src/driver/index.js'
+import type { DriverEvent } from '../../../src/driver/index.js'
+import { makeFakeDriver } from '../../ai/fake-driver.js'
 import type { ChapterMeta } from '../../../src/format/types.js'
 import type { saveDraft } from '../../../src/studio/server/api/draft.js'
 import { checkAiCallBudget } from '../../../src/ai/calls.js'
@@ -54,29 +55,6 @@ function makeSave(): typeof saveDraft {
     words: content.length,
     snapshotted: false,
   })
-}
-
-function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-    cancelStream(): void {},
-    interrupt(): void {},
-    isRunning(): boolean {
-      return false
-    },
-    isWriterRunning(): boolean {
-      return false
-    },
-    registerCtrl(): void {},
-    unregisterCtrl(): void {},
-  }
 }
 
 /** 预算闸实参捕获：[(chapter, tokens_per_chapter), ...]——checkAiCallBudget 恒放行 */
@@ -140,7 +118,7 @@ describe('A102: 批量连写章边界重读 book config', () => {
       return t
     }
     const opts: SelfHealOpts = {
-      driver: makeEmitDriver(emitted),
+      driver: makeFakeDriver({ emitted }),
       mainSession: { id: 'main', cwd: workDir, closed: false },
       userDataPath: join(tmpdir(), 'clwriting-test'),
       cwd: workDir,

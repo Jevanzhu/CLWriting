@@ -8,7 +8,7 @@
  * - R40-13：readDraft 无 content 参单读派生（行为等价回归——同快照派生 hash 与 body）。
  */
 import { describe, expect, it, afterEach, vi } from 'vitest'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
@@ -19,14 +19,10 @@ import { readDraft } from '../../src/format/draft.js'
 import { log } from '../../src/log/index.js'
 import type { BookConfig } from '../../src/format/types.js'
 
-const dirs: string[] = []
 function tempBook(prefix = 'clw-r40-ai-'): string {
-  const d = mkdtempTracked(join(tmpdir(), prefix))
-  dirs.push(d)
-  return d
+  return mkdtempTracked(join(tmpdir(), prefix))
 }
 afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
   vi.restoreAllMocks()
 })
 

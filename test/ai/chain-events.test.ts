@@ -2,7 +2,7 @@
  * F1-P2 runner 链事件单测：runTask 走真实路径时写 llm/call + step/start + step/end{reason}，
  * 重试前写 llm/retry（先落库后等待）；无 bookRoot 降级不写。
  */
-import { rmSync, writeFileSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runTask } from '../../src/ai/runner.js'
@@ -11,16 +11,11 @@ import { GenError } from '../../src/ai/gen.js'
 import { MODEL_QUIRKS_VERSION } from '../../src/ai/provider/model-quirks.js'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 
-const dirs: string[] = []
 function tempUserData(): string {
-  const d = tempDirTracked('clwriting-chain-ud-')
-  dirs.push(d)
-  return d
+  return tempDirTracked('clwriting-chain-ud-')
 }
 function tempBookRoot(): string {
-  const d = tempDirTracked('clwriting-chain-book-')
-  dirs.push(d)
-  return d
+  return tempDirTracked('clwriting-chain-book-')
 }
 
 function writeProviders(userDataPath: string): void {
@@ -54,7 +49,6 @@ function readChainEvents(userDataPath: string, bookRoot: string) {
 }
 
 afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
   delete process.env.CLWRITING_DRIVER
 })
 

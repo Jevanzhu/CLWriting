@@ -7,7 +7,7 @@
  * 3) 迁移墓碑 <db>.migrated：旧根目录不在 + 新库活着 → 旧路径首开 fail-closed 拒建
  *    空库；同路径重新建书（根目录在位）或新库已不存在 → 墓碑过期清除放行。
  */
-import { describe, expect, it, afterEach } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { rmSync, existsSync, mkdirSync, readdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
@@ -26,15 +26,9 @@ function deadPid(): number {
   return r.pid!
 }
 
-const roots: string[] = []
 function freshUd(): string {
-  const ud = tmpRoot()
-  roots.push(ud)
-  return ud
+  return tmpRoot()
 }
-afterEach(() => {
-  for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true })
-})
 
 describe('R67-2 开口标记生命周期', () => {
   it('首开登记 .open-<pid> 标记，close 归零注销', async () => {

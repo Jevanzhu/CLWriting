@@ -3,7 +3,7 @@
  *
  * 覆盖：recordAiCall 落账 + tokens 累加、checkAiCallBudget 超限判定、换章重置。
  */
-import { rmSync, readFileSync, writeFileSync, mkdirSync, statSync, chmodSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, statSync, chmodSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -20,14 +20,10 @@ import { tryAcquireCrossProcessLock } from '../../src/fs/cross-process-lock.js'
 import type { BookConfig } from '../../src/format/types.js'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 
-const dirs: string[] = []
 function tempBook(): string {
-  const d = tempDirTracked('clwriting-calls-')
-  dirs.push(d)
-  return d
+  return tempDirTracked('clwriting-calls-')
 }
 afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
   __setAiCallsLockTimeoutForTest(5_000) // R43-5：防超时注入泄漏到他用例（ai-calls-lock-async 同款）
 })
 

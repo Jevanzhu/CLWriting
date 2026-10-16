@@ -12,7 +12,7 @@
  * 断言用观测口（versionStatsCache.stats() 的 probes/signatures/misses 三计数），确定性
  * 不依赖墙钟 5s（先例 r36/r37）。
  */
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -21,12 +21,9 @@ import { getVersionStatsCached, versionStatsCache } from '../../../src/studio/se
 import { readManifest, writeManifest, upsertEntry } from '../../../src/document/manifest.js'
 import { sleep } from '../../helpers/wait-for.js'
 
-let roots: string[] = []
-
 /** 建书：1 个 pinned 定稿快照 + manifest 登记 doc_1 且 finalizedRevision 非空。 */
 function makeBook(docCount = 1): string {
   const root = mkdtempTracked(join(tmpdir(), 'r44-vs-probe-'))
-  roots.push(root)
   const manifestPath = join(root, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)
   for (let i = 1; i <= docCount; i++) {
@@ -50,8 +47,6 @@ afterEach(() => {
   versionStatsCache.resetStats()
   versionStatsCache.resetStats()
   versionStatsCache.resetStats()
-  for (const r of roots) rmSync(r, { recursive: true, force: true })
-  roots = []
 })
 
 describe('R44-9 ① 探针 TTL 节流', () => {

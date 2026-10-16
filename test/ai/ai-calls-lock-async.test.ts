@@ -9,7 +9,7 @@
  * 翻转（「等待窗内事件循环可响应」的观察面不变，慢腿不再赌定长窗）。
  */
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { rmSync, existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
@@ -22,15 +22,11 @@ import {
 import { saveProviders, loadProviders, emptySettings, type ProviderStore } from '../../src/ai/provider/store.js'
 import { tryAcquireCrossProcessLock } from '../../src/fs/cross-process-lock.js'
 
-const workDirs: string[] = []
 function tempDir(prefix: string): string {
-  const d = mkdtempTracked(join(tmpdir(), prefix))
-  workDirs.push(d)
-  return d
+  return mkdtempTracked(join(tmpdir(), prefix))
 }
 
 afterEach(() => {
-  for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
   __setAiCallsLockTimeoutForTest(5_000) // 防超时注入泄漏到他用例
 })
 

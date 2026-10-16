@@ -4,27 +4,21 @@
  * 覆盖：空数据、单 task 多条聚合、通过率/attempt/百分位/token 趋势、多 task 分组、
  * 按天趋势（事件创建时间聚日）、userDataPath 缺失降级。
  */
-import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { llmCallEvent } from '../../src/events/chain-bridge.js'
 import { aggregateTrace } from '../../src/ai/trace-stats.js'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 
-const dirs: string[] = []
-
 function tempUserData(): string {
-  const d = tempDirTracked('clwriting-ud-')
-  dirs.push(d)
-  return d
+  return tempDirTracked('clwriting-ud-')
 }
 
 function tempBookRoot(): string {
-  const d = tempDirTracked('clwriting-stats-')
-  dirs.push(d)
-  return d
+  return tempDirTracked('clwriting-stats-')
 }
 
 /** 写一条 llm/call 事件到 workspace 会话 */
@@ -73,10 +67,6 @@ function shiftEventDays(userDataPath: string, bookRoot: string, offsetDays: numb
     store.close()
   }
 }
-
-afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
-})
 
 describe('aggregateTrace（P2：从事件库 llm/call 派生）', () => {
   it('空数据 → total=0', async () => {

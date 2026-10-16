@@ -8,8 +8,8 @@
  * - providers pricing 端点（写/清/非法值 400/不影响 caps）
  * - budget 双口径键解析与序列化 round-trip + global 托底
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { rmSync, mkdirSync, writeFileSync, readFileSync, utimesSync, existsSync } from 'node:fs'
+import { describe, it, expect, beforeEach } from 'vitest'
+import { mkdirSync, writeFileSync, readFileSync, utimesSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
@@ -30,17 +30,9 @@ import { applyGlobalDefaults } from '../../src/format/global-defaults.js'
 import type { ProviderConf } from '../../src/ai/provider/types.js'
 import type { BookConfig } from '../../src/format/types.js'
 
-const dirs: string[] = []
-
 function tmpDir(prefix: string): string {
-  const d = mkdtempTracked(join(tmpdir(), prefix))
-  dirs.push(d)
-  return d
+  return mkdtempTracked(join(tmpdir(), prefix))
 }
-
-afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
-})
 
 // ── pricing 解析与计算 ───────────────────────────────────────────────
 
