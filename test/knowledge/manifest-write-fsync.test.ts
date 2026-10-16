@@ -44,7 +44,6 @@ describe('R37-43: knowledge manifest 落盘显式 fsync', () => {
           {
             version: 1,
             generated_at: '2026-08-15T00:00:00+08:00',
-            summary: { migrated: 1, deferred: 0, review_assets: 0 },
             entries: [
               {
                 target: '知识层/存量.md',

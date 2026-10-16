@@ -42,11 +42,6 @@ export interface KnowledgeManifestEntry {
 export interface KnowledgeManifest {
   version: 1
   generated_at: string
-  summary: {
-    migrated: number
-    deferred: number
-    review_assets: number
-  }
   entries: KnowledgeManifestEntry[]
 }
 

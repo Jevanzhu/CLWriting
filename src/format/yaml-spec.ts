@@ -63,7 +63,6 @@ function budgetHasAnyKey(budget: BookConfig['budget']): boolean {
 /** parse 面单键上下文：flat 段 bucket = cfg 子对象本体（写穿）；bucket 段 = 暂存桶
  *  （段解析完非空才整段赋 cfg.section——style/summary/short/auto/checks/snapshots 语义） */
 interface ParseCtx {
-  cfg: BookConfig
   bucket: Record<string, unknown>
 }
 
@@ -807,7 +806,7 @@ export function parseSectionSpec(spec: ConfigSectionSpec, sectionNode: RawSectio
     const row = spec.keys.find((k) => k.key === key)
     if (row?.parse === undefined) continue
     const child = findChild(sectionNode, key)
-    if (child !== undefined) row.parse(child, { cfg, bucket })
+    if (child !== undefined) row.parse(child, { bucket })
   }
   if (spec.parseKind === 'bucket' && Object.keys(bucket).length > 0) {
     cfgBag[spec.name] = bucket

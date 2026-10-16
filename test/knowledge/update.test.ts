@@ -99,7 +99,6 @@ function baseManifest(root: string, withExisting = true): void {
       {
         version: 1,
         generated_at: '2026-08-15T00:00:00+08:00',
-        summary: { migrated: 1, deferred: 0, review_assets: 0 },
         entries,
       },
       null,
@@ -381,7 +380,6 @@ function writeChainFixture(): string {
       {
         version: 1,
         generated_at: '2026-08-15T00:00:00+08:00',
-        summary: { migrated: 1, deferred: 0, review_assets: 0 },
         entries,
       },
       null,

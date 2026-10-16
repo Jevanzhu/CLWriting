@@ -47,7 +47,7 @@ const isChapter = computed(() => isBodyKind(entry.value?.path ?? ''))
 // 面包屑：文档路径到父目录（末级=文件名=标题，不重复）
 const crumbs = computed(() => {
   const p = entry.value?.path ?? ''
-  return p.replace(/\.md$/, '').split('/').slice(0, -1).filter(Boolean)
+  return p.split('/').slice(0, -1).filter(Boolean)
 })
 
 // 章节正文状态（TreeNode.status → 中文标签）

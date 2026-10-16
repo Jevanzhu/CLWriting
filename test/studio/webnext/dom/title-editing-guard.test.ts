@@ -366,3 +366,30 @@ describe('R44-20（四十四轮）：标题提交在途二次修改排队续提'
     w.unmount()
   })
 })
+
+// ── 面包屑等价：末段 .md 剥除不改变 crumb ────────────────────────
+
+describe('面包屑等价：同一路径末段带/不带 .md → crumb 逐位相同', () => {
+  it('末段恒被父目录切片丢弃，.md 剥除与否输出一致', async () => {
+    const doc = useDocStore()
+    vi.spyOn(useTreeStore(), 'load').mockResolvedValue(undefined)
+    doc.setBook(BOOK)
+    const nodeMd: TreeNode = { ...NODE, docId: 'd-md', path: '写作/正文/0001-x.md', name: '0001-x.md' }
+    const nodeBare: TreeNode = { ...NODE, docId: 'd-bare', path: '写作/正文/0001-x', name: '0001-x' }
+    await doc.open(nodeMd)
+    await doc.open(nodeBare)
+
+    const wMd = mount(EditorView, { props: { docId: 'd-md' } })
+    await flushPromises()
+    const crumbMd = wMd.findAll('.bar-crumb').map((n) => n.text())
+    wMd.unmount()
+
+    const wBare = mount(EditorView, { props: { docId: 'd-bare' } })
+    await flushPromises()
+    const crumbBare = wBare.findAll('.bar-crumb').map((n) => n.text())
+    wBare.unmount()
+
+    expect(crumbMd).toEqual(['写作', '正文'])
+    expect(crumbBare).toEqual(crumbMd)
+  })
+})

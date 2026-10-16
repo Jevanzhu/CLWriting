@@ -16,7 +16,6 @@ function makeKnowledgeProject(): string {
   writeManifest(root, {
     version: 1,
     generated_at: '2026-06-18T00:00:00.000Z',
-    summary: { migrated: 1, deferred: 0, review_assets: 0 },
     entries: [
       {
         target: '知识层/题材/README.md',

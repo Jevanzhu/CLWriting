@@ -1,11 +1,6 @@
 {
   "version": 1,
   "generated_at": "2026-10-13T00:00:00+08:00",
-  "summary": {
-    "migrated": 68,
-    "deferred": 1,
-    "review_assets": 0
-  },
   "entries": [
     {
       "target": "知识层/README.md",

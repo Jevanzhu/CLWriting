@@ -347,15 +347,15 @@ export const MANIFEST_LOCK_TIMEOUT_MS = 5_000
 /** 三件套换装 testableConst——生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名）。 */
 export const [getManifestLockTimeoutMs, __setManifestLockTimeoutForTest] = testableConst(MANIFEST_LOCK_TIMEOUT_MS)
 
-/** 进程内已持锁登记（manifestPath → 重入计数 + release + 异步排队链尾）——计数式
- *  可重入防自锁：嵌套获取（如持锁段内再触发清单登记的调用链）只加深计数不再抢锁，
+/** 进程内已持锁登记（manifestPath → release + 异步排队链尾）——在册即重入防自锁：
+ *  嵌套获取（如持锁段内再触发清单登记的调用链）不再抢锁、直接复用持锁，
  *  最外层返回时释放。
  * 登记项增设 tail——异步孪生
  *  （withManifestLockAsync）重入 async fn 的排队链尾（首节 = 持锁 fn 的执行 promise，
  *  持锁 finally 在跨进程锁 release 前循环排空，见其函数头注）。同步版
  *  withManifestLock 的临界段全同步、无排队语义，登记恒 tail:null（异步重入撞上时
  *  惰性建空链——该形态属声明边界，不获锁覆盖）。 */
-const heldManifestLocks = new Map<string, { depth: number; release: () => void; tail: Promise<void> | null }>()
+const heldManifestLocks = new Map<string, { release: () => void; tail: Promise<void> | null }>()
 // 异步重入自等死锁防御——withManifestLockAsync 的持锁执行体（fresh
 // 持锁与排队轮次）在执行期把 lockKey 放进 ALS 上下文；同 key 的 async 重入调用据此
 // 在排队前识别「排队自等」死锁形态并 fail-loud（见 withManifestLockAsync 头注）。
@@ -371,9 +371,9 @@ function isAsyncFunction(fn: unknown): boolean {
   return Object.prototype.toString.call(fn) === '[object AsyncFunction]'
 }
 
-/** 锁键归一化——重入计数原以原始路径字符串为键，同一锁文件经
+/** 锁键归一化——重入登记原以原始路径字符串为键，同一锁文件经
  *  大小写（win 不敏感 FS）或分隔符漂移的等价路径再入时会被当「他锁」抢锁，同步
- *  Atomics.wait 自持锁等待至超时 fail-closed（而非复用持锁计数）。resolve + 分隔符
+ *  Atomics.wait 自持锁等待至超时 fail-closed（而非复用持锁登记）。resolve + 分隔符
  * 归一 + win32/darwin 大小写折叠（platformCaseFold 单源起 darwin 也折叠），
  *  让等价路径命中同一条目。
  * 折叠改委托 safe-path platformCaseFold 单源（resolve/分隔符
@@ -402,27 +402,20 @@ function manifestLockKey(manifestPath: string): string {
  * 释放的持有者）后仍拿不到 → 抛错拒绝写。调用方语义核查：请求层有统一错误出口
  * （executeSave 内 catch → WRITE_ERROR；doTrash/doMoveOrRename catch → {ok:false}；
  * install 迁移链逐书 try/catch；finalize/trash 持锁段为毫秒级 IO，抛错即上层 500/失败信封），
- * 宁拒绝不覆盖。进程内重入走计数（同进程嵌套获取不死锁）；跨进程嵌套（他进程持锁）正常等待。
+ * 宁拒绝不覆盖。进程内重入直接复用持锁登记（同进程嵌套获取不死锁）；跨进程嵌套（他进程持锁）正常等待。
  */
 export function withManifestLock<T>(manifestPath: string, fn: () => T): T {
   const lockKey = manifestLockKey(manifestPath)
   const held = heldManifestLocks.get(lockKey)
-  if (held) {
-    held.depth++
-    try {
-      return fn()
-    } finally {
-      held.depth--
-    }
-  }
+  if (held) return fn()
   // 有界重试（共 2 轮 × 5s）后 fail-closed 抛错
   const lockPath = `${manifestPath}.lock`
   for (let attempt = 0; ; attempt++) {
     const release = acquireCrossProcessLockWithTimeout(lockPath, getManifestLockTimeoutMs())
     if (release) {
-      // 2-：登记项增设 tail 字段（恒 null——同步临界段无排队语义，见
+      // 2-：登记项含 tail 字段（恒 null——同步临界段无排队语义，见
       // heldManifestLocks 声明注）；本函数执行语义零变更。
-      heldManifestLocks.set(lockKey, { depth: 1, release, tail: null })
+      heldManifestLocks.set(lockKey, { release, tail: null })
       try {
         return fn()
       } finally {
@@ -444,23 +437,23 @@ export function withManifestLock<T>(manifestPath: string, fn: () => T): T {
  * 不阻塞），供承载 SSE/全部接口的服务进程保存链（executeSave → maybeUpdateManifest）
  * 在双进程争用窗口内保持可响应。语义与同步版逐位对齐：超时档（2 轮 × 生效档 + 50ms
  * 间隔）不变、fail-closed 抛错不变、错误文案同源、锁文件同源（同步/异步获取者互通互斥）。
- * 进程内重入沿用 heldManifestLocks 计数，重入键同同步版走 manifestLockKey 归一
+ * 进程内重入沿用 heldManifestLocks 登记复用，重入键同同步版走 manifestLockKey 归一
  *（原实现以原始路径串为键，等价路径变体再入被误判「他锁」抢物理锁自锁）。
  * fn 允许 async（T | Promise<T>），执行器在锁内 await fn()——原 `return fn()`
  * 在 fn 返回 promise 即触发 finally 释放锁，async fn 的互斥静默失效；await 后跨进程
- * 锁覆盖 fn 整个执行期。同进程并发同 key 调用在首个 fn await 期间仍按重入计数放行
+ * 锁覆盖 fn 整个执行期。同进程并发同 key 调用在首个 fn await 期间仍按「在册即重入」放行
  * （与同步版一致，进程内串行化仍是调用方责任）。
  * 其余不在异步链上的调用方保持同步版不动。
  * 同进程互斥风险（历史教训）：重入分支（含正常分支）若要求 fn 体零 await（同步返回），
- * fn 一旦返回 Promise，其在途期间 heldManifestLocks 仍登记在册（重入计数未清），
+ * fn 一旦返回 Promise，其在途期间 heldManifestLocks 仍登记在册（尚未释放），
  * 同进程同 key 的并发调用会按「重入」放行并在 fn 的 await 点交错执行，同进程互斥静默
  * 失效（跨进程锁仍覆盖 fn 整个执行期）。不可装「fn 返回值 thenable 即抛错」的 fail-loud
  * dev 断言——test/document/manifest-lock-async.test.ts 的回归用例显式传入 async fn
  *（断言锁覆盖 fn 整个执行期），断言会推翻既有裁定；生产调用方
  *（service/trash/state/finalize/draft-pipeline）全部为同步 fn。
  * 重入分支机制化分道（现行契约）：
- * ① **同步 fn**（返回非 thenable）：depth++ 立即执行——与同步版完全同形，零语义
- *   变更、零额外微任务跳数（全部既有同步调用方行为不变）。② **async fn**（async
+ * ① **同步 fn**（返回非 thenable）：直接执行——与同步版完全同形，零额外微任务
+ *   跳数（全部既有同步调用方行为不变）。② **async fn**（async
  *   关键字形态，isAsyncFunction 调用前判定）：**排队**到持锁者执行链尾 held.tail——
  *   链首节 = 持锁 fn 的执行 promise，重入调用 turn = held.tail.then( => fn)，
  *   同进程同 key 的并发 async 调用由此串行化（修复前直接执行，fn 含 await 时在持锁
@@ -494,8 +487,8 @@ export async function withManifestLockAsync<T>(manifestPath: string, fn: () => T
   if (held) {
     // 重入分支机制化分道（契约见函数头
     // 注）——async fn 排队到持锁者执行链尾串行化（修复注释纪律下的同进程
-    // 互斥静默失效）；同步 fn 维持现状（depth++ 立即执行，零语义变更、零额外微
-    // 任务跳数）。惰性建链：撞上同步版登记项（tail:null）时建空链——该形态属
+    // 互斥静默失效）；同步 fn 维持现状（直接执行，零额外微任务跳数）。惰性建链：
+    // 撞上同步版登记项（tail:null）时建空链——该形态属
     // 声明边界（排队轮次在同步临界段后执行，不获锁覆盖）。
     if (!held.tail) held.tail = Promise.resolve()
     if (isAsyncFunction(fn)) {
@@ -519,30 +512,25 @@ export async function withManifestLockAsync<T>(manifestPath: string, fn: () => T
       )
       return await turn
     }
-    held.depth++
-    try {
-      const r = fn()
-      if (r !== null && r !== undefined && typeof (r as PromiseLike<unknown>).then === 'function') {
-        // 非 async 关键字却返回 thenable（箭头包 async 调用等）：同步前缀已先行
-        //（不可回退），完成挂入 tail——保住释放/后续排队者等它（声明边界，函数头注③）
-        const settle = r as Promise<T>
-        const gated = held.tail.then(() => settle)
-        held.tail = gated.then(
-          () => {},
-          () => {},
-        )
-        return await gated
-      }
-      return await r
-    } finally {
-      held.depth--
+    const r = fn()
+    if (r !== null && r !== undefined && typeof (r as PromiseLike<unknown>).then === 'function') {
+      // 非 async 关键字却返回 thenable（箭头包 async 调用等）：同步前缀已先行
+      //（不可回退），完成挂入 tail——保住释放/后续排队者等它（声明边界，函数头注③）
+      const settle = r as Promise<T>
+      const gated = held.tail.then(() => settle)
+      held.tail = gated.then(
+        () => {},
+        () => {},
+      )
+      return gated
     }
+    return r
   }
   const lockPath = `${manifestPath}.lock`
   for (let attempt = 0; ; attempt++) {
     const release = await acquireCrossProcessLockAsync(lockPath, getManifestLockTimeoutMs())
     if (release) {
-      const held: { depth: number; release: () => void; tail: Promise<void> | null } = { depth: 1, release, tail: null }
+      const held: { release: () => void; tail: Promise<void> | null } = { release, tail: null }
       heldManifestLocks.set(lockKey, held)
       // 2-：临界段首节——fn 的执行 promise 即重入排队链（tail）的头节；
       // async IIFE 保持 fn 调用时机与旧实现逐位一致（同步前缀立即执行；fn 同步前缀
