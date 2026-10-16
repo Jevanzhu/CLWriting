@@ -206,3 +206,84 @@ describe('POST /documents/:docId/finalize（ee-P1-3 防吃书闸）', () => {
     expect(e.finalizedRevision).toBeUndefined()
   })
 })
+
+// ── 书架摘要缓存失效（文档级写出口）──────────────────────────
+// 书架摘要是 30s TTL 结果缓存（progress.ts summaryCache，键 = bookRoot）。文档级写操作
+// 成功后须即时失效该缓存，否则写后在 30s 窗口内 GET /api/books 仍回旧章数/字数。
+// 改书名/删书路径（books-rename.ts / books-lifecycle.ts）已失效，此处锚文档 CRUD 出口。
+
+describe('书架摘要缓存失效（文档级写出口）', () => {
+  async function shelf(): Promise<{ chapters: number; words: number }> {
+    const r = await request('GET', '/api/books', { origin: studio.baseUrl, 'x-studio-token': studio.token })
+    expect(r.status).toBe(200)
+    const b = (r.json as { books: Array<{ name: string; chapters: number; words: number }> }).books.find(
+      (x) => x.name === BOOK,
+    )
+    expect(b).toBeDefined()
+    return { chapters: b!.chapters, words: b!.words }
+  }
+
+  // 正文章须带 章号 front matter（readChapter 缺 章号 即 !ok，不计入摘要章数）——
+  // 内容形如 章号-标题.md 的正式章，让 GET /api/books 摘要扫描能反映增删。
+  async function createChapter(relPath: string, no: number, title: string): Promise<string> {
+    const content = `---\n章号: ${no}\n标题: ${title}\n---\n\n一二三四五六七八九十\n`
+    const r = await request(
+      'POST',
+      `/api/books/${encodeURIComponent(BOOK)}/documents`,
+      { 'content-type': 'application/json', origin: studio.baseUrl, 'x-studio-token': studio.token },
+      JSON.stringify({ relPath, content }),
+    )
+    expect(r.status).toBe(201)
+    return (r.json as { docId: string }).docId
+  }
+
+  it('新建章节 → 写后立即读书架，章数/字数已更新（不等 30s TTL）', async () => {
+    const before = await shelf() // 首读：摘要入 30s 缓存
+    await createChapter('写作/正文/0088-摘要失效新章.md', 88, '摘要失效新章')
+    const after = await shelf() // 紧接写后读：失效未补则均回旧值（红）
+    expect(after.chapters).toBe(before.chapters + 1)
+    expect(after.words).toBeGreaterThan(before.words)
+  })
+
+  it('复制章节 → 写后立即读书架，章数 +1', async () => {
+    const docId = await createChapter('写作/正文/0089-待复制.md', 89, '待复制')
+    const before = await shelf()
+    const r = await request(
+      'POST',
+      `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(docId)}/copy`,
+      { 'content-type': 'application/json', origin: studio.baseUrl, 'x-studio-token': studio.token },
+      JSON.stringify({ relPath: '写作/正文/0090-副本.md' }),
+    )
+    expect(r.status).toBe(201)
+    const after = await shelf()
+    expect(after.chapters).toBe(before.chapters + 1)
+  })
+
+  it('软删章节 → 写后立即读书架，章数 -1；回收站恢复 → 章数 +1', async () => {
+    const docId = await createChapter('写作/正文/0091-待删.md', 91, '待删')
+    const beforeDelete = await shelf()
+    const del = await request(
+      'DELETE',
+      `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(docId)}`,
+      { origin: studio.baseUrl, 'x-studio-token': studio.token },
+    )
+    expect(del.status).toBe(200)
+    const afterDelete = await shelf()
+    expect(afterDelete.chapters).toBe(beforeDelete.chapters - 1)
+
+    const trash = await request('GET', `/api/books/${encodeURIComponent(BOOK)}/trash`, {
+      origin: studio.baseUrl,
+      'x-studio-token': studio.token,
+    })
+    const entries = (trash.json as { entries: Array<{ id: string }> }).entries
+    const id = entries[entries.length - 1]!.id
+    const restore = await request(
+      'POST',
+      `/api/books/${encodeURIComponent(BOOK)}/trash/${encodeURIComponent(id)}/restore`,
+      { origin: studio.baseUrl, 'x-studio-token': studio.token },
+    )
+    expect(restore.status).toBe(200)
+    const afterRestore = await shelf()
+    expect(afterRestore.chapters).toBe(beforeDelete.chapters)
+  })
+})

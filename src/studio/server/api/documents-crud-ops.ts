@@ -14,6 +14,12 @@
  *   只接 readJson 一半（parse 原样透传 body）；本档该 handler 的单元序即该判据的唯一载体。
  * - 字数日记/回收站端点的 BOOK_MOVED 重验仍在写段首行（同款时序，见各单元注）。
  *
+ * 书架摘要失效（文档写出口）：各写出口成功后调 invalidateBookSummary(bookRoot)，即时失效
+ * 书架摘要 30s TTL 结果缓存（progress.ts summaryCache，键 = bookRoot）——否则写后在 TTL
+ * 窗口内读 GET /api/books 仍回旧章数/字数（改名/删书路径已失效，本档补文档级出口）。书键
+ * 缓存族（forgetBookKeyedCaches）不随本处调用——树索引由 service 层 invalidateTreeIndex
+ * 承担，与保存路径（documents-save.ts）同口径。
+ *
  * 依赖方向单向（无环）：本文件 → http / book-context / document / shared-contract / documents-core
  * 既有出边（不新增 ai 边），对 documents-crud.ts 只有 type 面回引（DocumentCtx 真家在 core，
  * 编译期擦除）；顶层零求值常量，无 TDZ 面。
@@ -28,6 +34,7 @@ import { readBaseline, appendBaseline, readTodayDelta, todayDate } from '../../.
 import { listTrash, restoreTrash, purgeTrash } from '../../../document/trash.js'
 // 基建段单源 core（getOrCreateService / 五站不变链 / 错误码映射）
 import { getOrCreateService, runBookScopedOp, structStatus, type DocumentCtx } from './documents-core.js'
+import { invalidateBookSummary } from './progress.js'
 
 /** 前置闸产出（找书结果）按本站用到的成员收窄——resolveBookOrReply 成功返回值的结构面，
  *  声明面 RouteContext 的 gate 位在 schema.ts 未导出，跨模块只能按结构收窄。 */
@@ -96,8 +103,10 @@ export async function handleDocumentCreate(
       }),
   })
   // 失败收编 replyError 统一信封（原裸 result——前端 toast 直显机器码，reason 人话永不见）
-  if (result.ok) reply(res, 201, result satisfies CreateOk)
-  else replyError(res, structStatus(result.code), result.code, result.reason)
+  if (result.ok) {
+    invalidateBookSummary(gate.bookRoot) // 写出口失效书架摘要（30s TTL，见头注）
+    reply(res, 201, result satisfies CreateOk)
+  } else replyError(res, structStatus(result.code), result.code, result.reason)
 }
 
 export async function handleDocumentPatch(
@@ -180,8 +189,10 @@ export async function handleDocumentPatch(
   })
   if (result === undefined) return // op 形状校验失败：链单元内已回 400
   // 同上——失败走 replyError 统一信封
-  if (result.ok) reply(res, 200, result)
-  else replyError(res, structStatus(result.code), result.code, result.reason)
+  if (result.ok) {
+    invalidateBookSummary(gate.bookRoot) // 写出口失效书架摘要（30s TTL，见头注）
+    reply(res, 200, result)
+  } else replyError(res, structStatus(result.code), result.code, result.reason)
 }
 
 export async function handleDocumentCopy(
@@ -211,6 +222,7 @@ export async function handleDocumentCopy(
   })
   // 失败走 replyError 统一信封（原裸 result 违反 schema.ts 信封约定）
   if (result.ok) {
+    invalidateBookSummary(gate.bookRoot) // 写出口失效书架摘要（30s TTL，见头注）
     reply(res, 201, result satisfies CreateOk)
   } else replyError(res, structStatus(result.code), result.code, result.reason)
 }
@@ -242,8 +254,10 @@ export async function handleDocumentDelete(
     op: (): Promise<TrashResult> => svc.trashDocument({ docId }),
   })
   // 同上——失败走 replyError 统一信封
-  if (result.ok) reply(res, 200, result)
-  else replyError(res, structStatus(result.code), result.code, result.reason)
+  if (result.ok) {
+    invalidateBookSummary(r.bookRoot) // 写出口失效书架摘要（30s TTL，见头注）
+    reply(res, 200, result)
+  } else replyError(res, structStatus(result.code), result.code, result.reason)
 }
 
 export async function handleTrashList(
@@ -276,8 +290,10 @@ export async function handleTrashRestore(
   const id = params['id'] ?? ''
   const result = await restoreTrash(r.bookRoot, id)
   // 失败走 replyError 统一信封（原裸 result 违反 schema.ts 信封约定）
-  if (result.ok) reply(res, 200, result)
-  else replyError(res, structStatus(result.code), result.code, result.reason)
+  if (result.ok) {
+    invalidateBookSummary(r.bookRoot) // 写出口失效书架摘要（30s TTL，见头注）
+    reply(res, 200, result)
+  } else replyError(res, structStatus(result.code), result.code, result.reason)
 }
 
 export async function handleTrashPurge(
@@ -293,6 +309,10 @@ export async function handleTrashPurge(
   const id = params['id'] ?? ''
   const result = await purgeTrash(r.bookRoot, id)
   // 失败走 replyError 统一信封（原裸 result 违反 schema.ts 信封约定）
-  if (result.ok) reply(res, 200, result)
-  else replyError(res, structStatus(result.code), result.code, result.reason)
+  if (result.ok) {
+    // 写出口失效书架摘要——purge 只删 工作区/.trash 副本（正文集合不变），此处随文档
+    // 写出口家族统一失效（廉价 forget），与 restore/删除出口同口径。
+    invalidateBookSummary(r.bookRoot)
+    reply(res, 200, result)
+  } else replyError(res, structStatus(result.code), result.code, result.reason)
 }
