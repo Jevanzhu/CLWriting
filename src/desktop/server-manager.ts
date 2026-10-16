@@ -282,6 +282,9 @@ interface ManagerState {
   token: string | null
   /** 停机收口等待者（restartPinned 有界等待；与相位正交的协调数据） */
   shutdownSettledWaiters: Array<() => void>
+  /** 在途停机收口 promise（幂等门 join 用）：首调用置位、finally 清空；与停机流程门
+   *  同拍同寿——stop==='shutting' 期间恒非空，故读侧只在判中流程门后取用。 */
+  shutdownInFlight: Promise<void> | null
 }
 
 /** transition 实参：事件 + 该事件载荷（穷尽联合——载荷缺配/错配在编译期排除） */
@@ -440,6 +443,7 @@ function createManagerState(): ManagerState {
     lastBoot: null,
     token: null,
     shutdownSettledWaiters: [],
+    shutdownInFlight: null,
   }
 }
 
@@ -964,17 +968,30 @@ async function startServer(ctx: ManagerCtx, opts: StartStudioServerOptions): Pro
   }
 }
 
-/** 停机（幂等门 + 短预算等在途轮 + 优雅停机/强杀兜底；收口唤醒 restartPinned 等待者） */
+/** 停机（幂等门 join 在途收口 + 短预算等在途轮 + 优雅停机/强杀兜底；收口唤醒 restartPinned 等待者） */
 async function shutdownServer(ctx: ManagerCtx): Promise<void> {
-  const { cfg, state } = ctx
+  const { state } = ctx
   // 幂等门必须判停机流程门而非主动 kill 标记：start 换旧 child 的 kill 等待窗（≈2s）内
   // stopActiveChild 会置位标记，用标记判会让 before-quit 触发的 shutdown 误判「已在停机」
   // 直接返回，新 child 被 app 退出连带硬杀、在途编排收尾丢失。
-  if (isShutting(ctx)) return // 幂等：before-quit 可能多次触发
+  // 判中即 join 在途收口 promise（幂等：before-quit 可能多次触发）——返回一个已 resolve
+  // 的 promise 会让调用方把 destroy 窗口 + app.quit 提前挂到停机收口之前（窗口先没、
+  // 子进程还在跑）；无在途（陈旧流程门）才直通。
+  if (isShutting(ctx)) return state.shutdownInFlight ?? undefined
   // 停机流程门——入口置位 / finally 收口，期间 start 入口 fail-closed 拒绝（见 start
   // 首守卫）。与主动 kill 标记分工：后者是「停旧不重启」标记（stopActiveChild 也置位），
   // 不随流程收口复位，不能当生命周期门用。'shutting' 落在一次转移里（置位须先于下发：
   // exit 早于 shutdown-done 到达也不误判崩溃），其间无读方。
+  const inFlight = shutdownFlow(ctx)
+  // 置位与流程门同拍（shutdownFlow 的首个 await 之前已 transition）——判中流程门的并发
+  // 调用者必定读到本 promise，无「门已置而槽位空」的缝。
+  state.shutdownInFlight = inFlight
+  return inFlight
+}
+
+/** 停机流程正身（首调用唯一入口；并发调用者经 shutdownServer 幂等门 join 本 promise） */
+async function shutdownFlow(ctx: ManagerCtx): Promise<void> {
+  const { cfg, state } = ctx
   transition(ctx, { ev: 'shutdown-open' })
   try {
     // 在途 start/自动重启先落定——launch 的 fork 后检查（主动 kill 标记已置位）会即杀
@@ -1044,10 +1061,12 @@ async function shutdownServer(ctx: ManagerCtx): Promise<void> {
       await killProcAwaitEscalating(current.proc, current.exited, 'shutdown', cfg.killWaitMs, cfg.logger)
     }
   } finally {
-    // 停机流程门收口——允许下一轮 start（新生命周期；幂等 early-return 的并发 shutdown
+    // 停机流程门收口——允许下一轮 start（新生命周期；join 在途 promise 的并发 shutdown
     // 不经此处，由首调用方 finally 统一收口）。主动 kill 标记保留（'marked'）：被杀
     // child 的迟到 exit 仍属预期。
     transition(ctx, { ev: 'shutdown-close' })
+    // 在途收口槽位同拍清空（本 promise 的落定即 join 方等到的收口点）
+    state.shutdownInFlight = null
     // 唤醒停机收口等待者（restartPinned 自愈有界等待）
     const waiters = state.shutdownSettledWaiters
     state.shutdownSettledWaiters = []
@@ -1150,7 +1169,7 @@ async function restartPinnedFromLastBoot(ctx: ManagerCtx): Promise<number | null
 /**
  * 管理器工厂——只剩组装与句柄映射；单元见 resolveManagerConfig（组装依赖）/
  * startServer（启动）/ scheduleRestart + nextBackoffMs（重启退避）/
- * shutdownServer + stopActiveChild + killNow（停机）/ handshake + launch（健康探测与接线）。
+ * shutdownServer + shutdownFlow + stopActiveChild + killNow（停机）/ handshake + launch（健康探测与接线）。
  * 相位/停机面的变更仍只经 transition。
  */
 export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioServerManager {

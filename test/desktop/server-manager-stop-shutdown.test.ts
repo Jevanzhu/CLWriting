@@ -174,6 +174,35 @@ describe('批 U2：shutdown 指令（§3.4 时序 4）', () => {
   })
 })
 
+describe('shutdown 幂等门：在途停机必须 join 首调用的收口', () => {
+  // 不变量：幂等门判中的并发 shutdown 只能等到停机真收口才 resolve。调用方（quit 链）
+  // 把 destroy 全部窗口 + app.quit 挂在 shutdown() 的 resolve 上，判中流程门就返回一个
+  // 立即 resolve 的 promise，会让窗口先没、子进程还在跑。
+  it('在途停机时第二次 shutdown 不提前 resolve（等子进程真停）', async () => {
+    const { forkRecords, manager } = mkHarness({ shutdownTotalMs: 5_000, killWaitMs: 20 })
+    const p = manager.start({ workDir: null, userDataPath: mkUserData() })
+    const child = forkRecords[0]!.child
+    child.emit('message', { type: 'ready', port: 1 })
+    await p
+    const first = manager.shutdown()
+    await flushMicrotasks(1)
+    expect(child.posted).toEqual([{ type: 'shutdown' }]) // 首调用已置位并下发（子进程未回执 → 在途）
+    let secondSettled = false
+    const second = manager.shutdown().then(() => {
+      secondSettled = true
+    })
+    await flushMicrotasks()
+    expect(manager.isRunning()).toBe(true) // 子进程仍在跑
+    expect(secondSettled).toBe(false) // 幂等门返回在途收口 promise，不提前 resolve
+    child.emit('message', { type: 'shutdown-done' })
+    child.emit('exit', 0)
+    await second // 第二次 await 返回时停机已收口
+    expect(manager.isRunning()).toBe(false)
+    expect(child.killed).toBe(0) // 优雅路径：join 不改变停机语义
+    await first
+  })
+})
+
 afterAll(() => {
   cleanupServerManagerTmpDirs()
 })
