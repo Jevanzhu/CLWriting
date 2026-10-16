@@ -65,9 +65,9 @@ export function reply(res: ServerResponse, status: number, body: unknown): void 
  * 错误信封形状必须唯一——独立出口让「只传了 error 漏了 code」这类漂移在编译期就不可能，
  * 且 grep replyError 即可盘点全部错误点。
  * - error 保留中文人话（前端 toast 展示，client.ts 按 error 优先解析 → 前端零改动）
- * - code 机器可判别（复用既有词表 NO_WORKDIR/NOT_FOUND/BAD_INPUT/BAD_PATH/BUSY/...，
- *   无法归类的用 'ERROR' 兜底，禁止自创同义码；RC起 413 单独有码
- *   PAYLOAD_TOO_LARGE——前端据此给「拆分文档」出路，不再混同参数校验的 BAD_INPUT）
+ * - code 机器可判别（取值清单单源 = ERROR_CODES，禁止自创同义码；无法归类的用
+ *   'ERROR' 兜底；413 单独有码 PAYLOAD_TOO_LARGE——前端据此给「拆分文档」出路，
+ *   不与参数校验的 BAD_INPUT 混同）
  * - extra：可选诊断扩展字段（如机检失败带 details）——仍走本单一
  *   出口，不回退到手拼 reply({ok:false,...}) 混合信封
  */
@@ -100,6 +100,54 @@ function scrubExtra(value: unknown): unknown {
   }
   return value
 }
+
+/** 错误码面清单单源（声明式仓库数据，消费者 = 双向对账门
+ *  test/studio/server/error-envelope.test.ts）：
+ *  - 正：`replyError` / `HttpError` 的码字面量必须在此表内（防自创同义码）；
+ *  - 反：本表条目必须在 src/studio/server 生产面出现（防陈旧条目）；
+ *  - 值载码形态（`moved.code` = BOOK_MOVED、`API_KEY_HOST_CHANGE_CODE`、
+ *    `HttpError.code` 的 TIMEOUT）由各自产出侧落在此表，不在调用点另立。
+ *  码语义随功能定，增删改都改这里 + 端点同批——单侧改动会被对账门拦下。 */
+export const ERROR_CODES = [
+  'ABORTED',
+  'AMBIGUOUS_SELECTION',
+  'API_KEY_REQUIRED_ON_HOST_CHANGE',
+  'BAD_INPUT',
+  'BAD_KIND',
+  'BAD_PATH',
+  'BOOK_MOVED',
+  'BUSY',
+  'CONFLICT',
+  'DIAGNOSTICS_FAILED',
+  'EMPTY_OUTPUT',
+  'ERROR',
+  'EXPORT_FAILED',
+  'FORBIDDEN',
+  'GEN_FAIL',
+  'IO_ERROR',
+  'LENS_FAIL',
+  'METHOD_NOT_ALLOWED',
+  'NOT_CHAPTER',
+  'NOT_FOUND',
+  'NOT_UTF8_TARGET',
+  'NO_CHANGE',
+  'NO_CHAPTERS',
+  'NO_ENVELOPE',
+  'NO_SAMPLES',
+  'NO_USERDATA',
+  'NO_WORKDIR',
+  'PACKET_FAIL',
+  'PARSE_FAIL',
+  'PAYLOAD_TOO_LARGE',
+  'RAG_DB_CORRUPT',
+  'REVIEW_BUSY',
+  'REVIEW_RUNNING',
+  'REVISION_CONFLICT',
+  'STORE_UNAVAILABLE',
+  'TIMEOUT',
+  'TOO_MANY_ITEMS',
+  'WRITE_ERROR',
+] as const
 
 export function replyError(
   res: ServerResponse,

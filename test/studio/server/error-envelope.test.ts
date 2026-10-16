@@ -6,13 +6,14 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir, homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, it, expect } from 'vitest'
 import type { ServerResponse } from 'node:http'
 import { mkdtempTracked } from '../../helpers/temp-dir.js'
-import { replyError } from '../../../src/studio/server/http.js'
+import { replyError, ERROR_CODES } from '../../../src/studio/server/http.js'
 import { resolveDocEntry } from '../../../src/studio/server/book-context.js'
 import { startServerSafe } from '../../helpers/safe-port.js'
 import { readManifest, writeManifest, upsertEntry } from '../../../src/document/manifest.js'
@@ -264,5 +265,56 @@ describe('documents 端点结构化失败走统一信封（Q-7）', () => {
     } finally {
       writeFileSync(yamlPath, yaml)
     }
+  })
+})
+
+/**
+ * 码面双向对账（清单单源 = src/studio/server/http.ts 的 ERROR_CODES）：
+ * 正 = 生产面出现的码字面量都在表内（防自创同义码）；反 = 表内条目都在生产面出现（防陈旧）。
+ * 值载码形态（`moved.code` = BOOK_MOVED、`API_KEY_HOST_CHANGE_CODE`、`HttpError.code` 的
+ * TIMEOUT）经各自产出侧的字面量落表，故本扫描的四种码字面量形态即覆盖其声明处。
+ */
+describe('错误码面双向对账（ERROR_CODES 单源）', () => {
+  const SERVER_SRC = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'src', 'studio', 'server')
+
+  /** 生产面（.ts、剥注释行）出现的码字面量 → 出处档。 */
+  function codesInUse(): Map<string, string[]> {
+    const found = new Map<string, string[]>()
+    const add = (code: string, file: string): void => {
+      const cur = found.get(code)
+      if (cur) cur.push(file)
+      else found.set(code, [file])
+    }
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name)
+        if (e.isDirectory()) {
+          walk(p)
+          continue
+        }
+        if (!e.name.endsWith('.ts')) continue
+        const text = readFileSync(p, 'utf-8')
+          .split('\n')
+          .filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*'))
+          .join('\n')
+        for (const m of text.matchAll(/replyError\(\s*[\w.]+,\s*\d+\s*,\s*'([A-Z0-9_]+)'/g)) add(m[1]!, p)
+        for (const m of text.matchAll(/code:\s*'([A-Z0-9_]+)'/g)) add(m[1]!, p)
+        for (const m of text.matchAll(/new HttpError\(\s*\d+\s*,\s*'[^']*'\s*,\s*'([A-Z0-9_]+)'/g)) add(m[1]!, p)
+        for (const m of text.matchAll(/CODE\s*=\s*'([A-Z0-9_]+)'/g)) add(m[1]!, p)
+      }
+    }
+    walk(SERVER_SRC)
+    return found
+  }
+
+  it('生产面出现的每个码都在清单内（防自创）', () => {
+    const known = new Set<string>(ERROR_CODES)
+    const unknown = [...codesInUse()].filter(([code]) => !known.has(code))
+    expect(unknown.map(([code, files]) => `${code}（${relative(SERVER_SRC, files[0]!)}）`)).toEqual([])
+  })
+
+  it('清单条目都在生产面出现（防陈旧）', () => {
+    const inUse = codesInUse()
+    expect(ERROR_CODES.filter((code) => !inUse.has(code))).toEqual([])
   })
 })
