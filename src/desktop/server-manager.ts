@@ -1012,7 +1012,10 @@ async function shutdownServer(ctx: ManagerCtx): Promise<void> {
       })
     })
     void current.exited.then(() => {
-      settle.by = 'exit'
+      // 首次信号胜：回执与 exit 事件之间存在异步缝（回执到达后 child 才 exit(0)），
+      // 后到的 exit 只在尚无更早信号时置位，不得覆写已置的 'done' 分类——否则下方
+      // 让渡分支被跳过、留痕把优雅停机误报为「未回执自行退出」
+      if (settle.by === 'timeout') settle.by = 'exit'
     })
     await Promise.race([done, current.exited, delay(cfg.shutdownTotalMs)])
     if (settle.by === 'done' && state.child?.proc === current.proc) {

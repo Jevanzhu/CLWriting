@@ -383,6 +383,42 @@ describe('R0912-3 #35: killNow 同步 kill 信号', () => {
   })
 })
 
+// 停机分类竞速：回执（shutdown-done）与 exit 事件之间存在异步缝——回执到达后 child
+// 立即 exit(0)，exit 事件晚于让渡分支的 await 落定。若 exit 回调无条件覆写分类，
+// 权威的 'done' 被改成 'exit' → 让渡分支被跳过、留痕误报「未回执自行退出」，
+// 运维侧 graceful/强杀归因失真。首次信号胜：已置 'done' 不被后到的 exit 覆写。
+describe('停机分类首次信号胜: 回执后的 exit 不覆写 done 分类', () => {
+  it('shutdown-done 先到、exit 后落定 → 留痕为 shutdown 指令链路（非「未回执自行退出」）', async () => {
+    const cap = mkLogCapture()
+    const { forkRecords, manager } = mkHarness({
+      logger: cap.logger,
+      shutdownSettleBudgetMs: 5_000,
+      shutdownTotalMs: 5_000,
+      killWaitMs: 200,
+    })
+    const ud = mkUserData()
+    const first = manager.start({ workDir: '/w', userDataPath: ud })
+    const child = forkRecords[0]!.child
+    child.emit('message', { type: 'ready', port: 46310 })
+    await first
+
+    const shuttingDown = manager.shutdown()
+    await flushMicrotasks()
+    expect(child.posted).toContainEqual({ type: 'shutdown' })
+    // 回执先到：分类置 'done'，让渡分支进入等退出的 await（此拍 child 尚未 exit）
+    child.emit('message', { type: 'shutdown-done' })
+    await flushMicrotasks()
+    // 异步缝：exit 晚于让渡分支落定——不得覆写已置的 'done' 分类
+    child.emit('exit', 0)
+    await shuttingDown
+
+    const infos = cap.lines.filter((l) => l.level === 'info' && l.tag === 'server-manager')
+    expect(infos.map((l) => l.msg)).toContainEqual('studio server 子进程已停机（shutdown 指令链路）')
+    expect(cap.lines.some((l) => l.msg.includes('非 shutdown 回执路径'))).toBe(false)
+    expect(child.killed).toBe(0) // 回执路径不 kill（优雅停机语义保留）
+  })
+})
+
 afterAll(() => {
   cleanupServerManagerTmpDirs()
 })
