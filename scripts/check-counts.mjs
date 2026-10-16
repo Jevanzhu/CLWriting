@@ -850,17 +850,17 @@ function main() {
   // 全平台同数，win/linux 差值分账臂随静态口径终局废除；README「开发」节相应
   // 改写为静态口径（「过数/linux 实测差 N 恒定」句删除）。仅剩参数序适配。
   const claimUnitTests = (pattern, label) => claim(pattern, actual.unitTests, label)
-  // 徽章：tests-7880%20all%20green（示例为当前值，实际以 README 为准）
+  // 徽章：tests-<单测数>%20all%20green（示例为形态，实际值以 README 为准）
   claimUnitTests(/badge\/tests-(\d+)%20all%20green/, '徽章单测数')
   // README 介绍面精简（纯项目介绍定位）：开发/安装节撤除，「npm test # N 单测」与
   // 「Playwright e2e（mock 驱动，…）」两族锚点句随之退役——声称值锚收拢到徽章 + 技术
   // 栈段，四个实际值（文件/单测/spec/用例）仍各有对账锚，漂移照红。
-  // 「vitest（7880 单测）+ Playwright（33 specs / 54 用例）」
+  // 「vitest（<单测数> 单测）+ Playwright（<spec 数> specs / <用例数> 用例）」（README 现行句）
   claimUnitTests(new RegExp(`vitest${PH('(\\d+) 单测')}`), '技术栈单测数')
   claim(new RegExp('Playwright[（(](\\d+) specs'), actual.e2eSpecs, 'Playwright spec 数')
   // 锚定完整短语——裸 `(\d+) 用例）` 会命中 README 里任何以"用例）"结尾的数字
   claim(new RegExp(`Playwright${PH('\\d+ specs [\\/／] (\\d+) 用例')}`), actual.e2eCases, 'Playwright 用例数')
-  // 「1272 个测试文件 / 7880 单测全绿」（原开发节合入门槛句，随节撤移入技术栈段）
+  // 「<文件数> 个测试文件 / <单测数> 单测全绿」（原开发节合入门槛句，随节撤移入技术栈段）
   claim(/(\d+) 个测试文件 [\/／] \d+ 单测全绿/, actual.unitFiles, '测试文件数')
   claimUnitTests(/\d+ 个测试文件 [\/／] (\d+) 单测全绿/, '合入门槛单测数')
 

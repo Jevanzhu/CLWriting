@@ -471,7 +471,6 @@ export const useDocStore = defineStore('doc', () => {
       e.error = null
       // 本地修改已按作者决断丢弃，镜像一并清除（防下次 open 误复活）
       mirror.clearDirtyMirror(book, docId)
-      if (bookName.value !== book) return
       useUiStore().toast('已加载最新版本', 'success')
     } catch (err) {
       if (bookName.value !== book) return

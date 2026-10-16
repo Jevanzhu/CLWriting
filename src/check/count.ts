@@ -145,8 +145,8 @@ export function checkImagery(
     // 无视机检面板；数据源接线后空表只剩「作者明确关掉」一种来源，仍不产黄
     return { name: '高频意象', items }
   }
-  // 计数前剥对白引号 span——禁词（checkBannedWords ①）/
-  // 开头（1045）同文件均剥，唯本检查吃原文：意象词多为叙述套语，对白里角色说
+  // 计数前剥对白引号 span——禁词（checkBannedWords）/比喻/身体部位/
+  // 开头环境同文件各检查一律剥，本检查不例外：意象词多为叙述套语，对白里角色说
   // 「气氛」「空气」属人物语言非作者叙述套路，对白密集章逐句累加黄项刷屏。
   // stripQuotedSpans 单源（quotes.ts）对齐。
   const prose = stripQuotedSpans(body)
@@ -243,13 +243,13 @@ export function checkBodyParts(
   const items: CheckItem[] = []
   const over: string[] = []
   // （win 线同题锚④）：计数前剥对白引号 span
-  // （quotes.ts 单源 stripQuotedSpans）——同文件禁词（checkBannedWords ①）/
-  // 意象（checkImagery ）/开头环境（checkOpeningNoEnv ）均经剥引号
-  // 统计，唯本检查与 checkSimile 吃原文：对白里角色说「我的眼睛…」是人物语言非
+  // （quotes.ts 单源 stripQuotedSpans）——同文件禁词（checkBannedWords）/
+  // 意象（checkImagery）/比喻（checkSimile）/开头环境（checkOpeningNoEnv）一律经剥引号
+  // 统计，本检查同口径：对白里角色说「我的眼睛…」是人物语言非
   // 作者叙述堆砌，对白密集章逐次累加黄项刷屏；本项属短篇 strict 升红族（runner.ts
   // STRICT_SHORT_CHECK_IDS 的 body-parts），误报驱动打回重写白烧真调用。单字「手」
   // 的动作语境匹配路径同口径。阈值与升红逻辑零改动，只收窄「哪些文本参与计数」。
-  // 对齐家族约定（注释自证「同族均剥」），prose 变量口径同 checkBannedWords。
+  // prose 变量口径同 checkBannedWords。
   const prose = stripQuotedSpans(body)
   for (const word of words) {
     if (!word) continue

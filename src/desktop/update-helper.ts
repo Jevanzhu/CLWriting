@@ -14,9 +14,11 @@
  *
  * 中断自愈：本进程可能在「目标已改名、新版未就位」的窄窗内被杀（断电/任务管理器）。
  * 此时磁盘上只剩 `<target>.old-<旧版本>`，而快捷方式指向的 `<target>` 已不存在——用户
- * 下次双击会落空。恢复点是**下一次助手启动**（助手是本模块唯一入口：用户重试「下载并
- * 更新」或再点一次即触达，起手 `recoverInterruptedSwap` 先把最近残留改回 target，再走
- * 正常流程）；另有一次启动维护清扫 `.old-*` 残留（见 update-controller）。
+ * 下次双击会落空。还原触发点只有一处：**下一次助手启动**（`runUpdateHelper` 第 0 步的
+ * `recoverInterruptedSwap` 把最近残留改回 target，再走正常流程）——其他启动形态都不还原：
+ * 启动维护在 target 缺席时只保留 `.old-*` 不擦除（见 update-controller），普通双击应用则
+ * 根本起不来（应用目录缺席）。故该残留会一直留在盘上，直到下一次更新流程把助手拉起来；
+ * 若用户始终无法再启动任何副本，它不会被自动还原也不会被清掉（需重装或人工改名）。
  */
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, rmSync, statfsSync, statSync } from 'node:fs'
@@ -286,7 +288,8 @@ function prepareWorkDir(newDir: string, targetDir: string, payloadZip: string): 
 /**
  * 换目录（不可回头点）：target → `.old-<旧版本>`，再 `-new-<新版本>` → target。
  * 返回 null = 换新完成；'target-locked' = 旧目录改名失败（目标未动，可安全放弃）；
- * 'swap-failed' = 新版目录就位失败（已尝试回滚，由调用方按 rolled-back 收口）。
+ * 'swap-failed' = 新版目录就位失败（已尝试回滚；无论回滚本身成败都由调用方按
+ * rolled-back 收口——该结局记的是「走了回滚链路」，回滚失败的子例见下注）。
  */
 function swapDirs(targetDir: string, newDir: string, oldDir: string): UpdateReason | null {
   try {
@@ -306,8 +309,10 @@ function swapDirs(targetDir: string, newDir: string, oldDir: string): UpdateReas
       renameWithRetry(oldDir, targetDir)
     } catch (rollbackErr) {
       // 双向失败：应用目录层面已无 target。`.old-` 留在盘上（启动维护在 target 缺席时
-      // 不再擦除它），待下次助手启动第 0 步的 recoverInterruptedSwap 还原——该路径存在的意义；
-      // 结果条如实标 rolled-back。
+      // 不再擦除它），留作下一次助手启动第 0 步 recoverInterruptedSwap 的还原源。
+      // 结果条仍按 rolled-back + 'swap-failed' 收口：该结局记「走了回滚链路」而非
+      // 「已还原」的事实——本子例目录其实缺席，呈现层的「已还原」文案与现场的差口
+      // 就在这里（还原要等下一次助手启动）。
       log.error('update', `回滚也失败（${oldDir} → ${targetDir}）：${errMsg(rollbackErr)}`)
     }
     return 'swap-failed'

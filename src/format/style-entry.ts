@@ -191,9 +191,10 @@ function entriesDirSignature(entriesDir: string, kinds: readonly EntryKind[]): s
     const dir = join(entriesDir, k)
     let files: string[]
     try {
-      // 过滤口径与 readEntries 本体逐字一致（探针漏看一个文件 = 该文件改写不失效）
+      // 过滤口径与实读（readEntriesUncached）同取 filename.isMdFileName 单源——
+      // 探针漏看一个文件 = 该文件改写不失效；两侧分叉（如探针手写扩展名判定）即生此洞
       files = readdirSync(dir)
-        .filter((f) => f.slice(-3).toLowerCase() === '.md' && !f.startsWith('._'))
+        .filter((f) => isMdFileName(f) && !f.startsWith('._'))
         .sort()
     } catch {
       parts.push('-') // 类型目录不存在，空

@@ -373,6 +373,26 @@ test('复审-0913-P2: readBaseline 坏 JSON → warn 留痕 + 返回 null（降�
   }
 })
 
+// 姊妹面：JSON 合法而结构不符（本例缺 overall）此前静默返 null，与「未冻结基线」不可
+// 分辨；现与坏 JSON 同判留痕（降级语义不变：仍返回 null）
+test('readBaseline 结构不符 → warn 留痕 + 返回 null（降级语义不变）', () => {
+  const root = mkdtempTracked(join(tmpdir(), 'style-badshape-'))
+  mkdirSync(join(root, '文风'), { recursive: true })
+  writeFileSync(baselinePath(root), JSON.stringify({ byScene: { 通用: { overlongRatio: 0.1 } } }), 'utf-8')
+  const warn = vi.spyOn(log, 'warn').mockReturnValue()
+  try {
+    expect(readBaseline(root)).toBeNull()
+    expect(warn).toHaveBeenCalledTimes(1)
+    const [tag, msg] = warn.mock.calls[0]!
+    expect(tag).toBe('metrics')
+    expect(String(msg)).toContain(root) // bookRoot 可归因
+    expect(String(msg)).toContain('按无基线降级')
+  } finally {
+    warn.mockRestore()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 // ── 短篇适配（#10）─────────────────────────────────
 
 function makeShortBook(pieceCount: number): string {

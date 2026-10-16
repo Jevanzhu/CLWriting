@@ -360,7 +360,13 @@ export function readBaseline(bookRoot: string): StyleBaseline | null {
   if (!existsSync(p)) return null
   try {
     const raw = JSON.parse(readFileSync(p, 'utf-8')) as unknown
-    return coerceBaseline(raw)
+    const coerced = coerceBaseline(raw)
+    if (!coerced) {
+      // 结构不符（非对象 / 缺 byScene·overall / overall 字段非数）：与坏 JSON 同判留痕——
+      // 静默 null 与「未冻结基线」不可分辨，文风对照静默失效而作者无从归因
+      log.warn('metrics', `文风基线结构不符，按无基线降级（文风对照将不生效）：${bookRoot}`)
+    }
+    return coerced
   } catch (e) {
     log.warn('metrics', `文风基线读取/解析失败，按无基线降级（文风对照将不生效）：${bookRoot}：${errMsg(e)}`)
     return null

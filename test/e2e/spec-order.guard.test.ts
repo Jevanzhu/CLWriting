@@ -1,6 +1,6 @@
 /**
  * R27-122（二十七轮）：E2E_SPEC_ORDER_SNAPSHOT 守卫落地——此前它是 playwright.config.ts
- * retries:0 注释里宣称却全仓库不存在的幻影防线。e2e 31 specs 共享 globalSetup 单一
+ * retries:0 注释里宣称却全仓库不存在的幻影防线。e2e 全量 specs 共享 globalSetup 单一
  * workDir、按文件名字典序固有顺序跑（前序 spec 落盘是后序输入），新增/改名/删除 spec
  * 即漂移该契约而无人设防。本测试把 test/e2e/*.spec.ts 实际序列与 spec-order.snapshot.txt
  * 快照比对，漂移即红，迫使改序者确认有意后显式重拍快照。

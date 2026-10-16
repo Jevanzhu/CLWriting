@@ -252,7 +252,7 @@ jobs:
     # studio server、release-smoke 起编译产物 server-main.js，均不启动 Electron 壳），
     # 「Electron 面须 mac」的理由不成立；macos runner 计费 10× 于 linux，纯惯例性浪费。
     runs-on: ubuntu-latest
-    # R66-39（十四轮）：与 build-test 同款放宽——build:all + 33 spec 串行（workers:1）+
+    # R66-39（十四轮）：与 build-test 同款放宽——build:all + e2e 全量 spec 串行（workers:1）+
     # release-smoke 二次构建，10 分钟慢机易触顶。20 为过渡值，待实跑数据校准。
     # R0910-W（2026-09-10）：20→25——本轮补 Electron 集成冒烟（apt 装系统依赖 + xvfb 起
     # 真壳）与 soak 步，release-smoke 的 build:all 之上再叠 ~1-2 分钟，取 25 留余量。

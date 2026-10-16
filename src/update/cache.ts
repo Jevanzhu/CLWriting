@@ -35,7 +35,9 @@ export function updateResultPath(homeDir: string): string {
   return join(updateCacheRoot(homeDir), UPDATE_RESULT_FILENAME)
 }
 
-/** 助手结局三态：applied = 已换新并拉起；aborted = 未动目标目录；rolled-back = 换到一半已还原 */
+/** 助手结局三态：applied = 已换新并拉起；aborted = 未动目标目录；rolled-back = 走完回滚
+ *  链路（成功则旧目录已还原；reason 'swap-failed' 的子例里回滚本身也可能失败——目录缺席、
+ *  还原源留待下一次助手启动，见 update-helper 的 swapDirs 注） */
 export type UpdateOutcome = 'applied' | 'aborted' | 'rolled-back'
 
 /** 结局原因码（机器码；人话在渲染层映射——文案改动不该动助手） */

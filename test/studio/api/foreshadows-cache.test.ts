@@ -20,7 +20,7 @@ import {
   forgetForeshadowCache,
   foreshadowCache,
 } from '../../../src/studio/server/api/foreshadows.js'
-import { filterForeshadowTrails, searchForeshadowTrails } from '../../../src/document/foreshadow.js'
+import { filterForeshadowTrails, readForeshadows, scanForeshadowTrails } from '../../../src/document/foreshadow.js'
 import { sleep } from '../../helpers/wait-for.js'
 
 let roots: string[] = []
@@ -113,13 +113,17 @@ describe('R44-8 foreshadows 缓存壳', () => {
     expect(miss).toEqual([])
   })
 
-  it('过滤体与直扫口径一致：filterForeshadowTrails(快照) 等于 searchForeshadowTrails(直扫)', () => {
+  it('过滤体与直扫口径一致：filterForeshadowTrails(快照) 等于同参直扫后过滤', () => {
     const root = makeTree()
     const snapshot = getForeshadowsCached(root)
+    // 直扫侧：现读条目 + 现扫足迹再走上同一个过滤体（缓存壳与非缓存路径的唯一差口
+    // 就该只剩「快照 vs 现算」，故两侧除数据来源外共用同一过滤实现）
+    const entries = readForeshadows(root)
+    const trails = scanForeshadowTrails(root, entries)
     expect(filterForeshadowTrails(snapshot.entries, snapshot.trails, '玉佩')).toEqual(
-      searchForeshadowTrails(root, '玉佩'),
+      filterForeshadowTrails(entries, trails, '玉佩'),
     )
-    expect(filterForeshadowTrails(snapshot.entries, snapshot.trails)).toEqual(searchForeshadowTrails(root))
+    expect(filterForeshadowTrails(snapshot.entries, snapshot.trails)).toEqual(filterForeshadowTrails(entries, trails))
   })
 
   it('TTL 到期重扫；forget 显式失效同效', () => {

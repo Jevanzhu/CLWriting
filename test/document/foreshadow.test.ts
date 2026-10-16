@@ -25,11 +25,18 @@ vi.mock('node:fs', async (importOriginal) => {
 import {
   readForeshadows,
   scanForeshadowTrails,
+  filterForeshadowTrails,
   migrateLegacyForeshadows,
-  searchForeshadowTrails,
 } from '../../src/document/foreshadow.js'
 
 let root: string
+
+/** 直扫检索：生产侧只留 filterForeshadowTrails（缓存壳命中后在快照上过滤），本档需要
+ *  「现扫现滤」这一侧作对照与行为断言，就在档内自己拼一次，不再经生产包装函数。 */
+function searchTrails(q?: string) {
+  const entries = readForeshadows(root)
+  return filterForeshadowTrails(entries, scanForeshadowTrails(root, entries), q)
+}
 
 beforeEach(() => {
   root = mkdtempTracked(join(tmpdir(), 'clw-fs-'))
@@ -435,13 +442,13 @@ describe('低-5（第十轮）：同标题伏笔 trail 不互相覆盖', () => {
     expect(trails.get('唯一线')!.firstHit).toBe(2)
     expect(trails.size).toBe(2) // 唯一标题数：不加复合 key、不因合并丢条目
     // 检索路径同读法：同标题两条都带足迹出现在结果里，且各带的是合并足迹（两条都在）
-    const hits = searchForeshadowTrails(root, '密室')
+    const hits = searchTrails('密室')
     expect(hits).toHaveLength(2)
     expect(hits.every((h) => h.足迹.hits.length === 2)).toBe(true)
   })
 })
 
-describe('searchForeshadowTrails（F1-P3 伏笔足迹 FTS 检索）', () => {
+describe('伏笔足迹检索（F1-P3 FTS 语义）', () => {
   test('按标题 / 关联词 / 命中片段检索，返回足迹（哪章埋了哪章收了）', () => {
     writeForeshadow('古剑', { 重要性: '高', 关联词: '锈剑', 埋设章号: '2' })
     writeForeshadow('玉佩', { 重要性: '中', 关联词: '玉佩', 埋设章号: '1' })
@@ -450,20 +457,20 @@ describe('searchForeshadowTrails（F1-P3 伏笔足迹 FTS 检索）', () => {
     writeChapter(8, '后', '剧情推进。')
 
     // 标题检索
-    const byTitle = searchForeshadowTrails(root, '古剑')
+    const byTitle = searchTrails('古剑')
     expect(byTitle.map((h) => h.标题)).toEqual(['古剑'])
     expect(byTitle[0]!.足迹.firstHit).toBe(2)
     // 关联词检索
-    const byKw = searchForeshadowTrails(root, '玉佩')
+    const byKw = searchTrails('玉佩')
     expect(byKw.map((h) => h.标题)).toContain('玉佩')
     // 命中片段检索（正文里的词）
-    const bySnippet = searchForeshadowTrails(root, '锈剑')
+    const bySnippet = searchTrails('锈剑')
     expect(bySnippet.map((h) => h.标题)).toContain('古剑')
     expect(bySnippet[0]!.足迹.hits[0]!.章号).toBe(2)
     // 空 query → 全量
-    expect(searchForeshadowTrails(root)).toHaveLength(2)
+    expect(searchTrails()).toHaveLength(2)
     // 无匹配 → 空
-    expect(searchForeshadowTrails(root, '不存在词xyz')).toHaveLength(0)
+    expect(searchTrails('不存在词xyz')).toHaveLength(0)
   })
 
   test('按末次命中降序（最近提及在前）', () => {
@@ -473,7 +480,7 @@ describe('searchForeshadowTrails（F1-P3 伏笔足迹 FTS 检索）', () => {
     writeChapter(3, '三', '晚词出现。')
     writeChapter(10, '十', '晚词再提。')
 
-    const all = searchForeshadowTrails(root)
+    const all = searchTrails()
     expect(all.map((h) => h.标题)).toEqual(['晚线', '早线']) // lastHit 10 > 1
   })
 })
@@ -524,8 +531,8 @@ describe('R65-33: 重复章号 warn', () => {
   })
 })
 
-// ── 伏笔足迹全书扫描的章正文指纹缓存：此前 scanForeshadowTrails/searchForeshadowTrails
-// 每次调用 walkMdEach + 逐章 readFile 整读全书正文（请求线程同步执行，长篇秒级阻塞事件
+// ── 伏笔足迹全书扫描的章正文指纹缓存：此前每次足迹扫描（扫描体 + 其上的检索）
+// 都要 walkMdEach + 逐章 readFile 整读全书正文（请求线程同步执行，长篇秒级阻塞事件
 // 循环）；修复后按 mtimeNs+size 指纹缓存章正文——二次扫描未变章节零重读，变更章指纹
 // 失配自动重读并更新足迹。──
 
@@ -579,7 +586,7 @@ describe('伏笔章正文指纹缓存', () => {
 
 // ── 伏笔命中片段按 ±SNIPPET_RADIUS(15) UTF-16 码元切片，边界可落在代理对
 // 中间——emoji/扩展区汉字恰在边界时片段边缘劈出孤立代理对（乱码），且该片段参与
-// searchForeshadowTrails 的命中片段检索。修复：切片边界按码点回退；断言口径 = 片段
+// 足迹检索的命中片段比对。修复：切片边界按码点回退；断言口径 = 片段
 // 逐码元扫描无孤立代理对。（章节/伏笔夹具复用本文件既有 writeChapter / writeForeshadow）──
 
 /** 逐 UTF-16 码元扫描：存在孤立代理对 → true（用 charCodeAt 半边判定，for..of

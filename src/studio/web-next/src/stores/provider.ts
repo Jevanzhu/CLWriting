@@ -127,7 +127,7 @@ export const useProviderStore = defineStore('provider', () => {
     loading.value = true
     try {
       const d = await getProviders()
-      if (refreshGen.stale(gen)) return // 后发 refreshRag 已生效：旧响应不回填
+      if (refreshGen.stale(gen)) return // 后发 refresh 已生效：旧响应不回填（refreshRag 走独立代，不作废本代）
       providers.value = d.providers
       currentId.value = d.currentId
       currentModel.value = d.currentModel

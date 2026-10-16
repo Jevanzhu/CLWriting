@@ -167,6 +167,16 @@ describe('R38-9: .MD 扩展名家族（指纹侧缓存陈旧闭合）', () => {
       `.md 过滤应走 filename.isMdFileName 单源或 toLowerCase 就地折叠；残留：${sensitive.join(', ')}`,
     ).toEqual([])
   })
+
+  it('条目库探针与实读过滤同源 isMdFileName（探针侧回退手写扩展名判定即红）', () => {
+    // 上面那条目录扫描只认裸 endsWith('.md') 形态；`f.slice(-3).toLowerCase() === '.md'`
+    // 这类就地手写判定不在其射程内——探针侧一旦回退手写，探针与实读的分叉（漏看的文件
+    // 改写不失效缓存）就无人拦。本条按代码形态钉本档三处过滤点（探针 / 实读 / 序号扫描）同源。
+    const p = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'format', 'style-entry.ts')
+    const code = readFileSync(p, 'utf-8')
+    expect(code.match(/isMdFileName\(f\)/g) ?? []).toHaveLength(3)
+    expect(code).not.toContain('f.slice(-3)')
+  })
 })
 
 // ── R38-10：空字符串证据 fail-noisy ───────────────

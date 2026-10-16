@@ -354,7 +354,7 @@ function aggregateTrails(
           // 切片边界回退到码点边界——start 落在代理对低半（其高半在
           // start-1）则 start--；end 前一码位是高代理（其低半在 end 处）则 end--。
           // 防 ±SNIPPET_RADIUS 码元边界劈开代理对（emoji/扩展区汉字），片段边缘产
-          // 孤立代理对（乱码）且参与 searchForeshadowTrails 命中片段检索。先例：
+          // 孤立代理对（乱码）且参与足迹检索的命中片段比对。先例：
           // journal.ts truncateSnapshotHeadTail 切点回退手法；半径语义随之 ±1 码元
           // 浮动，可接受。
           if (start > 0 && isLowSurrogate(text.charCodeAt(start))) start--
@@ -639,24 +639,11 @@ interface ForeshadowSearchHit {
 }
 
 /**
- * 伏笔足迹检索：按标题 / 关联词 / 命中片段过滤 scanForeshadowTrails 结果。
+ * 足迹检索过滤体——api/foreshadows.ts 的「目录指纹 + TTL」缓存壳命中后在已算好的
+ * （entries, trails）快照上做 ?q= 过滤，不全量重扫；过滤维度/排序与直扫逐位一致。
  *
  * query 为空 → 全量（按末次命中降序，最近提及在前）。
- * 匹配维度（F3/ FTS 语义）：标题、关联词、命中词、命中片段上下文（大小写不敏感）。
- *
- * @param bookRoot 书仓库根
- * @param query 检索词（可选；大小写不敏感）
- */
-export function searchForeshadowTrails(bookRoot: string, query?: string): ForeshadowSearchHit[] {
-  const entries = readForeshadows(bookRoot)
-  const trails = scanForeshadowTrails(bookRoot, entries)
-  return filterForeshadowTrails(entries, trails, query)
-}
-
-/**
- * searchForeshadowTrails 的过滤体拆出——api/foreshadows.ts 的
- * 「目录指纹 + TTL」缓存壳命中后在已算好的（entries, trails）快照上做 ?q= 过滤，
- * 不再全量重扫；过滤维度/排序与拆出前逐位一致（同一实现双入口，不复制逻辑）。
+ * 匹配维度（FTS 语义）：标题、关联词、命中词、命中片段上下文（大小写不敏感）。
  */
 export function filterForeshadowTrails(
   entries: ForeshadowEntry[],

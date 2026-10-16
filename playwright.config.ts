@@ -19,7 +19,7 @@ export default defineConfig({
   // 顺序契约守卫 test/e2e/spec-order.guard.test.ts 是 vitest 用例
   // （注释宣称的 E2E_SPEC_ORDER_SNAPSHOT 此前是幻影，本轮落地），但 *.test.ts
   // 会命中 Playwright 默认 testMatch——不排除它会被收进 spec 集，破坏 spec 顺序契约
-  // （现 33 spec；spec-order.snapshot.txt 快照 = 机检真值，注释计数不承重）。
+  // （spec 全量清单与顺序 = spec-order.snapshot.txt 机检真值，注释不记数）。
   // 从单点豁免泛化为「Playwright 只认 *.spec.ts」——e2e 目录里的
   // vitest 单测（guard 端口偏移断言等）每加一个都要补豁免不可持续，且漏补
   // 的形态是 runner 级崩溃（vitest import 在 playwright 进程无内部状态可访问），
