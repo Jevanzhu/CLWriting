@@ -301,3 +301,57 @@ describe('R73-63: WorkbenchView 双击「存草稿并编辑」→ saveDraft 只�
     w.unmount()
   })
 })
+
+// ═══════════ AiServicePanel.saveTiers：失败不得覆盖未提交草稿 ═══════════
+// 不变量：saveTiers 失败时不得 refresh + syncTierForm——二者会用服务端 tiers 整体
+// 回填表单，抹掉用户尚未提交的档位草稿（失败须原样留下草稿供改后重试）。
+
+describe('AiServicePanel.saveTiers 保存失败不覆盖用户草稿', () => {
+  it('setTiers 失败 → 不 refresh、表单草稿（超时输入）保留', async () => {
+    providerMocks.setTiers.mockRejectedValue(new Error('保存失败'))
+    const w = mount(AiServicePanel, { attachTo: document.body })
+    await flushPromises()
+
+    const store = useProviderStore()
+    const refreshSpy = vi.spyOn(store, 'refresh') // onMounted 的 refreshAll 已跑完，此后计数
+
+    // 用户改创作档超时草稿（尚未提交）——5 分钟
+    const timeout = w.find('.tier-card.primary .tier-timeout-input')
+    await timeout.setValue('5')
+    await timeout.trigger('change')
+    expect((timeout.element as HTMLInputElement).value).toBe('5')
+
+    await w.find('.tier-section .save-btn').trigger('click')
+    await flushPromises()
+
+    expect(providerMocks.setTiers).toHaveBeenCalledTimes(1)
+    expect(refreshSpy).not.toHaveBeenCalled() // 修复点：失败不刷新
+    // 修复点：草稿未被服务端值覆盖，仍是用户输入
+    expect((w.find('.tier-card.primary .tier-timeout-input').element as HTMLInputElement).value).toBe('5')
+    w.unmount()
+  })
+
+  it('setTiers 成功 → refresh + 表单回填（既有行为不变）', async () => {
+    providerMocks.setTiers.mockResolvedValue({ tiers: baseTiers, revision: 1 })
+    providerMocks.setChatTier.mockResolvedValue({ tiers: baseTiers, revision: 2 })
+    const w = mount(AiServicePanel, { attachTo: document.body })
+    await flushPromises()
+
+    const store = useProviderStore()
+    const refreshSpy = vi.spyOn(store, 'refresh')
+
+    // 用户改创作档推理等级（草稿），保存成功后应被服务端值回填重置
+    const effort = w.find('.tier-card.primary .tier-effort-select')
+    await effort.setValue('low')
+    expect((w.find('.tier-card.primary .tier-effort-select').element as HTMLSelectElement).value).toBe('low')
+
+    await w.find('.tier-section .save-btn').trigger('click')
+    await flushPromises()
+
+    expect(providerMocks.setTiers).toHaveBeenCalledTimes(1)
+    expect(refreshSpy).toHaveBeenCalledTimes(1) // 成功路径照旧刷新
+    // 服务端 baseTiers.creative.effort = xhigh → 表单回填为服务端值
+    expect((w.find('.tier-card.primary .tier-effort-select').element as HTMLSelectElement).value).toBe('xhigh')
+    w.unmount()
+  })
+})

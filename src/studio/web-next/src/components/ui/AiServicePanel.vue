@@ -264,12 +264,13 @@ async function saveTiers(): Promise<void> {
       creative: tierForm.value.creative,
       assistant: assistantEnabled.value ? tierForm.value.assistant : null,
     })
-    if (ok) {
-      // 对话档独立端点（不碰 creative/assistant/currentModel）
-      await store.applyChatTier(chatTierEnabled.value ? tierForm.value.chat : null)
-      void ui.probeAiStatus()
-      ui.toast('档位已保存', 'success')
-    }
+    // 保存失败：早退——refresh + syncTierForm 会用服务端值覆盖用户尚未提交的档位草稿
+    // （refresh 重读 tiers，syncTierForm 整体回填表单），失败时须原样留下草稿供改后重试
+    if (!ok) return
+    // 对话档独立端点（不碰 creative/assistant/currentModel）
+    await store.applyChatTier(chatTierEnabled.value ? tierForm.value.chat : null)
+    void ui.probeAiStatus()
+    ui.toast('档位已保存', 'success')
     await store.refresh()
     syncTierForm()
   } finally {
