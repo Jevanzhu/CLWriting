@@ -8,13 +8,13 @@
  * 路径防穿越：resolve + relative 判定，必须落在 bookRoot 内。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { basename, join } from 'node:path'
+import { basename } from 'node:path'
 import { readFile as readFileAsync } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
-import { resolveWithinRoot, platformCaseFold, normalizeWinSeparators } from '../../../fs/safe-path.js'
+import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { acquireCrossProcessLockAsync } from '../../../fs/cross-process-lock.js'
-import { canonicalizeText, toNfcName } from '../../../fs/text-canonical.js'
+import { canonicalizeText } from '../../../fs/text-canonical.js'
 import { isMdFileName } from '../../../format/filename.js'
 import { isUtf8Bytes } from '../../../document/service-guards.js'
 import { defineRoute } from './schema.js'
@@ -26,6 +26,7 @@ import { reply, replyError, parseRequestUrl, CONTENT_BODY_LIMIT_BYTES } from '..
 import type { FileContentPayload, Revision } from '../../../shared/contract/documents.js'
 import { bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import { invalidateTreeIndexForContent } from '../../../document/tree.js'
+import { wiringLockKeyOfRel } from '../../../document/wiring-lock-key.js'
 import { forgetStateCache } from './state.js' // PUT 写后 /state 判态缓存失效（写侧失效挂点单源）
 // NonUtf8TargetError 类型化分诊（确定性拒绝 ≠ 瞬态 IO，见 PUT 快照 catch 注）
 import { snapshotBeforeOverwrite, NonUtf8TargetError } from '../../../process/draft-pipeline.js' // 覆盖留底单源复用（同款）
@@ -171,7 +172,7 @@ export function registerFileRoutes(ctx: FileCtx): void {
         // 布线/关系线文件先取同名布线锁（与保存/定稿链同锁文件互斥），
         // 超时 fail-closed 拒写可重试（裸写正是本锁要闭合的覆盖形态）——此前 PUT 直写
         // 绕过布线锁协议，跨进程定稿履历回写可无痕覆盖 PUT 刚落的内容
-        const wiringKey = wiringLockKeyForPut(bookRoot, putRel)
+        const wiringKey = wiringLockKeyOfRel(bookRoot, putRel)
         let wiringRelease: (() => void) | null = null
         if (wiringKey) {
           try {
@@ -336,29 +337,4 @@ function writablePath(bookRoot: string, file: string): { rel: string; abs: strin
   const allowed = EDIT_DIRS.some(({ dir }) => safe.rel === dir || safe.rel.startsWith(`${dir}/`))
   if (!allowed && !WORKDIR_EDITABLE.has(safe.rel)) return null
   return { rel: safe.rel, abs: safe.abs }
-}
-
-/** PUT /file 的布线锁键——与 DocumentService.wiringFileLockKey /
- *  lead-finalize wiringFileLockKeyOf 同口径（前缀过滤 + join(bookRoot, rel) + win32 折叠），
- *  保证 PUT 直写与保存/定稿履历回写取到**同一个锁文件**（互斥成立）。此前 PUT 白名单
- *  放行 布线/大纲/关系线/ 但临界段不取锁：跨进程下 CLI 定稿持锁 RMW 与 PUT 直写交错，
- *  writeLead 以旧读内容覆盖 PUT 刚落的新内容——无痕丢更新（快照留底的是覆写前旧内容）。 */
-function wiringLockKeyForPut(bookRoot: string, rel: string): string | null {
-  // mac适配：前缀门归一收编 normalizeWinSeparators（win32-only，与
-  // DocumentService.wiringFileLockKey 同批同口径）——posix 上字面 `\` 文件名
-  // （`布线\x.md` 系书根单段名、非布线目录内文件）不再误入布线锁前缀门
-  const p = normalizeWinSeparators(rel)
-  if (p.startsWith('布线/') || p.startsWith('大纲/关系线/')) {
-    const key = `${join(bookRoot, rel)}.lock`
-    // 同款 win32 折叠——与两侧既有实现逐位一致（回归锚定同键）
-    // 折叠改委托 safe-path platformCaseFold 单源（前缀过滤/join/
-    // '.lock' 管线不变，键字节不变；test/document/casefold-keys.test.ts 静态扫描锁定本委托）
-    // 折叠前补 toNfcName（先 NFC 后
-    // 大小写折叠，与 docJoinKey 同序）——本侧同型缺口同批修齐：外部工具经 API 以
-    // NFD 形态送 rel 时此前派生不同 .lock，PUT 直写与保存/定稿互斥静默失效。NFC
-    // 输入键字节不变（字节稳定不变量相容），仅 NFD 输入键变化；与 service/
-    // lead-finalize 两侧同式，三侧仍逐位一致
-    return platformCaseFold(toNfcName(key))
-  }
-  return null
 }

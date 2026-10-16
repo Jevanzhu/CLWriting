@@ -8,10 +8,10 @@
  * 分隔符归一 / NFC / resolve，各管线留在调用点）。硬性不变量：锁键派生磁盘真实
  * 锁文件名，键字节与收编前逐位一致（新旧版本进程混跑时锁互斥仍成立）。
  *
- * 可达性：R0916-7-P3-8 起锁键本体在 DocContext.wiringFileLockKey（svc.ctx 显式 API 直调，
- * 原「类私有 + as unknown as」形态随剥 private 面收编一并消失）；
- * files.ts wiringLockKeyForPut 与 document manifestLockKey 为模块私有——前者按
- * relpath-key-fold.test.ts 消费点静态扫描先例锁定委托；后者走 withManifestLock 重入
+ * 可达性：布线锁键本体（E2 起）在 document/wiring-lock-key.ts，三侧经
+ * DocContext.wiringFileLockKey（svc.ctx 显式 API 直调）/ lead-finalize 包装 /
+ * files.ts 直调抵达；非导出面按消费点静态扫描锁定委托（见末节）。
+ * document manifestLockKey 走 withManifestLock 重入
  * 行为面锚定（r35-manifest-lock-async 先例：重入键即 manifestLockKey 归一结果）。
  */
 import { expect, afterEach, describe, it, vi } from 'vitest'
@@ -27,6 +27,7 @@ import {
   MANIFEST_LOCK_TIMEOUT_MS,
 } from '../../src/document/manifest.js'
 import { wiringFileLockKeyOf } from '../../src/document/lead-finalize.js'
+import { wiringLockKeyOfRel } from '../../src/document/wiring-lock-key.js'
 import { relPathKey, platformCaseFold } from '../../src/fs/safe-path.js'
 import { caseFoldKey } from '../../src/knowledge/manifest.js'
 
@@ -66,6 +67,9 @@ describe('R45-2: 三侧布线锁同键（win32 钉定）', () => {
       const leadKey = wiringFileLockKeyOf(join(root, rel))
       expect(svcKey).not.toBeNull()
       expect(svcKey).toBe(leadKey)
+      // E2：三侧收敛单源后，单源直调与两侧同键（键构造唯一实现处）
+      expect(wiringLockKeyOfRel(root, rel)).toBe(svcKey)
+      expect(wiringLockKeyOfRel(root, '写作/正文/0001-章.md')).toBeNull()
       // 精确字节钉定：join(root, rel) 小写折叠 + '.lock'（与收编前手写实现逐位一致）
       expect(svcKey).toBe(`${join(root, rel).toLowerCase()}.lock`)
       // 前缀过滤留调用点：非布线文件不加锁（win32 下亦然）
@@ -158,10 +162,10 @@ describe('R45-2: 收编面静态扫描（r38-batch-f 消费点扫描先例）', 
   const DELEGATING = [
     'knowledge/manifest.ts',
     'document/manifest.ts',
-    'document/doc-context.ts', // R0916-7-P3-8：锁键本体迁 DocContext（扫描随代码走，锚定意图不变）
-    'document/lead-finalize.ts',
-    'studio/server/api/files.ts',
+    'document/wiring-lock-key.ts', // 布线锁键三侧收敛后的单源本体（折叠委托随键构造迁此）
   ]
+  /** 布线锁键三侧——键构造不再各持一份，只调单源；手写折叠同样归零。 */
+  const LOCK_KEY_CALL_SITES = ['document/doc-context.ts', 'document/lead-finalize.ts', 'studio/server/api/files.ts']
   /** 剥注释行后扫描（对齐 r38-batch-f R38-18 做法，注释提及不误报）。 */
   function codeOf(rel: string): string {
     return readFileSync(join(SRC_ROOT, rel), 'utf-8')
@@ -170,12 +174,27 @@ describe('R45-2: 收编面静态扫描（r38-batch-f 消费点扫描先例）', 
       .join('\n')
   }
 
-  it('五处调用点委托 platformCaseFold，手写 win32 折叠归零', () => {
+  it('折叠委托面（含锁键单源本体）委托 platformCaseFold，手写 win32 折叠归零', () => {
     for (const f of DELEGATING) {
       const code = codeOf(f)
       expect(code.includes('platformCaseFold('), `${f} 缺 platformCaseFold 委托`).toBe(true)
       expect(code.includes("process.platform === 'win32'"), `${f} 残留手写 win32 折叠`).toBe(false)
     }
+  })
+
+  it('布线锁键三侧只调单源（键构造/折叠逻辑零副本）', () => {
+    for (const f of LOCK_KEY_CALL_SITES) {
+      const code = codeOf(f)
+      expect(code.includes('wiringLockKeyOf'), `${f} 未接单源`).toBe(true)
+      expect(code.includes('platformCaseFold('), `${f} 仍自持折叠逻辑`).toBe(false)
+    }
+  })
+
+  it('锁键单源本体：前缀门 + `.lock` 后缀 + 折叠/归一管线齐备', () => {
+    const code = codeOf('document/wiring-lock-key.ts')
+    expect(code.includes("p.startsWith('布线/')")).toBe(true)
+    expect(code.includes("p.startsWith('大纲/关系线/')")).toBe(true)
+    expect(code.includes('.lock`')).toBe(true)
   })
 
   it('单源 safe-path.ts 恰存一处 win32 判定（platformCaseFold 本体）', () => {

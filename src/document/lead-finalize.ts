@@ -15,8 +15,8 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { atomicWriteFile, rmWithRetry } from '../fs/atomic.js'
-import { canonicalizeText, toNfcName } from '../fs/text-canonical.js'
-import { platformCaseFold } from '../fs/safe-path.js'
+import { canonicalizeText } from '../fs/text-canonical.js'
+import { wiringLockKeyOfAbs } from './wiring-lock-key.js'
 import { join } from 'node:path'
 // readLead 不再直接调用（改单读派生孪生）。
 // 孪生 readLeadFromBytes 单源在 leads.ts 导出——消费侧五件同步副本
@@ -109,23 +109,9 @@ export function resolveLeadUpdateTargets(bookRoot: string, chapterNo: number): L
  * 自取锁包装——异步等待期 setTimeout 轮询，不阻塞事件循环。
  */
 
-/** 布线锁键的 win32 折叠——service.ts wiringFileLockKey 的
- *  口径已对 save 侧锁键 casefold，本侧（回写链）此前用盘上扫描路径原样拼 `.lock`，
- *  两侧折叠不对称：外部 case-only 改名后 manifest 侧名（已折叠）与盘上真实名（未
- * 折叠）派生出不同锁文件，互斥静默失效（并发防线开窗）。键构造仍为的
- *  join(bookRoot, rel) 词法路径 + '.lock'（不经 realpath，防 symlink 根下键名漂移），
- *  仅补 win32 casefold 与 service 侧逐位对齐。导出供回归测试锚定两侧同键。
- * 折叠改委托 safe-path platformCaseFold 单源（join 词法路径 +
- *  '.lock' 拼接不变，键字节不变）。
- * 折叠前补 toNfcName（先 NFC 后
- *  大小写折叠，与文档身份键 docJoinKey = relPathKey(toNfcName(p)) 同序并齐）——本侧
- *  用盘上扫描路径（NFD，外源工具常产）原样拼键，与 service 侧清单登记路径（NFC 为
- *  主）此前对同一布线文件派生两个不同 .lock，保存链与终稿链（锁内重读-合并-写回）
- * 互斥静默失效（丢失更新窗）。NFC 输入键字节不变（与字节稳定不变量相容），
- *  仅 NFD 输入键变化；service 侧与 files.ts PUT 侧（wiringLockKeyForPut）同批同式，
- * 三侧仍逐位一致（口径延续）。 */
+/** 布线锁键（绝对路径形态）——单源 = ./wiring-lock-key；导出面保留，供三侧同键回归锚定。 */
 export function wiringFileLockKeyOf(absFile: string): string {
-  return `${platformCaseFold(toNfcName(absFile))}.lock`
+  return wiringLockKeyOfAbs(absFile)
 }
 
 /** 同步预取：全部成功 → release 列表；任一失败 → 释放已取得者并返回 null。 */

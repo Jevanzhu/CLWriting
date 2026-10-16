@@ -9,8 +9,9 @@
  * 静默失效（丢失更新窗）。修复后：三侧统一「先 toNfcName 后 platformCaseFold」
  * （与 docJoinKey 同序）。
  *
- * 断言形态同 casefold-keys.test.ts：R0916-7-P3-8 起锁键本体在 DocContext
- * （svc.ctx.wiringFileLockKey 直调，不再 as unknown as 摸类私有面）；精确钉定键字节——NFC 输入键与修前逐位一致（R45-2 字节稳定不变量
+ * 断言形态同 casefold-keys.test.ts：E2 起键本体在 document/wiring-lock-key.ts，
+ * 三侧只调单源（svc.ctx.wiringFileLockKey 直调，不再 as unknown as 摸类私有面）；
+ * 精确钉定键字节——NFC 输入键与修前逐位一致（R45-2 字节稳定不变量
  * 防回归），仅 NFD 输入键变化。行为级：真实跨进程文件锁——终稿链键（NFD 磁盘
  * 路径派生）持锁后，保存链键（NFC 清单 relPath 派生）请求同一锁文件自锁超时，
  * 互斥成立（修前两键相异则第二把锁直接得手，本用例红）。
@@ -23,6 +24,7 @@ import { fileURLToPath } from 'node:url'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 import { wiringFileLockKeyOf } from '../../src/document/lead-finalize.js'
+import { wiringLockKeyOfRel } from '../../src/document/wiring-lock-key.js'
 import { acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
 
 const ORIG_PLATFORM = process.platform
@@ -64,6 +66,8 @@ describe('重评-0912-2 P2-3: 布线锁键 NFC 归一（NFC 清单形态 vs NFD 
         expect(svcKey).toBe(leadKey)
         // 键字节恰为 NFC 形态折叠值——NFD 输入被归一，而非各自保留形态
         expect(svcKey).toBe(`${join(root, NFC_REL).toLowerCase()}.lock`)
+        // E2：单源直调同键（「先 NFC 后折叠」序的唯一实现处）
+        expect(wiringLockKeyOfRel(root, NFD_REL)).toBe(svcKey)
         // 保存链自身收到 NFD 扫描形态 relPath（树扫描入口）也同键
         expect(svc.wiringFileLockKey(NFD_REL)).toBe(svcKey)
         // 前缀过滤留调用点：非布线文件不加锁（归一不改前缀判定面）
@@ -128,7 +132,7 @@ describe('重评-0912-2 P2-3: 行为级——保存链与终稿链物理互斥�
   })
 })
 
-describe('重评-0912-2 P2-3: files.ts PUT 侧同批修齐（模块私有，静态扫描先例锁定）', () => {
+describe('重评-0912-2 P2-3: 三侧键派生单源化（静态扫描锁定，序不可倒置）', () => {
   const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src')
 
   /** 剥注释行后扫描（r45-casefold-keys / r38-batch-f 消费点扫描同款）。 */
@@ -139,11 +143,12 @@ describe('重评-0912-2 P2-3: files.ts PUT 侧同批修齐（模块私有，静�
       .join('\n')
   }
 
-  it('三侧键派生均为「platformCaseFold(toNfcName(…))」序（NFC 在折叠内，序不可倒置）', () => {
-    // R0916-7-P3-8：锁键本体自 service.ts 迁 doc-context.ts（DocContext.wiringFileLockKey），
-    // 静态扫描随代码走——锚定意图不变（三侧键派生同为「platformCaseFold(toNfcName(key))」序）
-    expect(codeOf('document/doc-context.ts')).toContain('platformCaseFold(toNfcName(key))')
-    expect(codeOf('studio/server/api/files.ts')).toContain('platformCaseFold(toNfcName(key))')
-    expect(codeOf('document/lead-finalize.ts')).toContain('platformCaseFold(toNfcName(absFile))')
+  it('键派生「platformCaseFold(toNfcName(…))」序住单源本体；三侧只调单源', () => {
+    // E2：键构造三侧收敛到 document/wiring-lock-key.ts——序断言随本体迁此，
+    // 三侧锚定「只经单源导出抵达」（不再各自持有派生表达式）
+    expect(codeOf('document/wiring-lock-key.ts')).toContain('platformCaseFold(toNfcName(absFile))')
+    expect(codeOf('document/doc-context.ts')).toContain('wiringLockKeyOfRel(')
+    expect(codeOf('studio/server/api/files.ts')).toContain('wiringLockKeyOfRel(')
+    expect(codeOf('document/lead-finalize.ts')).toContain('wiringLockKeyOfAbs(')
   })
 })

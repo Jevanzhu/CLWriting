@@ -23,10 +23,10 @@
  */
 import { existsSync, mkdirSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { normalizeWinSeparators, platformCaseFold, resolveWithinRoot } from '../fs/safe-path.js'
+import { normalizeWinSeparators, resolveWithinRoot } from '../fs/safe-path.js'
 import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
-import { toNfcName } from '../fs/text-canonical.js'
 import { isInternalBookPath } from './layout.js'
+import { wiringLockKeyOfRel } from './wiring-lock-key.js'
 import {
   manifestPathOf,
   readManifestStrict,
@@ -125,43 +125,11 @@ export class DocContext {
     return safe.abs
   }
 
-  /** 布线线索文件的跨进程文件锁键（非布线文件 → null 不加锁）。
-   *  背景：lead-finalize.ts 对单个布线文件的「读旧→补履历→writeLead」临界段持
-   * `<文件绝对路径>.lock`，与保存链按 journal 命名的 save 锁互不感知——注释宣称
-   *  防住了「作者经 executeSave 保存同一布线文件」，实际没防住（lost update：保存的新正文
-   *  被回写的旧正文整文件覆盖）。保存链三个写路径（executeSave/updateChapterMeta/
-   *  updateDocMeta）在 save 锁内对本文件再取**同名锁**，双侧同名锁互斥后覆盖窗口真正
-   *  闭合。键必须与 lead-finalize 同构造（join(bookRoot, relPath) 词法路径，不经
-   *  realpath）——resolveSafePath 对存在目标返回 realpath，在 symlink 根（macOS tmp
-   *  /var→/private/var）下会拼出不同键名使互斥失效。关系线按 lead-finalize 同口径位于
-   *  大纲/关系线/（同为布线族回写点），一并覆盖。
-   * 锁序：全仓统一「save 锁 → 布线锁 → 清单锁」——定稿链原
-   *  「持清单锁内取布线锁」的反向交叉对已由 finalize 入口预取布线锁消除。 */
+  /** 布线线索文件的跨进程文件锁键（非布线文件 → null 不加锁）；键构造与归一单源 =
+   *  ./wiring-lock-key（本侧 / 定稿链 / PUT 直写三侧同键，互斥才成立）。
+   *  锁序：全仓统一「save 锁 → 布线锁 → 清单锁」。 */
   wiringFileLockKey(relPath: string): string | null {
-    // mac适配：前缀门归一 win32-only——真实布线文件（`布线/`、
-    // `大纲/关系线/` 前缀）两种形态下判定一致、键字节用原始 relPath 不受影响；
-    // files.ts wiringLockKeyForPut（范围外）暂保留无条件归一，可达路径上判定与键逐位一致
-    const p = normalizeWinSeparators(relPath)
-    if (p.startsWith('布线/') || p.startsWith('大纲/关系线/')) {
-      const key = `${join(this.bookRoot, relPath)}.lock`
-      // win32 大小写折叠（对齐 manifestLockKey）——外部
-      // case-only 改名后 save 链与 lead-finalize 链此前会取不同锁文件，互斥静默失效
-      // lead-finalize 侧锁键已同口径折叠（wiringFileLockKeyOf）——
-      // 本侧此前单侧折叠构成不对称，现两侧逐位一致（回归测试锚定同键；不为收口单一
-      // 真相源引入 service↔lead-finalize 循环 import——后者已反向 import isUtf8Bytes）
-      // 折叠改委托 safe-path platformCaseFold 单源——safe-path 为
-      // 底层叶子模块，委托不引入循环 import；前缀过滤/join/'.lock' 管线不变，键字节不变
-      // 折叠前补 toNfcName（先 NFC 后
-      // 大小写折叠，与文档身份键 docJoinKey = relPathKey(toNfcName(p)) 同序并齐）——
-      // mac 上清单登记路径（NFC 为主）与磁盘扫描路径（NFD，外源工具常产）此前对同一
-      // 布线文件派生两个不同 .lock 文件名，保存链与终稿链（锁内重读-合并-写回）互斥
-      // 静默失效（丢失更新窗）。join(bookRoot, relPath) 后整段 NFC 安全：分隔符 / 不受
-      // 组合字符影响（docJoinKey 注释同口径）；NFC 输入键字节不变（与字节稳定
-      // 不变量相容），仅 NFD 输入键变化；lead-finalize 侧（wiringFileLockKeyOf）与
-      // files.ts PUT 侧（wiringLockKeyForPut）同批同式，三侧仍逐位一致
-      return platformCaseFold(toNfcName(key))
-    }
-    return null
+    return wiringLockKeyOfRel(this.bookRoot, relPath)
   }
 
   /** 保存链锁编排单源——「save 锁
