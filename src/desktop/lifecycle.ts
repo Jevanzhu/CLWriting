@@ -327,7 +327,7 @@ function confirmDiscardFailed(parent: BrowserWindow, count: number): boolean {
  * close/quit 两链的 flush→确认→取消复位流程双写单源。
  * 流程（两链原序逐位保留）：
  *   flushRendererWithBudget（预算竞速）→ 超时 warn / 无钩子 info 留痕（文案各链注入）
- *   → skipConfirms 停机复查留痕（仅 close 链传）→ conflict 原生确认 → failed 留痕 +
+ *   → skipConfirms 停机复查留痕（两链同源传入）→ conflict 原生确认 → failed 留痕 +
  *   原生确认 → 取消即 onCancel（复位各自在途旗/丢弃切库意图/回写回滚基线——复位时机
  *   原样）并返回 'cancel'。
  * 返回 'proceed' = 确认全过（或无可确认），调用方接各自收尾（close 链 destroy 单窗、
@@ -341,8 +341,10 @@ interface FlushConfirmOpts {
   idleLog: string
   /** failed 留痕前缀（「关窗兜底」/「退出前」——原文案逐字拆分点） */
   failedPrefix: string
-  /** flush 落定后补停机复查——仅 close 链传入（isExitPassthrough（原
-   *  sessionEnding/appTearingDown）在途时跳过确认框：停机窗口内无人可答），quit 链无此项。
+  /** flush 落定后补停机复查——两链同源传入（isExitPassthrough（原
+   *  sessionEnding/appTearingDown）在途时跳过确认框：停机窗口内无人可答）。quit 链只靠
+   *  入口闸拦不住本形态（入口看到的是「进入 quit 链时停机面」；quit 先到 → flush 在途 →
+   *  session-end 后置竞窗照旧弹框钉死进程），故同上传入。
    *  Thunk 形态：竞窗语义是「flush 落定后」再读相位/停机面（close 先到 → flush 在途 →
    *  session-end 后置也命中），调用时快照布尔会漏掉后置置位——评估点固定在 flush 落定后
    *  （flushRendererWithBudget await 之后的唯一读取点）。 */
@@ -665,6 +667,9 @@ export function registerQuitChain(gate: ShutdownGateLike, serverManager: ServerM
             timeoutLog: `退出前 flush 超时（≥${CLOSE_FLUSH_BUDGET_MS}ms）未落定即退出——超时窗内未保存的键入可能丢失`,
             idleLog: '退出前 flush 无钩子/渲染层不可达（非编辑页常态），继续退出',
             failedPrefix: '退出前',
+            // flush 落定后补停机复查（stop 面在 flush 在途期后置也命中）——与 close 链
+            // 同源判据：停机窗口内无人可答，弹原生确认只会把进程钉死到强杀
+            skipConfirms: () => isExitPassthrough(),
             // 取消 = 丢弃切库意图（退出语义不被劫持成重启）
             // 取消 = 回写旧库（跨会话不残留被取消的新库）
             // 回写等待已异步化（writeStore 的跨进程锁走异步孪生），本回调 await 完

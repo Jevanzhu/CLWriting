@@ -414,6 +414,44 @@ describe('R44-2: 关窗/退出兜底（close 拦截 + flush 钩子 + 冲突确�
     await vi.waitFor(() => expect(M.quitCalls).toBe(quit0 + 1))
     expect(child.posted).toContainEqual({ type: 'shutdown' })
   })
+
+  // quit 链的 flush 落定停机复查——与 close 链同型竞窗（见 R1010b-DSK-P2-1）：before-quit
+  // 先到（入口闸只看「进入时停机面」）→ flush 在途 → session-end 后置 → 落定后的原生
+  // 确认框会在 OS 会话收尾窗口内弹出，把进程钉死到强杀。判据与 close 链逐位同源
+  //（isExitPassthrough）。非直通形态的确认行为由上方「before-quit + 冲突未决 + 取消」
+  // 用例锚定（跳过确认会在此形态下把取消走成退出，该用例即变红）。
+  it('quit flush 在途时 session-end 置停机面 → flush 落定跳过原生确认继续退出', async () => {
+    const quit0 = M.quitCalls
+    const win = await freshModule()
+    // flush 挂手动闸（模拟竞窗：退出先到、flush 未落定，session-end 随后置停机面）
+    let release!: (v: unknown) => void
+    const gate = new Promise((r) => {
+      release = r
+    })
+    win.webContents.executeJavaScript = (code: string) => {
+      win.webContents.execJs.push(code)
+      return gate
+    }
+    const box0 = M.msgBoxSync.length
+    const warn0 = M.logWarns.length
+    // 1) 退出先到：拦下等 flush（在途窗口）
+    const e1 = { preventDefault: vi.fn() }
+    M.appOn['before-quit']!.at(-1)!(e1)
+    expect(e1.preventDefault).toHaveBeenCalledTimes(1)
+    await new Promise((r) => setImmediate(r))
+    expect(win.webContents.execJs).toHaveLength(1)
+    // 2) OS 关机竞入：停机面置 ending（session-end 并行 flush 同闸挂起 + 停机指令另路下发）
+    win.emit('session-end', {})
+    await new Promise((r) => setImmediate(r))
+    // 3) flush 落定（conflict/failed 非空；同步确认缺省返回值 1 = 取消）→ 零同步确认，
+    //    退出链照常推进到停机收口（若弹确认，缺省取消会把退出卡成「应用原样保留」）
+    release({ conflict: ['d1'], failed: ['d2'] })
+    await new Promise((r) => setImmediate(r))
+    expect(M.msgBoxSync.length).toBe(box0) // 停机窗口内零同步确认（进程不被钉死）
+    await vi.waitFor(() => expect(M.quitCalls).toBe(quit0 + 1))
+    expect(M.logWarns.slice(warn0).some((l) => String((l as unknown[])[1]).includes('跳过冲突/失败确认'))).toBe(true)
+    expect(win.isDestroyed()).toBe(true) // 留痕后照常收口 destroy 全窗
+  })
 })
 
 // ── R49-5（评审四十九轮）：close/quit 两 flush 链互斥——同窗不双 executeJavaScript ──
