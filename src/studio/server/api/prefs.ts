@@ -53,6 +53,9 @@ interface PrefsCtx {
 /** 全局偏好写锁等待超时（毫秒）——写段为本地文件 IO 级毫秒，5s 极保守（同 providers 锁档） */
 const GLOBAL_PREFS_WRITE_LOCK_TIMEOUT_MS = 5_000
 
+/** 书级偏好写锁等待超时（毫秒）——同全局档预算（写段同为本地文件 IO 级毫秒） */
+const BOOK_PREFS_WRITE_LOCK_TIMEOUT_MS = 5_000
+
 // ── 写入面键白名单 + 值类型校验（两端点同源）────────────────────
 // 背景：原实现把 payload 的任意键与任意 JSON 值直接 {...disk, ...prefs} 合并落盘——
 // prefs.json / global.json 是「按名读键」的共享配置文件（版本保留策略、全局书级托底链、
@@ -225,11 +228,20 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
       // 删书/改名后，mkdirSync recursive 重建无 book.yaml 幽灵目录 + 布局偏好静默写旧路径
       const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
       if (moved) return replyError(res, 409, moved.code, moved.reason)
+      // 书级 prefs.json 同为跨进程共享可写面（同书多窗口/CLI 进程并发 PUT）：读盘→合并
+      // →写盘三段只保「单进程内原子」，跨进程仍是 TOCTOU——两侧各按自己读到的盘面合并落盘，
+      // 一方键静默丢失（revision 乐观锁管用户可见冲突，丢更新由锁兜；与全局档同构）。
+      // 取锁排在书注册重验之后：取锁会 mkdirSync 派生目录，先取锁会在已删书上重建幽灵目录。
+      const release = await acquireCrossProcessLockAsync(`${r.path}.lock`, BOOK_PREFS_WRITE_LOCK_TIMEOUT_MS)
+      if (!release) {
+        log.error('api', `写书级偏好获取跨进程锁超时（其他窗口长期占用）：${r.path}`)
+        return replyError(res, 500, 'IO_ERROR', '本书偏好正被其他窗口写入，请稍后重试')
+      }
       try {
         // 低级项：合并写（对齐 library.prefs.put 口径）——prefs.json 同样
         // 可能存在端点 payload 之外的使用方（手工/脚本写入的键），整体覆写会静默清键。
-        // 盘上键 ← 客户端键覆盖；无删键场景（前端已知键全量回传）。读盘→写盘在
-        // await readJson 之后全同步，单事件循环内原子
+        // 盘上键 ← 客户端键覆盖；无删键场景（前端已知键全量回传）。读盘→合并→写盘
+        // 三段在锁内同步无 await——盘面在锁内重读，跨进程串行由锁保证
         let disk: Record<string, unknown> = {}
         if (existsSync(r.path)) {
           try {
@@ -259,6 +271,8 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
       } catch (e) {
         log.error('api', '写 prefs 失败', e)
         replyError(res, 500, 'IO_ERROR', '写 prefs 失败')
+      } finally {
+        release()
       }
     },
   })

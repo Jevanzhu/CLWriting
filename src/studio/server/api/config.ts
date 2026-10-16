@@ -19,6 +19,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { atomicWriteFile } from '../../../fs/atomic.js'
+import { acquireCrossProcessLockAsync } from '../../../fs/cross-process-lock.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { bookMovedFailure, resolveBookOrReply } from '../book-context.js'
@@ -43,17 +44,47 @@ function yamlRevision(yamlPath: string): string {
   }
 }
 
+/** 文本级补丁写——stringifyBookConfig 全量重生成会丢作者手写注释/未知段/未知子键
+ *（migrate-defaults 同款红线）。现文件读不出或解析失败时回落全量重生成（与旧行为一致，
+ *  配置仍能保存）。调用方须在写锁内读盘后直调（基线 = 锁内重读的原文）。 */
+function patchOrRegenerate(yamlPath: string, config: BookConfig): string {
+  try {
+    const raw = readFileSync(yamlPath, 'utf8')
+    const parsed = parseBookConfig(raw, yamlPath)
+    return parsed.ok ? patchBookConfigText(raw, parsed.config, config) : stringifyBookConfig(config)
+  } catch {
+    return stringifyBookConfig(config)
+  }
+}
+
 interface ConfigCtx {
   workDir: string | null
 }
 
+/** book.yaml 写锁等待超时（毫秒）——同全局/书级偏好锁档预算（写段为本地文件 IO 级毫秒）。 */
+const BOOK_CONFIG_WRITE_LOCK_TIMEOUT_MS = 5_000
+
 // ── 非闸书级写端点的临界段书注册重验 ──
 // PUT /config 无任务闸（books.ts 删书/改名的 busyGate 只查 spawn/三审/task-gate，看不见
 // 在途 PUT）——重验竞态时序与防线形态单源见 book-context.ts 头注
-//（起四处本地拷贝收敛，直接调用单源 bookMovedFailure）。重验与下方
-// 「读盘/指纹比对/写盘」同步段之间零 await，乐观锁原子口径不变。
+//（起四处本地拷贝收敛，直接调用单源 bookMovedFailure）。重验之后才取跨进程写锁，
+// 「读盘/指纹比对/补丁/写盘」四段在锁内同步无 await，乐观锁原子口径不变。
 
 export function registerConfigRoutes(ctx: ConfigCtx): void {
+  /** book.yaml 跨进程写锁：同书多窗口/CLI 进程并发 PUT 时，文本补丁以「刚读到的原文」
+   *  为基线，两侧各读一次原文再各自写回时，后写者拿陈旧原文重生成，先写者的注释/未知段
+   *  静默丢失（指纹乐观锁管用户可见冲突，丢更新由锁兜）。锁文件落书根（路径派生同 prefs
+   *  全局档 `${path}.lock`）；拿不到（等待超时）即回 500 信封并返回 null（调用方直接 return）。 */
+  async function acquireBookConfigLock(yamlPath: string, res: ServerResponse): Promise<(() => void) | null> {
+    const release = await acquireCrossProcessLockAsync(`${yamlPath}.lock`, BOOK_CONFIG_WRITE_LOCK_TIMEOUT_MS)
+    if (!release) {
+      log.error('api', `写书籍配置获取跨进程锁超时（其他窗口长期占用）：${yamlPath}`)
+      replyError(res, 500, 'IO_ERROR', '书籍配置正被其他窗口写入，请稍后重试')
+      return null
+    }
+    return release
+  }
+
   defineRoute('books.config.get', {
     method: 'GET',
     path: '/api/books/:name/config',
@@ -109,24 +140,17 @@ export function registerConfigRoutes(ctx: ConfigCtx): void {
       // readJson 窗口后写前重验书注册（时序见 bookMovedFailure 头注）
       const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
       if (moved) return replyError(res, 409, moved.code, moved.reason)
+      const yamlPath = join(r.bookRoot, 'book.yaml')
+      // 取锁排在书注册重验之后：取锁会 mkdirSync 派生目录，先取锁会在已删书上重建幽灵目录
+      const release = await acquireBookConfigLock(yamlPath, res)
+      if (!release) return
       try {
-        const yamlPath = join(r.bookRoot, 'book.yaml')
-        // 读盘/指纹比对/写盘三段同步无 await（单事件循环原子口径）——
-        // 失配 409 早于一切写动作，双标签页后写者不再静默覆盖先写者
+        // 读盘/指纹比对/补丁/写盘三段在锁内同步无 await——指纹取锁内重读的盘面，
+        // 失配 409 早于一切写动作；跨进程串行由锁保证
         const current = yamlRevision(yamlPath)
         const revErr = revisionError(body['expectedRevision'], current, '书籍配置')
         if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
-        // kk-文本级补丁写——此前 stringifyBookConfig 全量重生成会丢作者手写
-        // 注释/未知段/未知子键（migrate-defaults 同款红线）。现文件读不出或解析失败
-        // 时回落全量重生成（与旧行为一致，配置仍能保存）
-        let yaml: string
-        try {
-          const raw = readFileSync(yamlPath, 'utf8')
-          const parsed = parseBookConfig(raw, yamlPath)
-          yaml = parsed.ok ? patchBookConfigText(raw, parsed.config, config) : stringifyBookConfig(config)
-        } catch {
-          yaml = stringifyBookConfig(config)
-        }
+        const yaml = patchOrRegenerate(yamlPath, config)
         atomicWriteFile(yamlPath, yaml)
         // 回传写入后指纹（下次保存的 expectedRevision 基线）——与 GET 同源算法：
         // GET 对盘上文件取指纹，此处对刚写入的同一字节串取，故 PUT 回传值与紧随的
@@ -135,6 +159,8 @@ export function registerConfigRoutes(ctx: ConfigCtx): void {
       } catch (e) {
         log.error('api', '写 book.yaml 失败', e)
         return replyError(res, 500, 'IO_ERROR', '写 book.yaml 失败')
+      } finally {
+        release()
       }
     },
   })

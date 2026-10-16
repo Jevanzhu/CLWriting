@@ -16,12 +16,13 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServerSafe } from '../../helpers/safe-port.js'
 import { doInit } from '../../../src/install/init.js'
+import { acquireCrossProcessLockAsync } from '../../../src/fs/cross-process-lock.js'
 
 let workDir = ''
 let userDataPath = ''
@@ -268,5 +269,41 @@ describe('R36-24 books.prefs revision（乐观并发）', () => {
     expect(legacy.status).toBe(200)
     expect(disk()['pageWidth']).toBe(800) // 载荷未提该键 → 不删
     expect(disk()['leftWidth']).toBe(320)
+  })
+
+  // 跨进程锁：书级 prefs.json 的「读盘→合并→写盘」只保单进程内原子，跨进程二分身
+  // （另一窗口进程 / CLI 进程）同书并发 PUT 时两侧各按自己读到的盘面合并落盘，一方键
+  // 静默丢失。本用例以「持锁的另一 holder」代表那一侧（同一把锁文件，与真实分身互通
+  // 互斥）：持锁期间本端点必须等待而不得读旧盘抢先落盘，锁释放后重读盘面再合并。
+  it('跨进程锁：另一 holder 持锁期间本端点等待不落盘；释放后重读盘面合并，双方键都不丢', async () => {
+    const before = disk()
+    const baseRev = before['revision'] as number
+    const release = await acquireCrossProcessLockAsync(`${bookPrefsPath}.lock`, 5_000)
+    expect(release).not.toBeNull()
+    let put: Promise<{ status: number; json: { ok: boolean; revision: number } }> | undefined
+    try {
+      put = req({ method: 'PUT', path: prefsUrl(), body: { prefs: { leftWidth: 411 } } })
+      const race = await Promise.race([
+        put.then(() => 'settled' as const),
+        new Promise<'blocked'>((resolve) => setTimeout(() => resolve('blocked'), 200)),
+      ])
+      // 锁未释放 → 端点不得抢先落盘（无锁时此处立即 settled，正是丢更新的窗口）
+      expect(race).toBe('blocked')
+      expect(disk()).toEqual(before)
+      // 另一 holder 在自己的锁持有段内落盘（基于它持锁前的读基线）后释放
+      writeFileSync(
+        bookPrefsPath,
+        JSON.stringify({ ...before, rightOpen: true, revision: baseRev + 1 }, null, 2) + '\n',
+      )
+    } finally {
+      release!()
+    }
+    const r = await put!
+    expect(r.status).toBe(200)
+    const after = disk()
+    expect(after['leftWidth']).toBe(411) // 本端点键在位
+    expect(after['rightOpen']).toBe(true) // 另一 holder 键未被覆盖（锁内重读盘面合并）
+    expect(after['revision']).toBe(baseRev + 2) // 另一 holder +1、本端点 +1
+    expect(existsSync(`${bookPrefsPath}.lock`)).toBe(false) // 写毕释放
   })
 })

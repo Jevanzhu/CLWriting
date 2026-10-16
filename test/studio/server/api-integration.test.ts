@@ -5,12 +5,13 @@
  * 覆盖:书架 → 设定台(P2 角色卡读写 + 境界写回 + 防穿越)→ 配置。
  * router 全局 routes 靠 vitest module isolate(每文件独立 routes 实例)。
  */
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServer } from '../../../src/studio/server/index.js'
 import { bootStudio, type StudioHarness } from '../../helpers/studio-server.js'
 import { readBooks } from '../../../src/install/books.js'
+import { acquireCrossProcessLockAsync } from '../../../src/fs/cross-process-lock.js'
 
 const BOOK = '测试书'
 let studio: StudioHarness
@@ -157,6 +158,46 @@ describe('GUI API 集成链(设定台 P2)', () => {
       config: { spec_version: 1, book: { title: '测试书' }, leads: { enabled: [] }, budget: {}, growth: {} },
     })
     expect(bare.status).toBe(200)
+  })
+
+  // 跨进程锁：book.yaml 的「读原文 → 文本补丁 → 写回」跨进程非原子——两侧各读一次原文
+  // 再各自写回时，后写者以陈旧原文重生成，先写者的注释/未知段静默丢失（指纹乐观锁只管
+  // 用户可见冲突，丢更新由锁兜）。本用例以「持锁的另一 holder」代表那一侧（同一把锁文件，
+  // 与真实分身互通互斥）：持锁期间本端点必须等待，锁释放后重读原文再补丁。
+  it('跨进程锁：另一 holder 持锁期间 config PUT 等待不落盘；释放后重读原文补丁，双方改动都不丢', async () => {
+    const yamlPath = join(studio.bookRoot, 'book.yaml')
+    const before = readFileSync(yamlPath, 'utf8')
+    const release = await acquireCrossProcessLockAsync(`${yamlPath}.lock`, 5_000)
+    expect(release).not.toBeNull()
+    let put: Promise<{ status: number; json: unknown }> | undefined
+    try {
+      put = studio.req('PUT', `/api/books/${encodeURIComponent(BOOK)}/config`, {
+        config: {
+          spec_version: 1,
+          book: { title: '测试书', target_words: 424242 },
+          leads: { enabled: [] },
+          budget: {},
+          growth: {},
+        },
+      })
+      const race = await Promise.race([
+        put.then(() => 'settled' as const),
+        new Promise<'blocked'>((resolve) => setTimeout(() => resolve('blocked'), 200)),
+      ])
+      // 锁未释放 → 端点不得抢先落盘（无锁时此处立即 settled，正是丢更新的窗口）
+      expect(race).toBe('blocked')
+      expect(readFileSync(yamlPath, 'utf8')).toBe(before)
+      // 另一 holder 在自己持有的锁段内改写原文（手写注释面）后释放
+      writeFileSync(yamlPath, before + '# 另一窗口批注\n', 'utf8')
+    } finally {
+      release!()
+    }
+    const r = await put!
+    expect(r.status).toBe(200)
+    const after = readFileSync(yamlPath, 'utf8')
+    expect(after).toContain('target_words: 424242') // 本端点改动在位
+    expect(after).toContain('# 另一窗口批注') // 另一 holder 改动未被陈旧原文覆盖
+    expect(existsSync(`${yamlPath}.lock`)).toBe(false) // 写毕释放
   })
 
   it('GET /file 只允许读可编辑 Markdown，拒绝 book.yaml', async () => {
