@@ -87,9 +87,11 @@ export const useChatStore = defineStore('chat', () => {
    * regenerate 的历史拉取只取 parentSeq 定位、不重建视图，不更新截断态。
    */
   const historyTruncated = ref(false)
-  /** 历史规模指标（与 truncated 同源对齐；未知 = null）。
+  /** 历史规模指标（与 truncated 同源对齐；未知 = null）。消费面 = ChatMessages 截断提示行
+   * （「共约 N 条记录」，仅 truncated 为真时渲染）。
    * 口径分流：未截断 = 投影消息数；截断态 = 服务端骨架事件行数
-   *  （chat/history 真尾窗改造，全量投影消息数需全量 parse 不再随截断态出网）。 */
+   *  （chat/history 真尾窗改造，全量投影消息数需全量 parse 不再随截断态出网）——
+   *  截断态两数不同单位，故文案冠「约」。 */
   const historyTotal = ref<number | null>(null)
 
   // ── 章号语境（对话作用于「全书」还是某章）单一事实源 ──

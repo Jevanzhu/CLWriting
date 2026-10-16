@@ -380,7 +380,6 @@ async function testRag(p: RagProviderDto): Promise<void> {
         :current-id="store.currentId"
         :loading="store.loading"
         :testing="store.testing"
-        :test-results="store.testResults"
         :expanded-id="editedId"
         @add="openAdd"
         @edit="toggleEdit"

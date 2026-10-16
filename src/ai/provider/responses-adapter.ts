@@ -162,6 +162,9 @@ export function toParams(conf: ProviderConf, req: GenRequest): ResponsesParams {
     store: false,
   }
   // 阶段 14 §7.2：调用方显式 cap（req.maxTokens）优先；其次用户模型行覆盖；仍无 → 不发（同 OpenAI 线行为）
+  // 缺口 8：rw.maxTokensIncludesReasoning（grok=true，上限含推理 token）留位不发——
+  // 「额度是否含推理」与「发不发额度」是两回事，发什么值不改判定；换算待 reasoningTokens
+  // 观测积累后另批定（同 declaration 见 model-quirks.ts 字段注）。
   const tokenCap = req.maxTokens ?? modelConfOf(conf)?.maxTokens
   if (tokenCap) params['max_output_tokens'] = tokenCap
 

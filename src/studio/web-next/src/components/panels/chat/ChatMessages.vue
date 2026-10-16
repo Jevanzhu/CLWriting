@@ -33,6 +33,14 @@ const tree = useTreeStore()
 // 切书守卫单源（stillIn）——工具确认在途切书后，迟到的失败提示/终态不落新书界面。
 const scoped = useScopedAction(() => props.bookName)
 
+/** 尾窗截断提示文案。total 未知（旧后端缺字段）= 只说窗口上限；已知则附总量——
+ * 截断态 total 是骨架事件行数（非投影消息数），故冠「约」。 */
+const truncatedHint = computed(() => {
+  const base = `仅显示最近 ${CHAT_HISTORY_LIMIT} 条对话`
+  const total = chat.historyTotal
+  return total === null ? `${base}，更早内容见审计视图` : `${base}（共约 ${total} 条记录），更早内容见审计视图`
+})
+
 // ── 滚动（rAF 节流：流式 chat_text 每帧可能触发多次，同帧只滚一次）──
 
 const scrollRef = ref<HTMLElement | null>(null)
@@ -245,9 +253,7 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
          零消费、旧内容静默消失无提示（设计意图即提示作者：更早在事件库/审计视图可查）。
          truncated 取 store 最近一次视图加载（seedHistory/switchBranch）的权威口径；
  条数走 shared/chat-history 单源（#10，原硬编码 200）。 -->
-    <div v-if="chat.historyTruncated" class="chat-truncated-hint">
-      仅显示最近 {{ CHAT_HISTORY_LIMIT }} 条对话，更早内容见审计视图
-    </div>
+    <div v-if="chat.historyTruncated" class="chat-truncated-hint">{{ truncatedHint }}</div>
     <div v-if="!chat.hasMessages && !chat.running" class="chat-empty">
       <MessageSquareText :size="32" class="chat-empty-icon" />
       <p class="chat-empty-title">和 AI 聊聊你的故事</p>

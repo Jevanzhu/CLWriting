@@ -1,12 +1,16 @@
-/** 提供方行卡的共享展示纯函数（AI 与 RAG 列表共用）——自 AiServicePanel 拆出，行为零变更。
+/** 提供方行卡的共享展示纯函数（AI 与 RAG 两侧行卡/编辑器按件取用）——自 AiServicePanel 拆出，行为零变更。
  * 起增加模型行容量解析（K/M 后缀）、模型行校验、API Key 前端校验。
  */
 import type { ProviderCaps, ModelConfDto } from '../api/providers'
 
-/** caps 徽章文案与配色 class（连接失败=红/已连接=绿；null=未测试由调用方处理）。 */
+/** caps 徽章文案与配色 class（连接失败=红/已连接=绿；null=未测试由调用方处理）。
+ *  消费面：AiProviderList 行卡（RAG 行卡自带同形徽章走 RagProviderCaps，不过本函数）。
+ *  streaming=false（探测未取到逐字增量，伪流式网关）仍算已连接，但文案点明「未检出流式」——
+ *  否则界面无逐字显示而徽章只说已连接，作者无从归因；缺键视为未观测，维持「已连接」。 */
 export function capsBadge(caps: ProviderCaps | null): { text: string; cls: string } | null {
   if (!caps) return null
   if (!caps.connected) return { text: '连接失败', cls: 'bad' }
+  if (caps.streaming === false) return { text: '已连接（未检出流式）', cls: 'ok' }
   return { text: '已连接', cls: 'ok' }
 }
 

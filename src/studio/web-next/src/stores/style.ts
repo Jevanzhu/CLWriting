@@ -32,7 +32,6 @@ export const useStyleStore = defineStore('style', () => {
   const config = ref<StyleConfigFE | null>(null)
   const trend = ref<StyleTrendFE | null>(null)
   const loading = ref(false)
-  const loaded = ref(false)
 
   const kindCounts = computed(() => {
     const m: Record<EntryKindFE, number> = { 样章: 0, 手法: 0, 反例: 0, 禁词: 0 }
@@ -58,7 +57,6 @@ export const useStyleStore = defineStore('style', () => {
       entryErrors.value = er.errors.length
       candidates.value = cr.candidates
       config.value = cfg
-      loaded.value = true
       return er.migration
     } finally {
       if (reqGen.fresh(gen)) loading.value = false
@@ -150,7 +148,6 @@ export const useStyleStore = defineStore('style', () => {
     config.value = null
     trend.value = null
     loading.value = false
-    loaded.value = false
   }
 
   return {
@@ -161,7 +158,6 @@ export const useStyleStore = defineStore('style', () => {
     config,
     trend,
     loading,
-    loaded,
     kindCounts,
     load,
     add,

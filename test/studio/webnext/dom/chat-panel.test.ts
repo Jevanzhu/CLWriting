@@ -474,16 +474,31 @@ describe('ChatMessages: 工具卡参数摘要按卡算一次', () => {
 // 改前口径：ChatMessages 无提示行（无 .chat-truncated-hint 元素）。
 
 describe('ChatMessages: 历史截断提示行（重评-0912-2 P3）', () => {
-  it('historyTruncated=true → 列表顶部渲染 muted 提示行（指引审计视图）', async () => {
+  it('historyTruncated=true → 列表顶部渲染 muted 提示行（指引审计视图；带 total 时附「共约 N 条记录」）', async () => {
     const chat = useChatStore()
     chat.messages.push({ id: 'u1', role: 'user', content: '旧消息', done: true, tools: [] })
     chat.historyTruncated = true
+    chat.historyTotal = 356
     const w = mountPanel()
     await nextTick()
     const hint = w.find('.chat-truncated-hint')
     expect(hint.exists()).toBe(true)
     expect(hint.text()).toContain('200 条')
+    // 批 E7⑤：historyTotal 此前只写不读，提示行不显示总量
+    expect(hint.text()).toContain('共约 356 条记录')
     expect(hint.text()).toContain('审计视图')
+  })
+
+  it('historyTruncated=true 但 total 未知（旧后端缺字段）→ 提示行不出现「共约」', async () => {
+    const chat = useChatStore()
+    chat.messages.push({ id: 'u1', role: 'user', content: '旧消息', done: true, tools: [] })
+    chat.historyTruncated = true
+    chat.historyTotal = null
+    const w = mountPanel()
+    await nextTick()
+    const hint = w.find('.chat-truncated-hint')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).not.toContain('共约')
   })
 
   it('historyTruncated=false（默认）→ 不渲染提示行', async () => {

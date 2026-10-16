@@ -105,7 +105,6 @@ describe('style: load 并行加载', () => {
     expect(style.entries).toHaveLength(1)
     expect(style.candidates).toHaveLength(1)
     expect(style.config).not.toBeNull()
-    expect(style.loaded).toBe(true)
     expect(style.loading).toBe(false)
   })
 

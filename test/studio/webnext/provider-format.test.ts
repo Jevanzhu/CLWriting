@@ -1,7 +1,8 @@
 /**
  * provider-format 纯函数单测（阶段 14 第二步 P6/P9 前端校验与格式化）。
  * parseCapacity/formatCapacity 往返、validateModels（唯一 id + 容量拼写）、
- * apiKeyFailure（必填/控制字符/请求头误贴/引号剥离）、dto↔draft 互转。
+ * apiKeyFailure（必填/控制字符/请求头误贴/引号剥离）、capsBadge（连接/流式徽章文案）、
+ * dto↔draft 互转。
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -9,6 +10,7 @@ import {
   formatCapacity,
   validateModels,
   apiKeyFailure,
+  capsBadge,
   modelDraftToDto,
   dtoToModelDrafts,
 } from '../../../src/studio/web-next/src/shared/provider-format'
@@ -113,5 +115,20 @@ describe('dto ↔ 草稿互转（P9 回填/提交）', () => {
     const src = [{ id: 'a', name: 'A', contextWindow: 128 * 1024, maxTokens: 4096 }, { id: 'b' }]
     const back = modelDraftToDto(dtoToModelDrafts(src))
     expect(back).toEqual(src)
+  })
+})
+
+// 批 E7②：caps.streaming 此前唯一写点在探测侧（probe.ts），前端零读——伪流式网关
+// （只回终态无 delta）与真流式都显示「已连接」，作者不知界面为何没有逐字显示。
+describe('capsBadge：探测徽章文案（批 E7 起消费 caps.streaming）', () => {
+  it('connected + streaming=false（未检出逐字增量）→ 已连接但点明未检出流式，配色仍 ok', () => {
+    expect(capsBadge({ connected: true, streaming: false })).toEqual({ text: '已连接（未检出流式）', cls: 'ok' })
+  })
+  it('connected + streaming=true → 「已连接」', () => {
+    expect(capsBadge({ connected: true, streaming: true })).toEqual({ text: '已连接', cls: 'ok' })
+  })
+  it('未连接 → 「连接失败」（bad，不问流式）；null → null（未测试由调用方处理）', () => {
+    expect(capsBadge({ connected: false, streaming: false })).toEqual({ text: '连接失败', cls: 'bad' })
+    expect(capsBadge(null)).toBeNull()
   })
 })

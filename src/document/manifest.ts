@@ -21,7 +21,7 @@ import { testableConst } from '../shared/testable.js'
 import { platformCaseFold } from '../fs/safe-path.js'
 import { isCoarseMtimeNs } from '../fs/mtime-precision.js'
 
-/** 清单条目：身份 + 排序投影。folder 无 status。 */
+/** 清单条目：身份 + 排序投影。 */
 export interface ManifestEntry {
   id: string
   nodeType: 'document' | 'folder'
@@ -29,8 +29,6 @@ export interface ManifestEntry {
   parentId: string | null
   /** 排序值；编号派生文档（章）省略此字段（order 与编号不双真相）。 */
   order?: number
-  /** 文档状态投影（folder 无）；可从磁盘 + git 重建。 */
-  status?: string
   tags?: string[]
   // ── 定稿基线（去 git 版本系统用）──────────────
   /** 最后一次定稿的内容指纹（`sha256:xxx`）；无/不存在 = 从未定稿。 */
@@ -226,7 +224,6 @@ function parseEntry(obj: RawLine): ManifestEntry {
     parentId: typeof obj.parentId === 'string' ? obj.parentId : null,
   }
   if (typeof obj.order === 'number') entry.order = obj.order
-  if (typeof obj.status === 'string') entry.status = obj.status
   if (typeof obj.finalizedRevision === 'string') entry.finalizedRevision = obj.finalizedRevision
   if (typeof obj.finalizedAt === 'string') entry.finalizedAt = obj.finalizedAt
   if (Array.isArray(obj.tags)) {

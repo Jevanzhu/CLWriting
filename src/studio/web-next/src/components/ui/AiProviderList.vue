@@ -6,18 +6,19 @@
 // 新增卡打开由父层控制（与列表并列渲染），本组件只发 add 事件。
 // 共享控件语言（分组标题/徽章/胶囊按钮等）见 styles/providers.css。
 import { Bot } from 'lucide-vue-next'
-import type { ProviderConfDto, TestResult } from '../../api/providers'
+import type { ProviderConfDto } from '../../api/providers'
 import { capsBadge, timeAgo } from '../../shared/provider-format'
 import ProviderListShell from './ProviderListShell.vue'
 import ProviderRowActions from './ProviderRowActions.vue'
 
+// 行卡状态面就两个来源：徽章读 p.caps（store.test() 探测后写回 providers 行），
+// 失败原因走父层 toast——故不接 testResults（探测 details/error 的展示面在父层）。
 defineProps<{
   providers: ProviderConfDto[]
   currentId: string | null
   loading: boolean
   /** 正在测试连接的提供方 id（按钮转圈 + 禁点） */
   testing: string | null
-  testResults: Map<string, TestResult>
   /** 当前展开编辑的提供方 id（单卡互斥；null = 全收起） */
   expandedId: string | null
 }>()

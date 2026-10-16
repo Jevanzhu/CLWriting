@@ -55,16 +55,12 @@ describe('manifest', () => {
   it('写 + 读 往返一致', () => {
     const f = join(dir, '清单.jsonl')
     const entries = new Map([
-      [
-        'doc_1',
-        { id: 'doc_1', nodeType: 'document' as const, path: 'a.md', parentId: null, status: 'draft', tags: ['x'] },
-      ],
+      ['doc_1', { id: 'doc_1', nodeType: 'document' as const, path: 'a.md', parentId: null, tags: ['x'] }],
     ])
     writeManifest(f, { version: 1, entries })
     const r = readManifest(f)
     expect(r.version).toBe(1)
     expect(r.entries.get('doc_1')?.path).toBe('a.md')
-    expect(r.entries.get('doc_1')?.status).toBe('draft')
     expect(r.entries.get('doc_1')?.tags).toEqual(['x'])
   })
 
@@ -119,14 +115,18 @@ describe('manifest', () => {
     expect(m.entries.get('doc_1')?.order).toBe(5)
   })
 
-  it('folder 条目无 status', () => {
+  it('folder 条目：身份 + 排序入册，状态不入册（状态由 deriveStatus 派生）', () => {
     const f = join(dir, '清单.jsonl')
-    writeFileSync(f, '{"id":"folder_1","nodeType":"folder","path":"大纲","parentId":null,"order":20}\n')
+    // 旧清单行里可能带 status 投影字段（早期版本写过）：解析面不再收，读回即无此属性
+    writeFileSync(
+      f,
+      '{"id":"folder_1","nodeType":"folder","path":"大纲","parentId":null,"order":20,"status":"draft"}\n',
+    )
     const m = readManifest(f)
     const e = m.entries.get('folder_1')
     expect(e?.nodeType).toBe('folder')
     expect(e?.order).toBe(20)
-    expect(e?.status).toBeUndefined()
+    expect(e === undefined || !('status' in e)).toBe(true)
   })
 })
 
