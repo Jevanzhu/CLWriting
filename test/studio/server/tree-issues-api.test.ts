@@ -321,3 +321,34 @@ describe('tree-issues 降级 warnings 数组（单键双轨已撤）', () => {
     expect(j.warnings).toBeUndefined()
   })
 })
+
+// ── 正文目录解析失败降级（chaptersParseDegraded → warnings）──
+// 章号损坏的章文件进不了章列表，树视图对其完全隐形；内核已计数透出，端点须转人话条目，
+// 否则该降级只在日志里、响应面无痕（损坏越重越安静）。
+
+describe('tree-issues 降级 warnings：章文件解析失败计数透出', () => {
+  it('章文件解析失败 → warnings 含带计数的该条；移除后该条消失', async () => {
+    const badPath = join(bookRoot, '写作', '正文', '0003-坏章.md')
+    // 章号非整数 → readChapter 报错、该章不进章列表（计数 +1）
+    writeFileSync(
+      badPath,
+      '---\n章号: 五\n标题: 坏章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n文本。\n',
+      'utf8',
+    )
+    try {
+      const r = await get(`/api/books/${encodeURIComponent(BOOK)}/tree-issues`)
+      expect(r.status).toBe(200)
+      const j = r.json as { ok: boolean; warnings?: string[] }
+      expect(j.ok).toBe(true)
+      expect(j.warnings ?? []).toContainEqual(expect.stringContaining('个章文件解析失败'))
+    } finally {
+      rmSync(badPath, { force: true })
+    }
+
+    // 口径复位：损坏章移除后该条不再出现（healthy 目录计数归零）
+    const r2 = await get(`/api/books/${encodeURIComponent(BOOK)}/tree-issues`)
+    expect(r2.status).toBe(200)
+    const j2 = r2.json as { warnings?: string[] }
+    expect(j2.warnings?.some((w) => w.includes('个章文件解析失败')) ?? false).toBe(false)
+  })
+})

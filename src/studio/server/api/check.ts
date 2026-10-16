@@ -297,17 +297,23 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
           // 聚合逻辑已下沉内核：扫正文 + 机检 + verdict 驳回，返回只有 issue 的 docId
           // 改走 async 孪生——大书全书同步聚合此前单请求秒级冻结事件循环
           //（Electron 内嵌单进程服务 = 桌面整体卡死），现章循环每 25 章让出一次
-          const { issues, rebuildFailed, leadsBookDegraded, chaptersDegraded, manifestDegraded } =
-            await collectTreeIssuesAsync(
-              root,
-              (docId) => {
-                const reviewEnv = readAnalysis(root, docId, 'review')
-                const v = (reviewEnv?.payload as { verdict?: { approved: boolean } } | undefined)?.verdict
-                return v ?? undefined
-              },
-              ctx.userDataPath,
-            )
-          // 四类降级条件收数组全量透出（单键 `warning` 会在多降级叠加时后写覆盖先写、
+          const {
+            issues,
+            rebuildFailed,
+            leadsBookDegraded,
+            chaptersDegraded,
+            chaptersParseDegraded,
+            manifestDegraded,
+          } = await collectTreeIssuesAsync(
+            root,
+            (docId) => {
+              const reviewEnv = readAnalysis(root, docId, 'review')
+              const v = (reviewEnv?.payload as { verdict?: { approved: boolean } } | undefined)?.verdict
+              return v ?? undefined
+            },
+            ctx.userDataPath,
+          )
+          // 五类降级条件收数组全量透出（单键 `warning` 会在多降级叠加时后写覆盖先写、
           // 其余静默丢失）。前端消费方 = tree.ts issueWarnings → 章节树降级提示行。
           const warnings: string[] = []
           // 账本全书性红项计算失败随响应降级说明（与 rebuildFailed 同口径——
@@ -319,6 +325,9 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
           // 清单读失败透出（第四种降级形态——此前读失败静默空表，章-账本
           // 红点整轮失明不可见；与 rebuildFailed/leadsBookDegraded 同口径）
           if (manifestDegraded) warnings.push('文档清单读取失败，章-账本红点本轮可能缺失')
+          // 正文目录解析失败（第五种降级形态——章号损坏章不进章列表、对树红点完全
+          // 隐形，损坏越重越安静；内核已逐条 warn + 计数，此处同口径转响应面）
+          if (chaptersParseDegraded > 0) warnings.push(`${chaptersParseDegraded} 个章文件解析失败，对应红点本轮缺失`)
           return {
             ok: true,
             issues,
