@@ -293,12 +293,13 @@ describe('T9b 修复：多章定稿 + 高章伏笔规划不误报 future', () =>
   })
 })
 
-// ── R26-57（二十六轮）：降级说明 warnings 数组透出（旧 warning 键双轨保留）──
-// 原三处降级条件展开同用 `warning` 键，后写覆盖先写、至多存活一条；改 `warnings:
-// string[]` 全量上报，旧键保留末条双轨过渡（原 web-next 消费方 tree.ts issuesWarning 已删）。
+// ── 降级说明 warnings 数组透出（旧 `warning` 单键双轨已撤——前端消费方 = tree.ts
+// issueWarnings → 章节树降级提示行）──
+// 原三处降级条件展开同用 `warning` 键，后写覆盖先写、至多存活一条；现 `warnings:
+// string[]` 全量上报，末条 `warning` 双轨随接线撤销（无消费者）。
 
-describe('R26-57: tree-issues 降级 warnings 数组 + 旧 warning 键双轨', () => {
-  it('章机检失败注入 → warnings 收全量降级说明，warning 键保留末条（双轨）', async () => {
+describe('tree-issues 降级 warnings 数组（单键双轨已撤）', () => {
+  it('章机检失败注入 → warnings 收全量降级说明，单键 warning 不再出现', async () => {
     __setChapterCheckDegradeForTest(true)
     try {
       const r = await get(`/api/books/${encodeURIComponent(BOOK)}/tree-issues`)
@@ -307,19 +308,16 @@ describe('R26-57: tree-issues 降级 warnings 数组 + 旧 warning 键双轨', (
       expect(j.ok).toBe(true)
       expect(Array.isArray(j.warnings)).toBe(true)
       expect(j.warnings!.some((w) => w.includes('本轮机检失败'))).toBe(true)
-      // 旧键 = 数组末条（与修复前「后写覆盖」实际存活的语义一致）
-      expect(j.warning).toBe(j.warnings![j.warnings!.length - 1])
-      expect(j.warning).toContain('本轮机检失败')
+      expect(j.warning).toBeUndefined()
     } finally {
       __setChapterCheckDegradeForTest(false) // 注入必须复位，防污染同进程其它用例
     }
   })
 
-  it('无降级 → 响应不带 warning / warnings 键', async () => {
+  it('无降级 → 响应不带 warnings 键', async () => {
     const r = await get(`/api/books/${encodeURIComponent(BOOK)}/tree-issues`)
     expect(r.status).toBe(200)
-    const j = r.json as { warnings?: string[]; warning?: string }
-    expect(j.warning).toBeUndefined()
+    const j = r.json as { warnings?: string[] }
     expect(j.warnings).toBeUndefined()
   })
 })

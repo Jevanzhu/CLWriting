@@ -67,6 +67,7 @@ import {
   computeCheckerGeneration,
 } from '../../src/check/checker-generation.js'
 import { SIMILE_RE } from '../../src/check/count.js'
+import { DE_RUN_SPLIT_RE, POSSESSIVE_UNIT_RE } from '../../src/check/count-style.js'
 import { SPEECH_VERBS } from '../../src/check/count-dialogue.js'
 import { QUOTED_SPAN_RE } from '../../src/check/quotes.js'
 import { STRICT_SHORT_CHECK_IDS } from '../../src/check/strict-short-ids.js'
@@ -661,6 +662,10 @@ describe('机检代次：规则表哈希（P1-18）', () => {
       ['sentences.ngramRepeatRate', ngramRepeatRate],
       ['ai-patterns.CLICHE_WORDS', CLICHE_WORDS],
       ['ai-patterns.AI_PATTERN_RULES', AI_PATTERN_RULES],
+      // count-style 两条判定正则：未导出时藏于闭包/模块内，改它不动代次（旧缓存供旧判定）；
+      // 导出 + 收编后改任一即换代次。此处逐条钉住。
+      ['count-style.DE_RUN_SPLIT_RE', DE_RUN_SPLIT_RE],
+      ['count-style.POSSESSIVE_UNIT_RE', POSSESSIVE_UNIT_RE],
     ]
     for (const [key, value] of anchors) {
       expect(CHECKER_RULE_SNAPSHOT[key], `规则「${key}」未入快照（模块未收编或导出改名）`).toBe(

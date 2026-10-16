@@ -307,10 +307,8 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
               },
               ctx.userDataPath,
             )
-          // 三降级条件收数组全量透出——原三处条件展开同用 `warning`
-          // 键，后写覆盖先写、至多存活一条（多降级叠加时其余静默丢失）。改 `warnings:
-          // string[]` 全量上报；旧键 `warning` 保留（取末条 = 修复前实际存活的那条语义）
-          // 双轨过渡（原 web-next 消费方 tree.ts issuesWarning 已删，现无前端读者）。
+          // 四类降级条件收数组全量透出（单键 `warning` 会在多降级叠加时后写覆盖先写、
+          // 其余静默丢失）。前端消费方 = tree.ts issueWarnings → 章节树降级提示行。
           const warnings: string[] = []
           // 账本全书性红项计算失败随响应降级说明（与 rebuildFailed 同口径——
           // 此前静默降级为「无红」，持续性失败期间漏红不可见）
@@ -324,7 +322,7 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
           return {
             ok: true,
             issues,
-            ...(warnings.length > 0 ? { warning: warnings[warnings.length - 1], warnings } : {}),
+            ...(warnings.length > 0 ? { warnings } : {}),
           }
         },
         ctx.treeIssuesTtlMs ?? undefined,

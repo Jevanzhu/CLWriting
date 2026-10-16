@@ -617,8 +617,10 @@ export function buildChildEnv(
   // 白名单放宽放行 5173（本应只属于 scripts/dev-api.ts 的独立进程）；CLWRITING_RESOURCES_DIR
   // 把 child 捆绑资源根钉到宿主目录（fs/resources.ts 无 electron 依赖、打包态检查不可达）；
   // CLW_OS_KEK 旧 IKM 穿透 = v2 vault 解锁失败或错通道；CLW_APP_VERSION 宿主残留版本号让
-  // 更新检查比错基准（漏提示或造假提示）。合法 dev 链路不经本 manager 携带这些变量
-  //（devUi 态 main 不 fork server；dev:api 是独立进程自带 env），剥除无旁损。
+  // 更新检查比错基准（漏提示或造假提示）；CLWRITING_DRIVER=mock 宿主残留（e2e/调试遗留）
+  // 让打包版整链走假回复（driver/index.ts 是唯一读取点、在 child 进程读 env）。合法 dev/e2e
+  // 链路不经本 manager 携带这些变量（devUi 态 main 不 fork server；dev:api 与 e2e 独立起服
+  // 自带 env），剥除无旁损。
   for (const k of Object.keys(childEnv)) {
     const ku = k.toUpperCase()
     if (
@@ -628,7 +630,8 @@ export function buildChildEnv(
       ku === 'CLW_DEV_CORS' ||
       ku === 'CLWRITING_RESOURCES_DIR' ||
       ku === 'CLW_OS_KEK' ||
-      ku === 'CLW_APP_VERSION'
+      ku === 'CLW_APP_VERSION' ||
+      ku === 'CLWRITING_DRIVER'
     ) {
       delete childEnv[k]
     }

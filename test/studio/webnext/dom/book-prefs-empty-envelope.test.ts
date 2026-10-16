@@ -14,6 +14,7 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import { getBookPrefs } from '../../../../src/studio/web-next/src/api/prefs'
 import { useWorkspaceStore } from '../../../../src/studio/web-next/src/stores/workspace'
+import { usePrefsStore } from '../../../../src/studio/web-next/src/stores/prefs'
 
 const BOOK = '空信封书'
 
@@ -71,5 +72,66 @@ describe('R61-F-2: 消费侧 loadBookPrefs 不因空信封抛错、prefsLoaded �
     await vi.advanceTimersByTimeAsync(600)
     expect(putBodies.length).toBe(1) // 修复前 prefsLoaded 未置位 → watch 未挂 → 无落盘
     expect(putBodies[0]).toMatchObject({ prefs: { activeDocId: 'doc-1' } })
+  })
+})
+
+// 书级覆盖「关得掉」：关掉 = prefs store 的 bookPageWidth/bookAutosaveInterval 置 null。
+// 载荷必须**带着 null 发**（旧实现 `?? undefined` 被 JSON.stringify 丢掉该键）——服务端
+// 据此删键（prefs.ts NULL_DELETE_KEYS）；键不发则盘上旧覆盖键永存，关掉重进本书即复活。
+describe('书级覆盖关闭：落盘载荷显式带 null（服务端按删键处理）', () => {
+  /** 起一套 fetch 桩：GET 预置书级覆盖，PUT 记录载荷 */
+  function stubFetchWithOverrides(getPrefs: Record<string, unknown>): Array<{ prefs: Record<string, unknown> }> {
+    const putBodies: Array<{ prefs: Record<string, unknown> }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (path: string, init?: RequestInit) => {
+        const method = (init?.method ?? 'GET').toUpperCase()
+        if (method === 'GET' && path === `/api/books/${encodeURIComponent(BOOK)}/prefs`) {
+          return new Response(JSON.stringify({ prefs: getPrefs, revision: 1 }), { status: 200 })
+        }
+        if (method === 'PUT' && path === `/api/books/${encodeURIComponent(BOOK)}/prefs`) {
+          putBodies.push(JSON.parse(String(init?.body)))
+          return new Response(JSON.stringify({ ok: true, revision: 2 }), { status: 200 })
+        }
+        return new Response(JSON.stringify({ error: 'not found' }), { status: 404 })
+      }),
+    )
+    return putBodies
+  }
+
+  it('书级覆盖在位 → 关闭后落盘载荷带 pageWidth: null（不是缺键）', async () => {
+    vi.useFakeTimers()
+    const putBodies = stubFetchWithOverrides({ pageWidth: 900, autosaveInterval: 30 })
+    setActivePinia(createPinia())
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    await vi.advanceTimersByTimeAsync(600)
+    // 读入即生效（覆盖在位）
+    const prefs = usePrefsStore()
+    expect(prefs.bookPageWidth).toBe(900)
+
+    prefs.set('pageWidth', 900, false) // 「关」：回写全局默认口径 → 覆盖置 null
+    expect(prefs.bookPageWidth).toBeNull()
+    await vi.advanceTimersByTimeAsync(600)
+    expect(putBodies.length).toBe(1)
+    // 键必须在载荷里且为 null——缺键会被服务端合并写放过，盘上旧覆盖键永存
+    expect(putBodies[0]!.prefs['pageWidth']).toBeNull()
+    expect('pageWidth' in putBodies[0]!.prefs).toBe(true)
+  })
+
+  it('本书从未开覆盖 → 载荷同样带 null（无覆盖是显式声明，不是缺省）', async () => {
+    vi.useFakeTimers()
+    const putBodies = stubFetchWithOverrides({ leftWidth: 300 })
+    setActivePinia(createPinia())
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    await vi.advanceTimersByTimeAsync(600)
+    expect(usePrefsStore().bookPageWidth).toBeNull()
+
+    ws.openTab('doc-1') // 触发一次落盘
+    await vi.advanceTimersByTimeAsync(600)
+    expect(putBodies.length).toBe(1)
+    expect(putBodies[0]!.prefs['pageWidth']).toBeNull()
+    expect(putBodies[0]!.prefs['autosaveInterval']).toBeNull()
   })
 })

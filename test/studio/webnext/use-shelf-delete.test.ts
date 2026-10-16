@@ -10,6 +10,8 @@
  *   永远删不掉。修复：循环内单书删除 catch 判 404/NOT_FOUND（ApiError 形状：status/code）
  *   视为已删继续；其余错误照旧中断记失败（弹窗保留可重试语义不变）。
  * - R27-79（二十七轮）：删书连带清该书 localStorage 残留键。
+ * - 排序偏好持久化：useShelf 挂载即读 clw-shelf-sort；SORT_KEY 常量须先于 sortBy 初始化
+ *   （落在其后命中 TDZ，偏好被裸 catch 吞成 recent 恒失效）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -203,6 +205,28 @@ describe('R71-26: confirmDelete 部分失败后重试——已删书 404 视为�
     s.requestDelete(['书A'])
     await s.confirmDelete()
     expect(mocks.clearFalsePositiveMarks).toHaveBeenCalledWith('书A')
+  })
+})
+
+// ── 排序偏好持久化（SORT_KEY 先于 sortBy 初始化，否则 TDZ 恒失效）──
+
+describe('useShelf: 排序偏好持久化（TDZ 恒失效回归）', () => {
+  it('挂载即读持久化偏好：预置 name → 恢复 name（修复前 TDZ 被裸 catch 吞成 recent）', () => {
+    localStorage.setItem('clw-shelf-sort', 'name')
+    const s = useShelf()
+    expect(s.sortBy.value).toBe('name')
+  })
+
+  it('setSortBy 写入 localStorage，重挂载保持', () => {
+    const s = useShelf()
+    s.setSortBy('created')
+    expect(localStorage.getItem('clw-shelf-sort')).toBe('created')
+    expect(useShelf().sortBy.value).toBe('created')
+  })
+
+  it('非法存量值回落 recent', () => {
+    localStorage.setItem('clw-shelf-sort', 'bogus')
+    expect(useShelf().sortBy.value).toBe('recent')
   })
 })
 

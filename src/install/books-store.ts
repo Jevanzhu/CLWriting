@@ -102,7 +102,7 @@ export function readBooksStrict(workDir: string): BookEntry[] | null {
   }
   // 同指纹直接回缓存解析结果；低精度 mtime 卷降级不缓存（见上方缓存段注——
   // 同尺寸写的陈旧窗仍在，指纹判据不可信）。
-  // （c ）：命中返回浅拷贝——缓存数组本体不出缓存。原「共享数组
+  // 命中返回浅拷贝——缓存数组本体不出缓存。原「共享数组
   // 无旁路污染」的承诺不成立（appendBookLocked 曾对命中数组就地 push，跨 await 持
   // 同一引用的读方会看到突增条目）；边界处一次 slice 消灭整类就地 mutate 面，
   // 代价可忽略（条目数 = 书数个位数）。

@@ -227,6 +227,53 @@ describe('chat 按书预算闸（budget.chat_max_calls）', () => {
     expect(out.ok).toBe(true)
     expect(calls).toBe(1)
   })
+
+  it('book.yaml 坏档（解析失败）→ fail-closed 拒闸 + 人话指引 + 留痕，不触 run', async () => {
+    // 顶层段重复 → 自研行式解析器（format/yaml.ts parseSections）显式抛错 → readBookConfig ok:false；
+    // 坏档回落默认骨架无 budget 键，旧路径会静默退化为「不限」——本用例钉住 fail-closed
+    const root = tempBook('spec_version: 1\n\nhost: cc\n\nbook:\n  title: X\nbook:\n  title: 重复段\n')
+    const ud = tempUserData()
+    writeProviders(ud)
+    const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
+    let calls = 0
+    const out = await runTask<{ text: string }>({
+      userDataPath: ud,
+      task: 'chat',
+      bookRoot: root,
+      run: () => {
+        calls++
+        return Promise.resolve(RUN_RET)
+      },
+    })
+    expect(out).toMatchObject({ ok: false, code: 'GEN_FAIL' })
+    if (!out.ok) {
+      expect(out.error).toContain('book.yaml')
+      expect(out.error).toContain('chat_max_calls')
+    }
+    expect(calls).toBe(0)
+    const gateWarns = warnSpy.mock.calls.map((c) => String(c[1])).filter((m) => m.includes('chat 任务预算闸拦截'))
+    expect(gateWarns).toHaveLength(1)
+    expect(JSON.parse(gateWarns[0]!)).toMatchObject({ code: 'BUDGET_EXCEEDED', task: 'chat', used: 0 })
+  })
+
+  it('book.yaml 不存在 → 未配（合法未设）→ 维持不限，放行', async () => {
+    const root = mkdtempTracked(join(tmpdir(), 'clwriting-chat-budget-'))
+    const ud = tempUserData()
+    writeProviders(ud)
+    vi.spyOn(log, 'warn').mockImplementation(() => {})
+    let calls = 0
+    const out = await runTask<{ text: string }>({
+      userDataPath: ud,
+      task: 'chat',
+      bookRoot: root,
+      run: () => {
+        calls++
+        return Promise.resolve(RUN_RET)
+      },
+    })
+    expect(out.ok).toBe(true)
+    expect(calls).toBe(1)
+  })
 })
 
 describe('chat_max_calls schema 三面形态', () => {

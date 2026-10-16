@@ -21,22 +21,7 @@ const mocks = vi.hoisted(() => ({
   dispatchCreate: vi.fn(),
 }))
 vi.mock('../../../../src/studio/web-next/src/stores/tree', () => ({
-  useTreeStore: vi.fn(() => {
-    // load 闭包写回同一 store 对象的 error（真实 store：失败路径 error 非空、raw 不清）
-    const store = {
-      loading: false,
-      error: null as string | null,
-      grouped: [],
-      raw: [],
-      load: async (name: string) => {
-        await new Promise<void>((res) => {
-          mocks.pendingLoads.push({ name, res })
-        })
-        if (mocks.failBooks.has(name)) store.error = '章节树加载失败'
-      },
-    }
-    return store
-  }),
+  useTreeStore: vi.fn(() => treeStore),
 }))
 vi.mock('../../../../src/studio/web-next/src/stores/words', () => ({
   useWordsStore: vi.fn(() => ({ ensureBaseline: mocks.ensureBaseline, reset: vi.fn() })),
@@ -52,6 +37,22 @@ const wsPlain = {
   createKind: 'chapter',
 }
 const wsReactive = reactive(wsPlain)
+
+// tree store 替身（单一实例）：load 闭包写回同一 store 的 error（真实 store：失败路径
+// error 非空、raw 不清）；issueWarnings 供用例直接驱动红点降级提示面。
+const treeStore = reactive({
+  loading: false,
+  error: null as string | null,
+  grouped: [] as unknown[],
+  raw: [] as unknown[],
+  issueWarnings: [] as string[],
+  load: async (name: string): Promise<void> => {
+    await new Promise<void>((res) => {
+      mocks.pendingLoads.push({ name, res })
+    })
+    if (mocks.failBooks.has(name)) treeStore.error = '章节树加载失败'
+  },
+})
 vi.mock('../../../../src/studio/web-next/src/stores/workspace', () => ({
   useWorkspaceStore: vi.fn(() => wsReactive),
 }))
@@ -111,6 +112,8 @@ beforeEach(() => {
   mocks.failBooks.clear()
   wsReactive.treeExpanded = []
   wsReactive.activeDocId = null
+  treeStore.error = null
+  treeStore.issueWarnings = []
 })
 
 describe('ChapterTreePanel: 新书 load 失败短路（R35-10）', () => {
@@ -143,6 +146,29 @@ describe('ChapterTreePanel: 新书 load 失败短路（R35-10）', () => {
     await flushPromises()
     expect(mocks.ensureBaseline).toHaveBeenCalledTimes(2)
     expect(mocks.ensureBaseline).toHaveBeenLastCalledWith('书B')
+    w.unmount()
+  })
+})
+
+// 红点降级提示接线（面板面）：服务端四类降级下红点不完整，须显式提示——否则作者把
+// 「没有红点」读成「本章没问题」。store 侧接线见 test/studio/webnext/tree.test.ts。
+describe('ChapterTreePanel: 红点降级提示', () => {
+  it('issueWarnings 非空 → 渲染提示（摘要显条数与首条，展开列全量）', async () => {
+    treeStore.issueWarnings = ['机检索引构建失败，仅显示审稿驳回红点', '2 个章节本轮机检失败，对应红点可能缺失']
+    const w = mount(ChapterTreePanel, { props: { bookName: '书A' } })
+    await flushPromises()
+    const box = w.find('[data-test="tree-issue-degraded"]')
+    expect(box.exists()).toBe(true)
+    expect(box.find('summary').text()).toContain('红点降级（2）')
+    expect(box.find('summary').text()).toContain('机检索引构建失败')
+    expect(box.findAll('li').map((li) => li.text())).toEqual(treeStore.issueWarnings)
+    w.unmount()
+  })
+
+  it('issueWarnings 为空 → 不渲染提示行（无降级不长挂）', async () => {
+    const w = mount(ChapterTreePanel, { props: { bookName: '书A' } })
+    await flushPromises()
+    expect(w.find('[data-test="tree-issue-degraded"]').exists()).toBe(false)
     w.unmount()
   })
 })

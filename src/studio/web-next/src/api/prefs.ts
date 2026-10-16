@@ -1,10 +1,14 @@
 import { apiJson } from './client'
 import { bookUrl } from './url'
 
-/** 书库级偏好（.clwriting/prefs.json）：工作区布局 + 可覆盖编辑器偏好。 */
+/** 书库级偏好（.clwriting/prefs.json）：工作区布局 + 可覆盖编辑器偏好。
+ *
+ * 两处「书级覆盖」键（pageWidth / autosaveInterval）的 null 是**显式声明无覆盖**（设置面
+ * 「关」即写 null），不是缺省：服务端按删键处理（prefs.ts NULL_DELETE_KEYS），故写载荷
+ * 必须带该键——`undefined` 会被 JSON.stringify 丢弃，盘上旧覆盖键就永不消失、关掉即复活。 */
 export interface BookPrefs {
-  pageWidth?: number
-  autosaveInterval?: number
+  pageWidth?: number | null
+  autosaveInterval?: number | null
   leftWidth?: number
   leftOpen?: boolean
   rightOpen?: boolean

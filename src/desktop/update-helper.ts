@@ -305,8 +305,9 @@ function swapDirs(targetDir: string, newDir: string, oldDir: string): UpdateReas
     try {
       renameWithRetry(oldDir, targetDir)
     } catch (rollbackErr) {
-      // 双向失败：库目录层面已无 target。下次任何启动的 recoverInterruptedSwap 会
-      // 把 .old- 还原（这是该路径存在的意义）；结果条如实标 rolled-back。
+      // 双向失败：应用目录层面已无 target。`.old-` 留在盘上（启动维护在 target 缺席时
+      // 不再擦除它），待下次助手启动第 0 步的 recoverInterruptedSwap 还原——该路径存在的意义；
+      // 结果条如实标 rolled-back。
       log.error('update', `回滚也失败（${oldDir} → ${targetDir}）：${errMsg(rollbackErr)}`)
     }
     return 'swap-failed'

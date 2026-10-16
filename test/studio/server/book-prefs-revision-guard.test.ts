@@ -220,4 +220,53 @@ describe('R36-24 books.prefs revision（乐观并发）', () => {
     expect(b.json.error).toContain('prefs.leftOpen')
     expect(disk()).toEqual(d1)
   })
+
+  // 书级覆盖「关得掉」：两键（pageWidth / autosaveInterval）的 null = 显式声明无覆盖，
+  // 服务端按删键处理（prefs.ts NULL_DELETE_KEYS）——合并写不删的话，作者关掉覆盖后重进
+  // 本书旧键复活。其余键的 null 是有效值（activeDocId），照常落盘。
+  it('书级覆盖两键的 null 按删键处理：盘上旧覆盖键被删，其他键不动；activeDocId 的 null 照常落盘', async () => {
+    const g = await req<{ prefs: Record<string, unknown>; revision: number }>({ method: 'GET', path: prefsUrl() })
+    const rev = g.json.revision
+    const set = await req<{ ok: boolean; revision: number }>({
+      method: 'PUT',
+      path: prefsUrl(),
+      body: { prefs: { pageWidth: 900, autosaveInterval: 30, leftWidth: 300 }, expectedRevision: rev },
+    })
+    expect(set.status).toBe(200)
+    expect(disk()['pageWidth']).toBe(900)
+
+    const off = await req<{ ok: boolean; revision: number }>({
+      method: 'PUT',
+      path: prefsUrl(),
+      body: {
+        prefs: { pageWidth: null, autosaveInterval: null, activeDocId: null },
+        expectedRevision: set.json.revision,
+      },
+    })
+    expect(off.status).toBe(200)
+    const d = disk()
+    expect('pageWidth' in d).toBe(false) // 覆盖关掉 = 键消失（读侧回退全局默认）
+    expect('autosaveInterval' in d).toBe(false)
+    expect(d['leftWidth']).toBe(300) // 合并写语义不变：未出现的键保留
+    expect(d['activeDocId']).toBeNull() // 有效值型 null 照常落盘（非删键语义）
+  })
+
+  it('旧客户端不带这两键 → 合并写原样保留盘上旧覆盖（兼容不误删）', async () => {
+    const g = await req<{ revision: number }>({ method: 'GET', path: prefsUrl() })
+    const rev = g.json.revision
+    const set = await req<{ ok: boolean; revision: number }>({
+      method: 'PUT',
+      path: prefsUrl(),
+      body: { prefs: { pageWidth: 800 }, expectedRevision: rev },
+    })
+    expect(set.status).toBe(200)
+    const legacy = await req<{ ok: boolean; revision: number }>({
+      method: 'PUT',
+      path: prefsUrl(),
+      body: { prefs: { leftWidth: 320 }, expectedRevision: set.json.revision },
+    })
+    expect(legacy.status).toBe(200)
+    expect(disk()['pageWidth']).toBe(800) // 载荷未提该键 → 不删
+    expect(disk()['leftWidth']).toBe(320)
+  })
 })

@@ -302,8 +302,9 @@ function adjStackRegex(maxAdjStack: number): RegExp {
  * 3 连意味着出现空头单元）；「的的」2 连的分解方式恰 1 种（c(2)=1，无歧义回溯），
  * 故歧义起点在 3 连，界收到歧义起点以下即 {3,}——主审实测 41 字符病理片段
  * （5×7 连「的」+断链尾）469ms → 0.1ms，正常文本命中零变化。
+ * 导出供机检代次哈希收编（checker-generation 收 count-style 导出面）——改正则即换代次。
  */
-const DE_RUN_SPLIT_RE = /的{3,}/
+export const DE_RUN_SPLIT_RE = /的{3,}/
 
 /** 形容词堆叠命中（去重 +领属链豁免）——computeStyleMetrics 与 checkStyleMetrics 共用单源 */
 function matchAdjStackHits(body: string, maxAdjStack: number): string[] {
@@ -400,8 +401,9 @@ export const POSSESSIVE_HEADS = new Set([
 
 /** 领属链判定：命中串由 N 个「X的」单元组成，任一单元头命中 POSSESSIVE_HEADS → true。
  * 单元正则原在逐命中过滤循环内逐次 new，提升为模块级常量
- *  （matchAll 内部克隆消费，不携带 lastIndex 状态，共享安全）。 */
-const POSSESSIVE_UNIT_RE = new RegExp(`([${HANZI}]{1,6})的(?:[、，,]\\s*)?`, 'gu')
+ *  （matchAll 内部克隆消费，不携带 lastIndex 状态，共享安全）。
+ * 导出供机检代次哈希收编——改正则即换代次（未导出时改它不动代次、旧缓存继续供旧判定）。 */
+export const POSSESSIVE_UNIT_RE = new RegExp(`([${HANZI}]{1,6})的(?:[、，,]\\s*)?`, 'gu')
 
 function isPossessiveChain(hit: string): boolean {
   for (const m of hit.matchAll(POSSESSIVE_UNIT_RE)) {

@@ -61,7 +61,7 @@ export interface ProviderConfDto {
 }
 
 /** 价格表（models[].pricing 同形状覆盖 provider 级） */
-interface PricingConfDto {
+export interface PricingConfDto {
   inputPerMTok?: number
   outputPerMTok?: number
   cacheReadPerMTok?: number

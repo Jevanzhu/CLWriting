@@ -612,9 +612,10 @@ test('copyDocument: 复制内容 + 新 docId + 清单登记 + 源不变', async 
   expect(r.docId).toMatch(/^doc_/)
   expect(r.docId).not.toBe('doc_ch01')
   expect(r.path).toBe('写作/正文/第一卷/0002-开篇 副本.md')
-  // 副本内容同源（fm + body 原样复制）
+  // 副本内容同源（body 与其余 fm 键逐字节复制）；fm 章号跟**文件名**走——副本取新章号
+  // 而字节级搬运会留源号 1，产出「fm 号 ≠ 文件名号」的章撞 CHAPTER_NO_MISMATCH 闸。
   const copy = readFileSync(join(root, '写作', '正文', '第一卷', '0002-开篇 副本.md'), 'utf-8')
-  expect(copy).toContain('章号: 1')
+  expect(copy).toContain('章号: 2')
   expect(copy).toContain('正文')
   // 源文件不变
   expect(existsSync(join(root, '写作', '正文', '第一卷', '0001-开篇.md'))).toBe(true)

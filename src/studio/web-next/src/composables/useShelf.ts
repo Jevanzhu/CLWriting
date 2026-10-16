@@ -193,9 +193,11 @@ export function useShelf(options?: {
   /** 搜索词（按书名模糊匹配） */
   const query = ref('')
   type SortBy = 'recent' | 'created' | 'name'
+  // SORT_KEY 须先于 sortBy 初始化——loadSortPreference 在 ref 初始化时即读它，
+  // 常量落在其后会命中 TDZ（ReferenceError 被裸 catch 吞成 'recent'，偏好恒失效）
+  const SORT_KEY = 'clw-shelf-sort'
   /** 排序方式：最近打开 / 创建时间 / 字母序（localStorage 持久化） */
   const sortBy = ref<SortBy>(loadSortPreference())
-  const SORT_KEY = 'clw-shelf-sort'
   function loadSortPreference(): SortBy {
     try {
       const v = localStorage.getItem(SORT_KEY)

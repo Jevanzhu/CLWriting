@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getProviders: vi.fn(),
   getRagProviders: vi.fn(),
   updateProvider: vi.fn(),
+  updateProviderPricing: vi.fn(),
 }))
 
 vi.mock('../../../src/studio/web-next/src/api/providers', async (importOriginal) => ({
@@ -16,6 +17,7 @@ vi.mock('../../../src/studio/web-next/src/api/providers', async (importOriginal)
   getProviders: mocks.getProviders,
   getRagProviders: mocks.getRagProviders,
   updateProvider: mocks.updateProvider,
+  updateProviderPricing: mocks.updateProviderPricing,
 }))
 
 import { useProviderStore } from '../../../src/studio/web-next/src/stores/provider'
@@ -107,5 +109,26 @@ describe('provider: 两域共用 revision 的读写口径', () => {
     expect(r).toBe(false)
     // 权威重读：无条件对齐远端号——取大闸拦不住「服务端号变小」这唯一退化形态
     expect(store.revision).toBe(2)
+  })
+})
+
+// ── 价格保存的 revision 守卫：价格端点 bump 共享计数，本地号须同步 ────────────
+
+describe('provider: 价格保存同步 revision（防紧随表单保存伪 409）', () => {
+  it('savePricing 带 expectedRevision 并回写响应 revision → 紧随 update 携新号', async () => {
+    const store = useProviderStore()
+    await store.refresh() // 采纳远端 revision=7
+    expect(store.revision).toBe(7)
+    mocks.updateProviderPricing.mockResolvedValueOnce({ ok: true, pricing: { inputPerMTok: 1 }, revision: 8 })
+    const ok = await store.savePricing('p1', { inputPerMTok: 1 })
+    expect(ok).toBe(true)
+    // 写端点带本地号（守卫）
+    expect(mocks.updateProviderPricing).toHaveBeenCalledWith('p1', { inputPerMTok: 1 }, 7)
+    // 响应号回写：价格保存 bump 的号被采纳（不回写即紧随写携 7 吃伪 409）
+    expect(store.revision).toBe(8)
+
+    mocks.updateProvider.mockResolvedValueOnce({ provider: { id: 'p1' }, revision: 9 })
+    await store.update('p1', INPUT)
+    expect(mocks.updateProvider).toHaveBeenCalledWith('p1', expect.objectContaining({ expectedRevision: 8 }))
   })
 })

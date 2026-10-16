@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { redactSecret } from '../../ai/provider/redact.js'
+import { createPathScrubber, type PathScrubDirs } from '../../log/path-scrub.js'
 
 const JSON_BODY_LIMIT_BYTES = 1024 * 1024
 
@@ -70,6 +71,36 @@ export function reply(res: ServerResponse, status: number, body: unknown): void 
  * - extra：可选诊断扩展字段（如机检失败带 details）——仍走本单一
  *   出口，不回退到手拼 reply({ok:false,...}) 混合信封
  */
+/** 错误信封的路径脱敏器——组装根经 configureErrorPathScrub 注入具体目录（书库根/
+ *  应用数据 → 带名占位符），使错误文本里的目录名可辨；未注入时为无具体目录的兜底器
+ *  （家目录形态 + 其余绝对路径两层，与诊断包同源，见 log/path-scrub.ts）。
+ *  进程内多实例（多库多窗 / 测试各自的临时书库）后注入者胜：带名占位符的归属可能指向前
+ *  一个实例，但兜底层不依赖注入——任何实例的错误文本都不会漏出本机绝对路径。 */
+let errorPathScrub: (text: string) => string = createPathScrubber()
+
+/** 组装根一处注入（server/index.ts 建路由表时）——出口不逐 call site 传目录。 */
+export function configureErrorPathScrub(dirs: PathScrubDirs): void {
+  errorPathScrub = createPathScrubber(dirs)
+}
+
+/** 出口脱敏：先凭据后路径——凭据串可含 `/`（Bearer 令牌字符集含斜杠），路径扫面先跑会
+ *  把令牌切成两截、令凭据词表够不着。extra 里的字符串同样过一遍（机检一类扩展字段
+ *  带的是命中位置/片段，同属本机文本面）。 */
+function scrubErrorText(text: string): string {
+  return errorPathScrub(redactSecret(text))
+}
+
+function scrubExtra(value: unknown): unknown {
+  if (typeof value === 'string') return scrubErrorText(value)
+  if (Array.isArray(value)) return value.map(scrubExtra)
+  if (typeof value === 'object' && value !== null) {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value)) out[k] = scrubExtra(v)
+    return out
+  }
+  return value
+}
+
 export function replyError(
   res: ServerResponse,
   status: number,
@@ -79,12 +110,14 @@ export function replyError(
 ): void {
   // 错误信封单一出口统一脱敏——各 handler 直透 result.error 的窄
   // 路径（非 GenError 逃逸 message）此前靠各点自觉套 redactSecret，8 处直透漏网；
-  // 收进本出口后所有非 2xx error 文本一律过 redactSecret（幂等：已脱敏文本再过
-  // 无变化，既有调用点的显式脱敏不受影响；中文人话不匹配凭据模式不受影响）
-  const safeError = redactSecret(error)
+  // 收进本出口后所有非 2xx error 文本一律过本出口的脱敏（幂等：已脱敏文本再过
+  // 无变化，既有调用点的显式脱敏不受影响；中文人话不匹配凭据/路径模式不受影响）。
+  // 路径一层补的是 fs 错误原样内嵌的绝对路径（`ENOENT: …, open '/x/y/book.yaml'`
+  // 一路出到前端 toast），单点收口以免逐 call site 判「这条 message 会不会带路径」。
+  const safeError = scrubErrorText(error)
   // 同 reply——错误信封统一补 nosniff
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'x-content-type-options': 'nosniff' })
-  res.end(JSON.stringify({ code, error: safeError, ...(extra ?? {}) }))
+  res.end(JSON.stringify({ code, error: safeError, ...(extra ? (scrubExtra(extra) as Record<string, unknown>) : {}) }))
 }
 
 /** HttpError → 统一信封（dispatch catch / readJson 抛错的兜底出口）。 */

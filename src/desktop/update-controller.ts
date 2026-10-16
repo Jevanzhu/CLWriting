@@ -368,10 +368,9 @@ export interface UpdateMaintenanceOptions {
 
 /**
  * 启动维护（幂等、失败只留痕）：
- *  1. 应用目录旁的 `-new-*` / `.old-*` 残留——换新成功后的旧目录、或失败留下的半成品；
- *     顺序固定：先清 `-new-*`（未就位的新版没有回滚价值）再清 `.old-*`。**若 target 目录
- *     本身缺席**（中断在「已改名未就位」窗），这里不还原——还原归助手的
- *     recoverInterruptedSwap（它才是带着版本信息的当事人），本函数只擦干净残余。
+ *  1. 应用目录旁的 `-new-*` 残留下手清；`.old-*` 仅在 target（应用目录本身）在位时清
+ *     （换新成功后的旧目录）。**target 缺席**（中断在「已改名未就位」窗）时 `.old-*` 是
+ *     唯一回滚面——留着给助手的 recoverInterruptedSwap 还原，此处不得擦除（擦了回滚能力永久消失）。
  *  2. 缓存目录里版本 ≤ 当前版本的目录（升级完成后的旧包、或用户放弃的旧版包）与
  *     `*.part` 残迹；最新版（> 当前）与结果条一律保留。
  * 只在打包态跑：dev 态 execPath 指着 node_modules 里的 Electron 发行目录，扫它的兄弟
@@ -381,6 +380,8 @@ export function runUpdateMaintenance(opts: UpdateMaintenanceOptions): void {
   if (opts.appDir) {
     const parent = dirname(opts.appDir)
     const base = opts.appDir.slice(parent.length + 1)
+    // target 在位才清 `.old-*`：缺席时它是 recoverInterruptedSwap 的唯一还原源
+    const targetPresent = existsSync(opts.appDir)
     let names: string[] = []
     try {
       names = readdirSync(parent)
@@ -391,7 +392,7 @@ export function runUpdateMaintenance(opts: UpdateMaintenanceOptions): void {
       if (!name.startsWith(base)) continue
       const isNew = name.startsWith(`${base}-new-`)
       const isOld = name.startsWith(`${base}.old-`)
-      if (isNew || isOld) {
+      if (isNew || (isOld && targetPresent)) {
         log.info('update', `清理更新残留目录：${join(parent, name)}`)
         rmDirQuietly(join(parent, name))
       }

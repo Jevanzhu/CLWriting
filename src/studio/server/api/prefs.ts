@@ -72,11 +72,14 @@ const isNum = (v: unknown): boolean => typeof v === 'number'
 const isBool = (v: unknown): boolean => typeof v === 'boolean'
 const isStrOrNull = (v: unknown): boolean => v === null || typeof v === 'string'
 const isStrArr = (v: unknown): boolean => Array.isArray(v) && v.every((x) => typeof x === 'string')
+const isNumOrNull = (v: unknown): boolean => v === null || typeof v === 'number'
 
 /** 书级 .clwriting/prefs.json 白名单 —— 对照前端 stores/workspace.ts 写面 8 键（BookPrefs 全字段）。 */
 const BOOK_PREF_TYPES: Readonly<Record<string, (v: unknown) => boolean>> = {
-  pageWidth: isNum,
-  autosaveInterval: isNum,
+  // 书级覆盖两键的 null = 显式声明「本书无覆盖」（前端设置面「关」即写 null，见
+  // NULL_DELETE_KEYS）；其余键的 null 是有效值（activeDocId 无打开文档即 null）。
+  pageWidth: isNumOrNull,
+  autosaveInterval: isNumOrNull,
   leftWidth: isNum,
   leftOpen: isBool,
   rightOpen: isBool,
@@ -84,6 +87,11 @@ const BOOK_PREF_TYPES: Readonly<Record<string, (v: unknown) => boolean>> = {
   activeDocId: isStrOrNull,
   treeExpanded: isStrArr,
 }
+
+/** 载荷里 null 按「删键」处理的键（书级覆盖语义）：这两键无覆盖是「键不存在」而非
+ *  「值 null」——合并写（`{...disk, ...prefs}`）保留盘上旧键，一旦不删，作者关掉覆盖后
+ *  重进本书旧键复活（界面又回覆盖值）。删键后读侧 posNum(undefined) → 跟随全局默认。 */
+const NULL_DELETE_KEYS: ReadonlySet<string> = new Set(['pageWidth', 'autosaveInterval'])
 
 /** 全局 userData/global.json 白名单 —— 前端 stores/prefs.ts PREF_ROWS 34 键（落盘名）
  *  + 预算两键（global-defaults 读侧消费的 tokensPerChapter/costPerChapter）。 */
@@ -241,8 +249,12 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
         if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
         const next = current + 1
         mkdirSync(dirname(r.path), { recursive: true })
-        // revision 由服务端计算覆盖（客户端传入的同名键不采信），随布局一起落盘
-        atomicWriteFile(r.path, JSON.stringify({ ...disk, ...prefs, revision: next }, null, 2) + '\n')
+        // revision 由服务端计算覆盖（客户端传入的同名键不采信），随布局一起落盘。
+        // 覆盖两键的显式 null 走删键（见 NULL_DELETE_KEYS）——合并写保不删旧键，
+        // 会把「已关掉的书级覆盖」原样留在盘上。
+        const merged: Record<string, unknown> = { ...disk, ...prefs }
+        for (const k of NULL_DELETE_KEYS) if (prefs[k] === null) delete merged[k]
+        atomicWriteFile(r.path, JSON.stringify({ ...merged, revision: next }, null, 2) + '\n')
         reply(res, 200, { ok: true, revision: next })
       } catch (e) {
         log.error('api', '写 prefs 失败', e)

@@ -6,7 +6,7 @@
 import { ref, computed, reactive } from 'vue'
 import { ChevronDown } from 'lucide-vue-next'
 import type { ProviderConfDto, Protocol, AuthStrategy, ModelConfDto } from '../../api/providers'
-import { updateProviderPricing } from '../../api/providers'
+import { useProviderStore } from '../../stores/provider'
 import { apiKeyFailure, dtoToModelDrafts, modelDraftToDto, type ModelRowDraft } from '../../shared/provider-format'
 import ModelListEditor from './ModelListEditor.vue'
 
@@ -38,6 +38,10 @@ const emit = defineEmits<{
   /** 测试模型选择变更（父层写 store.probeModels） */
   'probe-model': [model: string]
 }>()
+
+// 价格保存经 store 写（revision 单源在 store——直调 api 会漏带 expectedRevision/漏回写 revision，
+// 紧随的表单保存携陈旧号吃伪 409）
+const providerStore = useProviderStore()
 
 // 与原实现同款初始化：新增给默认值；编辑回填 + 旧配置无 auth 按协议推断
 const form = ref(
@@ -96,8 +100,9 @@ function submit(): void {
   })
 }
 
-// ──价格表：自包含小节——独立端点独立保存（价格不影响连通性，
-//    不与主表单保存/expectedRevision 耦合）；仅编辑卡显示 ──
+// ──价格表：自包含小节——独立端点独立保存（价格不影响连通性）；仅编辑卡显示。
+//    写经 store.savePricing（带 expectedRevision + 回写 revision）——端点同样 bump
+//    共享 revision，直调 api 会让紧随的主表单保存携陈旧号吃伪 409 ──
 const pricingForm = reactive({
   inputPerMTok: props.initial?.pricing?.inputPerMTok?.toString() ?? '',
   outputPerMTok: props.initial?.pricing?.outputPerMTok?.toString() ?? '',
@@ -145,7 +150,12 @@ async function savePricing(clear = false): Promise<void> {
       pricingError.value = '至少填一个单价（或点「清除价格」）'
       return
     }
-    await updateProviderPricing(props.initial.id, pricing)
+    const ok = await providerStore.savePricing(props.initial.id, pricing)
+    if (!ok) {
+      // store 已按错误/409 恢复链给提示；此处只收在途态（内联面不重复报同一错）
+      pricingState.value = 'idle'
+      return
+    }
     pricingState.value = 'saved'
     if (clear) {
       pricingForm.inputPerMTok = ''

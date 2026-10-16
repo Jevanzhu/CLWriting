@@ -143,7 +143,7 @@ export function registerStateRoutes(ctx: StateCtx): void {
     },
   })
 
-  // ── （c ）：崩溃 pending 人工确认通道 ─────────
+  // ── 崩溃 pending 人工确认通道 ─────────
   // POST /api/books/:name/journal/:opId/acknowledge → 对该 save 类 pending appendAborted
   // （journal.ts 既有原语，自带跨进程 journal 锁），使其 findUnsettled 不再命中、
   // healthCheck 不再报 crashedWrite「可能丢字」。这是幽灵红消解闭环的人工半边：

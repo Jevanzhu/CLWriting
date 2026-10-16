@@ -86,7 +86,7 @@ const CONTEXT_MENU_CANCEL_DELAY_MS = 100
  *  原 popup callback 内裸排 setTimeout 不留句柄：不可清、不可 unref，违本文件 timer
  * 纪律（闭包持引用滞留卫生），菜单连续开关时旧补发叠跑。排新清旧 +
  *  unref（不拖退出），消费点见 desktop:context-menu 的 popup callback。
- *  （c ）：单槽改 per-sender 分槽——单槽下 A 窗排定的取消补发会被
+ *  单槽改 per-sender 分槽——单槽下 A 窗排定的取消补发会被
  *  B 窗菜单关闭回调 clearTimeout 清掉（100ms 内双窗先后关菜单），A 的渲染层 once
  *  收不到 null 挂等到下次开菜单；按 webContents 分槽互不干扰。sendOnce 自带
  * isDestroyed 守卫，窗销毁后的迟到触发无害；条目仅在重排/触发时清理，

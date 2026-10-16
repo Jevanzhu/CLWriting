@@ -100,7 +100,11 @@ describe('R0916-7-P3-8: 操作函数直测（(ctx, params) 新接口）', () => 
       expect(r.path).toBe('写作/正文/0002-副本.md')
       expect(r.revision).toMatch(/^sha256:/)
     }
-    expect(readFileSync(join(root, '写作', '正文', '0002-副本.md'), 'utf-8')).toBe(CONTENT)
+    // 副本 fm 章号跟文件名走（0002）——字节级搬运会把源号 1 带过去，产出「fm 号 ≠ 文件名号」
+    // 的章撞 CHAPTER_NO_MISMATCH 闸（并入/拆分等结构写口前置 409）。正文与其余 fm 键仍逐字节复制。
+    expect(readFileSync(join(root, '写作', '正文', '0002-副本.md'), 'utf-8')).toBe(
+      CONTENT.replace('章号: 1', '章号: 2'),
+    )
     const entries = readManifest(ctx.manifestPath).entries
     expect(entries.get('doc_src')?.path).toBe(REL) // 源条目不动
     expect([...entries.values()].some((e) => e.path === '写作/正文/0002-副本.md')).toBe(true)

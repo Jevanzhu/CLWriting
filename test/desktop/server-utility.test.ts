@@ -10,6 +10,7 @@
  * - getWorkDir 闭包返回 parsed.workDir（不依赖调用时外部状态）
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { spawnSync } from 'node:child_process'
 import type { ParsedServerArgs } from '../../src/desktop/server-boot.js'
 import {
   getUpdateCheckResult,
@@ -62,22 +63,28 @@ vi.mock('../../src/desktop/graceful-shutdown.js', () => ({
   },
 }))
 
-import { runUtilityEntry, installFatalExitHandlers } from '../../src/desktop/server-utility.js'
+import { runUtilityEntry, installFatalExitHandlers, watchParentLiveness } from '../../src/desktop/server-utility.js'
 
-/** parentPort 假件：MessageEvent 包裹形状（消息在 e.data） */
+/** parentPort 假件：MessageEvent 包裹形状（消息在 e.data）+ 按事件名分槽（真实
+ *  ParentPort 继承 EventEmitter，'message' 与 'close' 各挂各的——共用一槽会让
+ *  「close 监听器」收到 message 事件的包裹对象）。 */
 class FakeParentPort {
   posted: unknown[] = []
-  private handlers: ((event: { data?: unknown }) => void)[] = []
+  private handlers: Record<string, ((event: { data?: unknown }) => void)[]> = {}
   postMessage(message: unknown): void {
     this.posted.push(message)
   }
-  on(_event: 'message', listener: (event: { data?: unknown }) => void): unknown {
-    this.handlers.push(listener)
+  on(event: string, listener: (event: { data?: unknown }) => void): unknown {
+    ;(this.handlers[event] ??= []).push(listener)
     return this
   }
   /** main 侧下发指令的测试通道 */
   send(data: unknown): void {
-    for (const handler of [...this.handlers]) handler({ data })
+    for (const handler of [...(this.handlers['message'] ?? [])]) handler({ data })
+  }
+  /** 通道断开（父侧退出时 Electron 关通道的形态） */
+  emitClose(): void {
+    for (const handler of [...(this.handlers['close'] ?? [])]) handler({})
   }
 }
 
@@ -95,10 +102,15 @@ function mkParsed(over: Partial<ParsedServerArgs> = {}): ParsedServerArgs {
 
 function flush(times = 6): Promise<void> {
   // R71-13：exit 改 setImmediate 调度后，纯 queueMicrotask 轮不触达 check 阶段——
-  // flush 改为 setImmediate 轮次（每轮间微任务照常先排空，原有断言时序不受影响）
+  // flush 改为 setImmediate 轮次（每轮间微任务照常排空，原有断言时序不受影响）
   let p = Promise.resolve()
   for (let i = 0; i < times; i++) p = p.then(() => new Promise<void>((r) => setImmediate(r)))
   return p
+}
+
+/** 真等一小段（探活轮询跑在真实计时器上，间隔注入为毫秒级） */
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms))
 }
 
 /** process.exit spy：自类型（ReturnType 按工厂调用面推导，不手写 MockInstance 泛参） */
@@ -248,6 +260,72 @@ describe('批 U2：runUtilityEntry 握手与 shutdown 指令', () => {
     expect(exitSpy).not.toHaveBeenCalled() // 回执先于退出至少一个轮次（回归断言点）
     await new Promise<void>((r) => setImmediate(r))
     expect(exitSpy).toHaveBeenCalledWith(0)
+  })
+})
+
+// 父进程消失的自退兜底：main 被强杀（SIGKILL/崩溃）时既无 shutdown 指令、Electron 的
+// 「parent 退出即杀子」也不保证——孤儿态仍占着书级锁与端口，阻塞新实例开同一本书。
+describe('父进程探活：孤儿子进程有界自退', () => {
+  it('watchParentLiveness 判据：ppid 变化（POSIX 父亡重挂到 init）→ 判父已不在', async () => {
+    let now = 500
+    const gone = vi.fn()
+    const stop = watchParentLiveness(new FakeParentPort(), gone, { ppid: () => now, alive: () => true, intervalMs: 5 })
+    await sleep(20)
+    expect(gone).not.toHaveBeenCalled() // 父仍在：不误判
+    now = 1
+    await sleep(30)
+    expect(gone).toHaveBeenCalledTimes(1) // 变化后一个间隔内判亡，且只报一次
+    stop()
+    now = 2
+    await sleep(30)
+    expect(gone).toHaveBeenCalledTimes(1) // 显式卸载后不再触发
+  })
+
+  it('watchParentLiveness 判据：ppid 不变但探测 ESRCH（Windows 无重挂，pid 复用为死号）→ 判父已不在', async () => {
+    // 真 pid 复用：spawnSync 返回即已回收，该 pid 此刻必不存在（覆盖默认探测的 catch 支）
+    const dead = spawnSync(process.execPath, ['-e', ''], { stdio: 'ignore' }).pid!
+    const gone = vi.fn()
+    watchParentLiveness(new FakeParentPort(), gone, { ppid: () => dead, intervalMs: 5 })
+    await sleep(40)
+    expect(gone).toHaveBeenCalledTimes(1)
+  })
+
+  it('通道 close（父侧退出关通道）→ 触发一次且自卸载（重复 close 不再报）', () => {
+    const port = new FakeParentPort()
+    const gone = vi.fn()
+    watchParentLiveness(port, gone, { ppid: () => process.ppid, alive: () => true, intervalMs: 1000 })
+    port.emitClose()
+    port.emitClose()
+    expect(gone).toHaveBeenCalledTimes(1)
+  })
+
+  it('父进程消失 → 走与 shutdown 指令同一条收尾：shutdownStudio 跑过 + shutdown-done + exit(0)', async () => {
+    const port = new FakeParentPort()
+    runUtilityEntry(port, mkParsed({ workDir: '/books/我的书' }))
+    await flush()
+    port.emitClose()
+    await flush()
+    expect(h.shutdownCalls).toHaveLength(1)
+    expect(h.shutdownCalls[0]!.getWorkDir()).toBe('/books/我的书')
+    expect(h.shutdownCalls[0]!.server).toBe(h.sentinelServer)
+    expect(port.posted).toEqual([{ type: 'ready', port: 45678 }, { type: 'shutdown-done' }])
+    expect(exitSpy).toHaveBeenCalledWith(0)
+  })
+
+  it('轮询腿（父 pid 变）→ 同样自退；探活与 shutdown 指令竞态只收尾一次', async () => {
+    let now = 500
+    const port = new FakeParentPort()
+    runUtilityEntry(port, mkParsed(), { parentLiveness: { ppid: () => now, alive: () => true, intervalMs: 5 } })
+    await flush()
+    now = 1
+    await sleep(40)
+    await flush()
+    expect(h.shutdownCalls).toHaveLength(1)
+    expect(exitSpy).toHaveBeenCalledWith(0)
+    // 探活已触发后再来 shutdown 指令：收尾不重复进入（重复会对在途编排再做一轮收尾）
+    port.send({ type: 'shutdown' })
+    await flush()
+    expect(h.shutdownCalls).toHaveLength(1)
   })
 })
 

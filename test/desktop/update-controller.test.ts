@@ -362,6 +362,17 @@ describe('runUpdateMaintenance（启动维护清扫规则）', () => {
     expect(existsSync(join(parent, 'CLWriting-other'))).toBe(true)
   })
 
+  it('target 缺席（已改名未就位窗）→ 保留 .old- 回滚面，-new- 照清', () => {
+    const parent = mkTmp('clw-upd-apps-')
+    const appDir = join(parent, 'CLWriting') // 不建 appDir = target 缺席
+    const newDir = `${appDir}-new-1.0.0`
+    const oldDir = `${appDir}.old-1.0.0-rc.4`
+    for (const d of [newDir, oldDir]) mkdirSync(d, { recursive: true })
+    runUpdateMaintenance({ appDir, homeDir: join(parent, 'home'), currentVersion: '1.0.0' })
+    expect(existsSync(oldDir)).toBe(true) // 唯一还原源，留给 recoverInterruptedSwap（擦了回滚能力永久消失）
+    expect(existsSync(newDir)).toBe(false) // 未就位的新版无回滚价值，照清
+  })
+
   it('缓存：不高于当前版本的目录清、更新版本与结果条留、.part 残迹清、非版本名目录不动', () => {
     const home = mkTmp('clw-upd-cache-')
     const root = updateCacheRoot(home)

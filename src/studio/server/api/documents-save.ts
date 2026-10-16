@@ -29,7 +29,7 @@ import type { SaveDocumentInput, SaveOutcome } from '../../../document/service.j
 import { getBookTreeIndex } from '../../../document/tree.js'
 import { finalizeRevisionAsync } from '../../../document/finalize.js' // 服务进程切异步孪生
 import { afterFinalizeGenerateSummary, afterFinalizeGenerateSummaryBatch } from '../../../process/summary.js'
-// （c ）：定稿摘要后台任务的中断接线——driver 会话惰性取得后传入
+// 定稿摘要后台任务的中断接线——driver 会话惰性取得后传入
 // 钩子，后台摘要/批量链持独立登记 ctrl（/interrupt 可中止）；未接线形态（session
 // 取得失败）退化为不登记，与修复前等价
 import { invalidateBookSummary } from './progress.js'

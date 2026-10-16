@@ -40,7 +40,8 @@ import { readManifestStrict, writeManifest, withManifestLockAsync } from './mani
 import { SaveQueue } from './queue.js'
 import { generateDocId, legacyId } from './stable-id.js'
 import { invalidateTreeIndex, invalidateTreeIndexForContent } from './tree.js'
-import { bodyOf } from '../format/frontmatter.js'
+import { bodyOf, joinFrontMatter, parseFlat, patchFlatFm, splitFrontMatter } from '../format/frontmatter.js'
+import { parseChapterNo } from '../format/chapters.js'
 import { appendTrashEntryAsync, readTrashManifestStrict, removeTrashEntryAsync, TRASH_DIR_REL } from './trash.js'
 // 无主章纲能力例外判据（章纲随迁批）——证据单源，见 outline-orphan.ts 头注
 import { outlineTrashExempt } from './outline-orphan.js'
@@ -59,7 +60,7 @@ import { doMoveOrRename } from './service-move.js'
 import { DocContext } from './doc-context.js'
 import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords } from '../format/words.js'
-import { sanitizeFileNamePart, sanitizeFullFileName } from '../format/filename.js'
+import { sanitizeFileNamePart, sanitizeFullFileName, chapterNoFromName } from '../format/filename.js'
 
 /** 保存输入（§5.1）。
  *  content 为 string | Buffer：Buffer 仅「恢复端点原字节档」分支产生（readVersionRaw
@@ -556,8 +557,9 @@ async function applySaveLocked(
     // WRITE_ERROR 误报失败）
     try {
       appendWordsDelta(ctx.bookRoot, todayDate(), wordDelta, docId)
-    } catch {
-      // 磁盘满等忽略——保存已成功，字数日记丢失可接受
+    } catch (e) {
+      // 磁盘满等忽略——保存已成功，字数日记丢失可接受；但须留痕，否则重复漏记无从察觉
+      log.warn('document', `字数增量日记写入失败（${docId}，保存结果不受影响）：${errMsg(e)}`)
     }
     // 成功落盘后回填新文字数缓存——下一笔保存的 oldWords 直接命中
     //（rev 键控：即便此笔回填后文件又被外部改动，rev 不匹配自动失效，无害）。
@@ -712,9 +714,39 @@ async function doCreate(ctx: DocContext, input: CreateDocumentInput): Promise<Cr
   return { ok: true, docId: registeredDocId, path: rel, revision: computeRevisionBytes(Buffer.from(content, 'utf-8')) }
 }
 
+/** 复制落盘前的 fm 章号对齐——把副本**文件名**的章号（权威口径）重写进 front matter
+ *  的「章号」键。
+ *
+ *  为什么必须在复制出口做：复制是字节级搬运，文件名由调用方另取（前端「副本」取新章号），
+ *  fm 里还是源章的号——产出「fm 号 ≠ 文件名号」的章，撞全书章号一致性闸
+ *  （CHAPTER_NO_MISMATCH，并入/拆分等结构写口前置 409），此后并入上一章、撤销并入、光标
+ *  拆分等整本结构操作全被拦。单落点设在此（服务端复制出口）：前端与 AI 两个调用方一并
+ *  覆盖，不必各自记得改 fm。
+ *
+ *  不改写的分支（原样返回）：无 front matter、fm 无「章号」键、文件名取不到章号、号已一致
+ *  ——fm 缺失不拦是既有口径（三个取号消费者全按文件名前缀派生）；非 UTF-8 源也不走本函数
+ *  （字节级复制为准，文本改写会损坏原编码）。
+ *  键行带嵌套子行等不可平铺化形态时 patchFlatFm 拒改（保形优先），此处留痕后原样落盘——
+ *  副本仍可能与文件名号失配，须人工修正。 */
+function alignCopyChapterNo(text: string, relPath: string): string {
+  const no = chapterNoFromName(relPath.split('/').pop() ?? '')
+  if (no === null) return text
+  const split = splitFrontMatter(text)
+  if (!split) return text
+  const map = parseFlat(split.fmRaw)
+  if (!map.has('章号')) return text
+  if (parseChapterNo(map.get('章号')) === no) return text
+  const patched = patchFlatFm(split.fmRaw, { 章号: no })
+  if (!patched.ok) {
+    log.warn('document', `复制副本 fm 章号未改写（${relPath}，与文件名号可能失配）：${patched.reason}`)
+    return text
+  }
+  return joinFrontMatter(patched.text, split.body)
+}
+
 /** 复制文档（读源内容 → 落到 relPath → 分配新 docId + 清单登记 + invalidate）。
  *  登记锁等待走异步孪生；全程持源 docId save 锁（与 move/rename/trash 同族——对端
- * trash 同族——对端保存/结构操作进行中时等待，而非 ENOENT 误报）。 */
+ *  trash 同族——对端保存/结构操作进行中时等待，而非 ENOENT 误报）。 */
 async function doCopy(ctx: DocContext, input: CopyDocumentInput): Promise<CopyResult> {
   // 源 save 锁：copy 原无锁直读源清单/源文件，与并发结构操作（move/rename/trash 皆持源
   // save 锁）交错时会 lookup 命中旧 path → 对端改名/软删落位 → readFileSync 旧路径
@@ -783,10 +815,16 @@ async function doCopy(ctx: DocContext, input: CopyDocumentInput): Promise<CopyRe
         // 即损坏）。合法 UTF-8 源按规范形复制（CRLF/BOM 归一——副本是新建文件，生而规范）；
         // 非 UTF-8 源维持字节级复制。
         const raw = readFileSync(srcSafe)
-        const payload = isUtf8Bytes(raw) && bufferNeedsCanonical(raw) ? canonicalizeText(raw.toString('utf-8')) : raw
+        const utf8 = isUtf8Bytes(raw)
+        const payload = utf8 && bufferNeedsCanonical(raw) ? canonicalizeText(raw.toString('utf-8')) : raw
+        // 合法 UTF-8 源在文本面改写副本 fm 章号（见 alignCopyChapterNo）；非 UTF-8 源
+        // 维持字节级复制不改写
+        const aligned = utf8
+          ? alignCopyChapterNo(typeof payload === 'string' ? payload : payload.toString('utf-8'), copyRelPath)
+          : payload
         // 落盘字节留引用供返回 revision 单写派生，不再落盘后重读全文
-        payloadBytes = typeof payload === 'string' ? Buffer.from(payload, 'utf-8') : payload
-        const created = createFileExclusive(dstSafe, payload, { fsync: true })
+        payloadBytes = typeof aligned === 'string' ? Buffer.from(aligned, 'utf-8') : aligned
+        const created = createFileExclusive(dstSafe, aligned, { fsync: true })
         if (created === 'exists') return { ok: false, code: 'ALREADY_EXISTS', reason: '目标已存在' }
       } catch (e) {
         return { ok: false, code: 'WRITE_ERROR', reason: `复制失败：${errMsg(e)}` }
@@ -1161,12 +1199,13 @@ async function dropManifestEntryAfterTrash(
         writeManifest(ctx.manifestPath, m)
       })
     }
-  } catch {
+  } catch (e) {
     // 并无「树重建自动清理」机制——buildTree 只读扫盘不修剪清单，
     // removeEntry（条目删除）仅由本软删路径与 install/migrate-layout-v3 的目录迁移
     // 显式调用，不存在按盘对账的清理通道。残留形态=清单条目指向已不存在路径：树不受影响
     // （按盘扫描），executeSave 的回收站复活守卫已按「回收站认领+文件不在盘」双条件
     // 拦截（见下），作者经回收站还原即自愈（rename 回原位 + 清单 upsert + 条目清除）。
+    log.warn('document', `软删后清单条目清除失败（${docId}，文件已删除、清单残留待下次操作自愈）：${errMsg(e)}`)
   }
 }
 

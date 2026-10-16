@@ -21,6 +21,7 @@ vi.mock('../../../../src/studio/web-next/src/stores/tree', () => ({
     error: null,
     grouped: [],
     raw: [],
+    issueWarnings: [] as string[],
     load: (name: string) =>
       new Promise<void>((res) => {
         mocks.pendingLoads.push({ name, res })

@@ -17,9 +17,11 @@
 import { describe, it, expect } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { REPO_ROOT } from '../../helpers/repo-root.js'
 import { CHAPTER_STATUS } from '../../../src/studio/web-next/src/shared/words'
 
-const SRC = 'src/studio/web-next/src'
+// 仓根绝对锚（cwd 无关）——collectFiles 按 SRC.length 切片，绝对基址同样成立
+const SRC = join(REPO_ROOT, 'src', 'studio', 'web-next', 'src')
 const UTILITIES = 'styles/utilities.css'
 
 /** 收集 web-next src 下全部 .vue/.css 源文件，返回相对 SRC 的 posix 路径。 */

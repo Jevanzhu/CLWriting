@@ -4,9 +4,9 @@ import { test, expect } from 'vitest'
 // 继承语义）——页面根若用同名类做桌面态标记,会被该规则命中且整页继承成拖拽面,
 // 点击被窗口拖拽吞掉（Library/Shelf/Welcome 三页根 P1 修复改名 is-desktop 的由来）。
 // app-region 仅 Electron 桌面壳生效、e2e 纯 Chromium 惰性,无运行时门可捕获,只能静态钉。
-import { readFileSync } from 'node:fs'
+import { readRepoFile } from '../../helpers/repo-root.js'
 
-const read = (p: string): string => readFileSync(`src/studio/web-next/src/${p}`, 'utf-8')
+const read = (p: string): string => readRepoFile(`src/studio/web-next/src/${p}`)
 
 const PAGES: [string, string, string][] = [
   // [文件, 页根类, 页内标题栏类]

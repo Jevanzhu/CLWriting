@@ -564,11 +564,16 @@ export function useRelationGraph(bookName: string): RelationGraphHandle {
     if (!n.hasCard || !n.file) return
     const node = tree.byPath.get(n.file)
     if (!node || !node.docId) return
+    // 书名入口捕获 + await 后复检（onMine 同款）——doc.open 的 await 窗口内切书后
+    // 旧书 docId 会写进新书工作区（空白页 / 顶开新书同路径文档），违反「迟到写操作不落新书」红线。
+    const book = bookName
     try {
       await doc.open(node)
+      if (route.params.name !== book) return // 已切书：死实例不写工作区
       ws.openTab(node.docId)
     } catch (e) {
-      // 前端：静默吞错收敛（对齐 ForeshadowPanel）
+      // 前端：静默吞错收敛（对齐 ForeshadowPanel）；切书后失败 toast 不落新书界面
+      if (route.params.name !== book) return
       ui.toast(friendlyError(e), 'error')
     }
   }

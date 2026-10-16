@@ -166,8 +166,11 @@ function snapshotBookPrefs(t: LayoutTargets): BookPrefs {
     leftPanel: t.leftPanel.value,
     activeDocId: t.activeDocId.value,
     treeExpanded: t.treeExpanded.value,
-    pageWidth: ps.bookPageWidth ?? undefined,
-    autosaveInterval: ps.bookAutosaveInterval ?? undefined,
+    // 书级覆盖两键原样带 null（不是 `?? undefined`）：null 是「本书无覆盖」的显式声明，
+    // 序列化后仍在载荷里，服务端据此删键（prefs.ts NULL_DELETE_KEYS）；写成 undefined 会
+    // 被 JSON.stringify 丢掉该键，盘上旧覆盖键永存——作者关掉覆盖后重进本书即复活。
+    pageWidth: ps.bookPageWidth,
+    autosaveInterval: ps.bookAutosaveInterval,
   }
 }
 

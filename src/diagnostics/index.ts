@@ -19,18 +19,19 @@
  * - **密钥永不入包**——供应商只取 protocol / 模型名 / 「是否配了 key」布尔，apiKey（含密文）与
  *   baseUrl 值一概不入包（读入仅为判「是否已配置」）；日志逐行过 redactSecret（既有脱敏单源，
  *   同 app-*.jsonl 落盘链）；
- * - **路径脱敏**——应用数据/用户目录/书库根在文本里替换为占位符，另加家目录形态正则兜底
- *  （win `C:\Users\x` / mac+linux `/Users|x/home`）。
+ * - **路径脱敏**——应用数据/用户目录/书库根在文本里替换为带名占位符，另加两层兜底
+ *  （家目录形态 win `C:\Users\x` / mac+linux `/Users|x/home`，其余绝对路径 `<路径>`）——
+ *  词表与次序单源见 log/path-scrub.ts（与 API 错误出口同源，两处都能消掉本机前缀）。
  *
  * 落点：`<userData>/诊断包/诊断包-<本地时间戳>.zip`——不放书库目录：诊断包是应用级排查件
  *（与书是否同步/搬走无关），落书库会被云同步带走、并在 `工作区/导出/` 里与导出稿混面。
  * 旧包不清理（同「归档不删」哲学）。
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { redactSecret } from '../log/redact.js'
+import { createPathScrubber } from '../log/path-scrub.js'
 import { errMsg, recentLogFiles } from '../log/index.js'
 import { buildZipStoreVolumes, type ZipEntry, type ZipStoreLimits } from './zip.js'
 
@@ -276,7 +277,7 @@ function readmeText(): string {
     '    缓存重建/机检/画像）只保留事件标签，正文片段与章文件路径一律省略；',
     '  · 不含任何 API Key / 令牌（只记「是否已配置」）；',
     '  · 不含供应商接口地址（只记协议与模型名）；',
-    '  · 路径已替换为占位符（<应用数据> / <用户目录> / <书库根>）；',
+    '  · 路径已替换为占位符（<应用数据> / <用户目录> / <书库根> / 其余绝对路径 <路径>）；',
     '  · 日志逐行经凭据脱敏（URL 凭据 / Bearer / 各厂商 key 形态）。',
     '',
     '生成方式：设置 → 诊断 → 生成诊断包。',
@@ -294,22 +295,10 @@ export function buildDiagnosticsBundle(opts: DiagnosticsOptions): DiagnosticsRes
     return { ok: false, error: '未定位到应用数据目录，无法生成诊断包' }
   }
   const warnings: string[] = []
-  // 路径占位（具体目录先行：workDir/userData 常在用户目录之下，先替换具体再替换家目录；
-  // 空串/根目录（长度 ≤1）不参与——免得把整条文本替成占位符）
-  const subs: Array<[string, string]> = []
-  if (workDir && workDir.length > 1) subs.push([workDir, '<书库根>'])
-  if (userDataPath.length > 1) subs.push([userDataPath, '<应用数据>'])
-  const home = homedir()
-  if (home.length > 1) subs.push([home, '<用户目录>'])
-
-  const scrubText = (s: string): string => {
-    let out = s
-    for (const [dir, ph] of subs) out = out.split(dir).join(ph)
-    // 家目录形态兜底（同机不同用户/软链形态未被 subs 命中时）
-    out = out.replace(/[A-Za-z]:\\+Users\\+[^\\/\s"']+/g, '<用户目录>')
-    out = out.replace(/\/(?:Users|home)\/[^/\s"']+/g, '<用户目录>')
-    return redactSecret(out)
-  }
+  // 路径占位（具体目录先行，先替换具体再替换一般——次序与词表单源见 log/path-scrub.ts；
+  // 本段只注入两处目录，登记面之外的形态由那层兜底）
+  const pathScrub = createPathScrubber({ workDir, userDataPath })
+  const scrubText = (s: string): string => redactSecret(pathScrub(s))
   const scrubValue = (v: unknown): unknown => {
     if (typeof v === 'string') return scrubText(v)
     if (Array.isArray(v)) return v.map(scrubValue)

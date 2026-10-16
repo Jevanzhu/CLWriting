@@ -17,7 +17,7 @@
  *    逐字段钉在服务端文档层权威类型上（那边加字段同样过不了门）。
  */
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readRepoFile } from '../../helpers/repo-root.js'
 import type { FinalizeOk } from '../../../src/shared/contract/documents'
 import type { BatchFinalizeItem, BatchFinalizeOk } from '../../../src/shared/contract/documents'
 import type { FileContentPayload, SaveOk, TrashEntry } from '../../../src/shared/contract/documents'
@@ -124,7 +124,7 @@ function objectLiteralKeys(block: string): string[] {
 
 /** 契约里某个 interface 的字段名（顶层两空格缩进的 `key?:` 行） */
 function contractKeys(interfaceName: string): string[] {
-  const src = readFileSync(CONTRACT, 'utf8')
+  const src = readRepoFile(CONTRACT)
   const block = literalBlockAfter(src, `export interface ${interfaceName} `)
   const keys = new Set<string>()
   for (const m of block.matchAll(/^\s{2}([A-Za-z_$][\w$]*)\??:/gm)) keys.add(m[1]!)
@@ -139,22 +139,22 @@ describe('R0916-7-P3-21: 回包类型共享契约机制', () => {
   })
 
   it('服务端漂移闸：finalize 回包字面量键集 ≡ 契约 FinalizeOk', () => {
-    const block = innermostBlockContaining(readFileSync(SERVER_SAVE, 'utf8'), 'status: outcome.status')
+    const block = innermostBlockContaining(readRepoFile(SERVER_SAVE), 'status: outcome.status')
     expect(objectLiteralKeys(block)).toEqual(contractKeys('FinalizeOk'))
   })
 
   it('服务端漂移闸：批量定稿逐项字面量键集 ≡ 契约 BatchFinalizeItem', () => {
-    const block = literalBlockAfter(readFileSync(SERVER_SAVE, 'utf8'), 'results.push(')
+    const block = literalBlockAfter(readRepoFile(SERVER_SAVE), 'results.push(')
     expect(objectLiteralKeys(block)).toEqual(contractKeys('BatchFinalizeItem'))
   })
 
   it('服务端漂移闸：批量定稿回包字面量键集 ≡ 契约 BatchFinalizeOk', () => {
-    const block = innermostBlockContaining(readFileSync(SERVER_SAVE, 'utf8'), 'ok: true, results')
+    const block = innermostBlockContaining(readRepoFile(SERVER_SAVE), 'ok: true, results')
     expect(objectLiteralKeys(block)).toEqual(contractKeys('BatchFinalizeOk'))
   })
 
   it('迁移面锚：api/documents.ts 只转发契约类型，不再手抄回包形状', () => {
-    const src = readFileSync(API_DOCUMENTS, 'utf8')
+    const src = readRepoFile(API_DOCUMENTS)
     for (const name of [
       'FinalizeOk',
       'BatchFinalizeOk',
@@ -177,7 +177,7 @@ describe('R0916-7-P3-21: 回包类型共享契约机制', () => {
   })
 
   it('对齐探针在位：契约的干跑视图由 documents.conformance.ts 钉在服务端文档层类型上', () => {
-    const probe = readFileSync('src/shared/contract/documents.conformance.ts', 'utf8')
+    const probe = readRepoFile('src/shared/contract/documents.conformance.ts')
     for (const anchor of [
       "from '../../document/structure-merge.js'",
       "from '../../document/structure-split.js'",

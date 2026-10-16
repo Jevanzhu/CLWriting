@@ -21,7 +21,7 @@ import type { LogLike } from '../../src/desktop/server-manager.js'
 
 const logger: LogLike = { error: () => {}, warn: () => {}, info: () => {} }
 
-/** 受控键面（R1W-6/R41-7/R43-26/0918三拍板批/阶段 53 S2 的 7 键清洗面） */
+/** 受控键面（R1W-6/R41-7/R43-26/0918三拍板批/阶段 53 S2 的 7 键清洗面 + 打包态 driver 门） */
 const CONTROLLED = [
   'CLW_STUDIO_TOKEN',
   'CLW_LOG_STDOUT',
@@ -30,6 +30,7 @@ const CONTROLLED = [
   'CLWRITING_RESOURCES_DIR',
   'CLW_OS_KEK',
   'CLW_APP_VERSION',
+  'CLWRITING_DRIVER',
 ] as const
 
 /** env 里某受控键名（大小写不敏感）的全部键拼写——双键穿透即长度 >1 */
@@ -143,7 +144,7 @@ describe('R0916-7-P3-2 启动前置：buildChildEnv 受控键清洗与注入', (
   })
 
   it('宿主残留混写变体逐键清除：每个受控键只剩注入侧一种拼写（R1W-6 双键穿透）', () => {
-    // 造宿主残留：大小写混写的 7 键 + 一个无关键
+    // 造宿主残留：大小写混写的 8 键 + 一个无关键
     vi.stubEnv('CLW_STUDIO_TOKEN', 'host-token')
     vi.stubEnv('clw_log_stdout', 'host-log')
     vi.stubEnv('clw_dev_ui', 'host-devui')
@@ -151,6 +152,7 @@ describe('R0916-7-P3-2 启动前置：buildChildEnv 受控键清洗与注入', (
     vi.stubEnv('clwWriting_Resources_Dir', '/host/res')
     vi.stubEnv('clw_os_kek', 'host-kek')
     vi.stubEnv('clw_app_version', '0.0.1')
+    vi.stubEnv('clwriting_driver', 'mock')
     vi.stubEnv('CLW_UNRELATED_KEEP', 'keep-me')
 
     const env = buildChildEnv({ workDir: null, userDataPath: '/ud', appVersion: '9.9.9' }, 'tok', null)
@@ -164,6 +166,7 @@ describe('R0916-7-P3-2 启动前置：buildChildEnv 受控键清洗与注入', (
       CLWRITING_RESOURCES_DIR: 0,
       CLW_OS_KEK: 0,
       CLW_APP_VERSION: 1,
+      CLWRITING_DRIVER: 0,
     }
     for (const name of CONTROLLED) {
       expect(spellings(env, name), `${name} 拼写数`).toHaveLength(expected[name])
@@ -176,6 +179,12 @@ describe('R0916-7-P3-2 启动前置：buildChildEnv 受控键清洗与注入', (
     expect(env['CLWRITING_RESOURCES_DIR']).toBeUndefined()
     // 非受控宿主变量照常继承（清洗不误伤）
     expect(env['CLW_UNRELATED_KEEP']).toBe('keep-me')
+  })
+
+  it('宿主残留 CLWRITING_DRIVER=mock → child env 无此键（打包版不被切假回复）', () => {
+    vi.stubEnv('CLWRITING_DRIVER', 'mock')
+    const env = buildChildEnv({ workDir: null, userDataPath: '/ud' }, 'tok', null)
+    expect(spellings(env, 'CLWRITING_DRIVER')).toHaveLength(0)
   })
 
   it('只动拷贝：process.env 残留原值不被改写/删除', () => {

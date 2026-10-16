@@ -13,6 +13,10 @@ import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { bootStudio, type StudioHarness } from '../../helpers/studio-server.js'
 import { readManifest, writeManifest, upsertEntry } from '../../../src/document/manifest.js'
 import { generateDocId } from '../../../src/document/stable-id.js'
+import { buildAnalystPrompt, buildBookStylePrompt } from '../../../src/studio/server/api/analysis-ops.js'
+import { computeFullStats, pickAggregateStats } from '../../../src/metrics/style.js'
+import type { IronRules } from '../../../src/format/iron-rules.js'
+import type { ChapterMeta } from '../../../src/format/types.js'
 
 const BOOK = '分析测试书'
 let studio: StudioHarness
@@ -400,5 +404,65 @@ describe('analysis 端点读稿/读目录守卫', () => {
     const d = res.json as { ok?: boolean; scoreTrend?: unknown[] }
     expect(d.ok).toBe(true)
     expect(d.scoreTrend).toEqual([])
+  })
+})
+
+describe('文风分析 prompt：stats 经聚合白名单（逐句内部键不进 prompt）', () => {
+  const RULES: IronRules = { maxSentenceLen: 40, maxAdjStack: 2 }
+  const AGG_KEYS = [
+    'overlongRatio',
+    'adjStackHits',
+    'dialogueTagRatio',
+    'parallelStreakMax',
+    'summaryEnding',
+    'sentenceLenVariance',
+    'repeatRate',
+    'charCount',
+  ]
+  const corpus = (n: number) => '他推开门走进屋子。桌上摆着凉茶。窗外下着雨，他想起许多旧事。'.repeat(n)
+
+  it('buildBookStylePrompt：序列化 stats 只含聚合键，不含 _ 族逐句数组', () => {
+    const stats = computeFullStats(corpus(30), RULES)
+    // 源对象确带内部逐句数组——白名单必须排除它，否则 prompt 随全书句数膨胀
+    expect((stats._sentences ?? []).length).toBeGreaterThan(0)
+    const prompt = buildBookStylePrompt({
+      fullStats: stats,
+      rules: RULES,
+      sampleText: '样本正文',
+      scannedChapters: 30,
+      recentChapters: 10,
+    })
+    for (const key of AGG_KEYS) expect(prompt).toContain(`"${key}"`)
+    for (const banned of ['_sentences', '_adjStackHits', '_dialogueLines', '_parallelStreakHitPrefix']) {
+      expect(prompt).not.toContain(banned)
+    }
+  })
+
+  it('buildBookStylePrompt：全书句数翻倍而 stats 段体积不线性增长', () => {
+    const build = (n: number) =>
+      buildBookStylePrompt({
+        fullStats: computeFullStats(corpus(n), RULES),
+        rules: RULES,
+        sampleText: '固定采样',
+        scannedChapters: n,
+        recentChapters: 10,
+      })
+    const one = build(30)
+    const eight = build(30 * 8)
+    // 无数组负载 → 体积恒定；聚合数值随规模变化的位数差远小于一个句表
+    expect(eight.length).toBeLessThan(one.length + 100)
+  })
+
+  it('buildAnalystPrompt(style)：单章 stats 同样只带聚合键', () => {
+    const chapter: ChapterMeta = { 章号: 1, 标题: '开篇', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' }
+    const prompt = buildAnalystPrompt('style', '他推开门走进屋子。桌上摆着凉茶。', chapter, studio.bookRoot)
+    expect(prompt).toContain('"overlongRatio"')
+    expect(prompt).not.toContain('_sentences')
+  })
+
+  it('pickAggregateStats：键集 = 白名单八键，内部键不泄出', () => {
+    const picked = pickAggregateStats(computeFullStats(corpus(5), RULES))
+    expect(Object.keys(picked).sort()).toEqual([...AGG_KEYS].sort())
+    expect('_sentences' in picked).toBe(false)
   })
 })

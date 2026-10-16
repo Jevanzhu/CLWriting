@@ -29,6 +29,7 @@ import { recordUsageBoth, checkAiTaskCallBudget, addUsage, noteLedgerWriteFailur
 // 无缓存——每次 chat 发送重读，作者改 book.yaml 下一次发送即生效，单文件毫秒级）
 import { readBookConfig } from '../format/yaml.js'
 import { join } from 'node:path'
+import { existsSync } from 'node:fs'
 import { resolveModelPricing, computeCallCost } from './pricing.js'
 // 建链段（openSessionStoreAsync → workspaceSession → ChainRecorder）单源 open-chain.ts，
 // 本处是 openSessionStoreAsync 唯一消费点
@@ -729,11 +730,24 @@ async function prepareRun<T>(opts: RunTaskOpts<T>): Promise<RunPrep<T>> {
   // 失败出口形态对齐下方 resolveProvider 失败分支（trace + step/end 'error' + 日志留痕
   // + GEN_FAIL 人话文案），不进重试循环。
   if (task === 'chat' && bookRoot !== undefined) {
-    const gate = checkAiTaskCallBudget(
-      bookRoot,
-      task,
-      readBookConfig(join(bookRoot, 'book.yaml')).config.budget.chat_max_calls,
-    )
+    // 「合法未设」与「读/解析失败」分道：book.yaml 不在 = 全书未配（合法未设 → 维持
+    // 「不限」，零行为变化）；在但读/解析失败 = 坏档——readBookConfig 坏档分支回落的默认
+    // 骨架无 budget.chat_max_calls，照取该键会让闸静默退化为「不限」（花费失控、零留痕），
+    // 故坏档一律 fail-closed 拒闸 + 留痕 + 指引修档（与同键既定的 fail-closed 口径一致）。
+    const bookYamlPath = join(bookRoot, 'book.yaml')
+    let gate: { ok: true; used: number } | { ok: false; used: number; reason: string }
+    if (!existsSync(bookYamlPath)) {
+      gate = checkAiTaskCallBudget(bookRoot, task, undefined)
+    } else {
+      const envelope = readBookConfig(bookYamlPath)
+      gate = envelope.ok
+        ? checkAiTaskCallBudget(bookRoot, task, envelope.config.budget.chat_max_calls)
+        : {
+            ok: false,
+            used: 0,
+            reason: `book.yaml 读取/解析失败（${envelope.error.message}），对话调用已按安全口径拦截——请先修复 book.yaml（预算键 budget.chat_max_calls）后重试。`,
+          }
+    }
     if (!gate.ok) {
       trace({
         model: `tier:${tierKind}`,

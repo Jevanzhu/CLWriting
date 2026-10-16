@@ -15,7 +15,7 @@
  *    re-export 桥。
  */
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readRepoFile } from '../../helpers/repo-root.js'
 
 const CLIENT = 'src/studio/web-next/src/api/client.ts'
 const DOCUMENTS = 'src/studio/web-next/src/api/documents.ts'
@@ -25,7 +25,7 @@ const CHAT_TOOL_CARD = 'src/studio/web-next/src/components/panels/chat/ChatToolC
 
 describe('R0916-7-P3-26: apiFetch 对外面与编码层单源', () => {
   it('apiFetch 导出签名恰为两参 (path, init)；内部管道不对外', () => {
-    const src = readFileSync(CLIENT, 'utf8')
+    const src = readRepoFile(CLIENT)
     const m = /export async function apiFetch\(([^)]*)\)/.exec(src)
     expect(m).not.toBeNull()
     expect(m![1]).toBe('path: string, init: ApiFetchInit = {}')
@@ -37,25 +37,25 @@ describe('R0916-7-P3-26: apiFetch 对外面与编码层单源', () => {
   })
 
   it('删掉靠 JSON.parse 嗅探 operationId 的启发式；重放性只由显式声明驱动', () => {
-    const src = readFileSync(CLIENT, 'utf8')
+    const src = readRepoFile(CLIENT)
     expect(src).not.toContain('JSON.parse(body)')
     expect(src).toContain('replayable?: boolean')
     expect(src).toContain('return declared === true')
   })
 
   it('声明点：文档保存（幂等 operationId）显式声明可重放', () => {
-    const src = readFileSync(DOCUMENTS, 'utf8')
+    const src = readRepoFile(DOCUMENTS)
     expect(src).toContain('replayable: true')
   })
 
   it('截断函数单源：chat-dispatch 引根 shared/text，本地 clipByCodePoints 副本不存在', () => {
-    const src = readFileSync(CHAT_DISPATCH, 'utf8')
+    const src = readRepoFile(CHAT_DISPATCH)
     expect(src).toContain("import { codePointLength, clipByCodePoints } from '../../../../shared/text'")
     expect(src).not.toContain('function clipByCodePoints')
   })
 
   it('工具展示面单源：工具卡的中文名/摘要取自根 shared/contract/tool-meta.ts', () => {
-    const src = readFileSync(CHAT_TOOL_CARD, 'utf8')
+    const src = readRepoFile(CHAT_TOOL_CARD)
     expect(src).toContain(
       "import { toolLabel, toolSummary, type ChapterNameLookup } from '../../../../../../shared/contract/tool-meta'",
     )

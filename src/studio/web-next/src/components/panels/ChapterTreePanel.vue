@@ -219,6 +219,14 @@ watch(
       />
     </div>
     <div v-if="openError" class="hint err">{{ openError }}</div>
+    <!-- 红点降级提示：本轮红点不完整（服务端四类降级逐条上报）——不提示则作者把「没有
+         红点」读成「本章没问题」。摘要行显条数 + 首条，展开看全量。 -->
+    <details v-if="tree.issueWarnings.length" class="tree-degraded" data-test="tree-issue-degraded">
+      <summary>红点降级（{{ tree.issueWarnings.length }}）：{{ tree.issueWarnings[0] }}</summary>
+      <ul>
+        <li v-for="(w, i) in tree.issueWarnings" :key="i">{{ w }}</li>
+      </ul>
+    </details>
     <div v-if="tree.grouped.length" class="tree-legend">
       <span class="lg"><i class="lg-dot c-green"></i>定稿</span>
       <span class="lg"><i class="lg-dot c-yellow"></i>草稿</span>
@@ -275,6 +283,23 @@ watch(
 }
 .hint.err {
   color: var(--text-error);
+}
+/* 红点降级提示（可展开）：低调但可见——用警示色文字，不占树行位 */
+.tree-degraded {
+  margin: 0 var(--size-4-1);
+  padding: 4px var(--size-4-2);
+  font-size: var(--font-size-xxs);
+  color: var(--text-warning);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+.tree-degraded > summary {
+  cursor: pointer;
+  list-style: revert;
+}
+.tree-degraded > ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
 }
 .tree-list {
   padding: 0 var(--size-4-1);

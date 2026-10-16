@@ -45,6 +45,37 @@ export interface FullStyleStats extends StyleStats {
   charCount?: number
 }
 
+/** 进 prompt 的聚合键白名单子集（StyleStats 五维 + 方差/复读率/码点因子）。
+ *  内部 `_` 族字段（`_sentences` / `_sentencesWithColon` 等逐句数组）一律排除——
+ *  注入面一律经 pickAggregateStats 取材，序列化体积不随正文句数增长。
+ *  白名单而非黑名单：新增内部 `_` 键不会自动漏进 prompt。 */
+export type AggregateStyleStats = Pick<
+  FullStyleStats,
+  | 'overlongRatio'
+  | 'adjStackHits'
+  | 'dialogueTagRatio'
+  | 'parallelStreakMax'
+  | 'summaryEnding'
+  | 'sentenceLenVariance'
+  | 'repeatRate'
+  | 'charCount'
+>
+
+/** 取聚合键子集；可选键（charCount）缺失时不补造，保持缺失语义。 */
+export function pickAggregateStats(stats: FullStyleStats): AggregateStyleStats {
+  const out: AggregateStyleStats = {
+    overlongRatio: stats.overlongRatio,
+    adjStackHits: stats.adjStackHits,
+    dialogueTagRatio: stats.dialogueTagRatio,
+    parallelStreakMax: stats.parallelStreakMax,
+    summaryEnding: stats.summaryEnding,
+    sentenceLenVariance: stats.sentenceLenVariance,
+    repeatRate: stats.repeatRate,
+  }
+  if (stats.charCount !== undefined) out.charCount = stats.charCount
+  return out
+}
+
 /** 基线指纹（文风方案 §5.2，byScene + overall）。version 1 持续兼容：字段只增不改，
  * 旧文件缺新字段（如的 charCount）由 coerceStats 容忍保留缺失语义。 */
 interface StyleBaseline {

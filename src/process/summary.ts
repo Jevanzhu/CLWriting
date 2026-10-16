@@ -423,7 +423,7 @@ export function afterFinalizeGenerateSummaryBatch(
 }
 
 /**
- * 挂点二（按需自愈，-①）：备料前发现近章（/）摘要缺失或过期 → 现场补生成。
+ * 挂点二（按需自愈，-①）：备料前发现近章（当前章的前两章）摘要缺失或过期 → 现场补生成。
  * 只处理**已定稿**章（manifest finalizedRevision 在位）——给草稿写摘要是浪费；
  * 计入当前写作章 N 的 calls_per_chapter 预算（既有预算闸口径）。
  * 生成后 rebuild 一次让新摘要进 index.db（prepare 的近章结尾从 db 读）。

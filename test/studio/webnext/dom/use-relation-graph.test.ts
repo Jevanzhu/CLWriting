@@ -27,6 +27,8 @@ const mocks = vi.hoisted(() => ({
   // onMine 的切书守卫读路由参数即时源（doc.bookName 要等 flushDirty，滞后数秒）
   docState: { bookName: '测试书' },
   routeState: { params: { name: '测试书' } },
+  // 树 byPath 活源（打开角色卡按 file→node 解析；默认空 = 角色卡入口早退）
+  treeByPath: new Map<string, { docId?: string }>(),
   // aiAvailable 三态可变活源（true/false/null=探测中）——自动梳理门用例改此值验放行口径
   uiState: { aiAvailable: true as boolean | null },
 }))
@@ -61,7 +63,7 @@ vi.mock('../../../../src/studio/web-next/src/stores/workspace', () => ({
   })),
 }))
 vi.mock('../../../../src/studio/web-next/src/stores/tree', () => ({
-  useTreeStore: vi.fn(() => ({ byPath: new Map() })),
+  useTreeStore: vi.fn(() => ({ byPath: mocks.treeByPath })),
 }))
 vi.mock('../../../../src/studio/web-next/src/stores/ui', () => ({
   useUiStore: vi.fn(() => ({
@@ -130,6 +132,7 @@ beforeEach(() => {
   mocks.docState.bookName = '测试书'
   mocks.routeState.params.name = '测试书'
   mocks.uiState.aiAvailable = true
+  mocks.treeByPath.clear()
 })
 
 type Wrapper = ReturnType<typeof mount>
@@ -490,6 +493,36 @@ describe('关系图画布交互与视觉编码', () => {
       // 胶囊端圆角 = 半高
       const cap = nodeWith(v, '苏婉').find('rect.node')
       expect(Number(cap.attributes('rx'))).toBeCloseTo(Number(cap.attributes('height')) / 2, 6)
+    } finally {
+      v.unmount()
+    }
+  })
+})
+
+describe('关系图打开角色卡（切书复检）', () => {
+  it('正常路径：doc.open 后 openTab 写该 docId', async () => {
+    mocks.treeByPath.set('a.md', { docId: 'doc-a' }) // 默认选中林远（file a.md）
+    const v = await mountView()
+    try {
+      await v.find('.dc-open').trigger('click')
+      await flushPromises()
+      expect(mocks.docOpen).toHaveBeenCalledTimes(1)
+      expect(mocks.openTab).toHaveBeenCalledWith('doc-a')
+    } finally {
+      v.unmount()
+    }
+  })
+
+  it('在途切书 → 旧书 docId 不写进新书工作区（不 openTab）', async () => {
+    mocks.treeByPath.set('a.md', { docId: 'doc-a' })
+    const v = await mountView()
+    try {
+      mocks.docOpen.mockImplementationOnce(async () => {
+        mocks.routeState.params.name = '新书B' // await 窗口内切书
+      })
+      await v.find('.dc-open').trigger('click')
+      await flushPromises()
+      expect(mocks.openTab).not.toHaveBeenCalled()
     } finally {
       v.unmount()
     }

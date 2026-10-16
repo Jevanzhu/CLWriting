@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRouteTable, dispatch, withRouteTable, type RouteTable } from './router.js'
-import { safeTokenCompare, replyError, urlPathOnly, URL_PARSE_BASE } from './http.js'
+import { safeTokenCompare, replyError, urlPathOnly, URL_PARSE_BASE, configureErrorPathScrub } from './http.js'
 import { readBooks, repairBooks } from '../../install/books.js'
 import { migrateBookDefaults } from '../../install/migrate-defaults.js'
 import { migrateBookKnowledge } from '../../knowledge/seed.js'
@@ -175,6 +175,9 @@ function buildRoutes(
   deps: RouteDeps,
 ): RouteTable {
   const routes = createRouteTable()
+  // 错误出口的路径脱敏按本实例目录登记（一处注入，replyError 出口统一应用——
+  // 不逐 call site 判哪条 message 会夹带本机绝对路径）
+  configureErrorPathScrub({ workDir, userDataPath })
   withRouteTable(routes, () => {
     const ov = deps.overrides
     // 元：AI 可达性探测（editor/ai 共用，降级体验）

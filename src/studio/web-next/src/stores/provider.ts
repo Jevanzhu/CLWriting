@@ -22,6 +22,7 @@ import {
   updateRagProvider,
   deleteRagProvider,
   testRagProvider,
+  updateProviderPricing,
   type ProviderConfDto,
   type RagProviderDto,
   type TierSlot,
@@ -29,6 +30,7 @@ import {
   type TestResult,
   type EffortLevel,
   type ModelConfDto,
+  type PricingConfDto,
 } from '../api/providers'
 import { useUiStore } from './ui'
 import { friendlyError } from '../shared/error'
@@ -256,6 +258,21 @@ export const useProviderStore = defineStore('provider', () => {
     )
   }
 
+  /** 写提供方价格表（独立端点，与主表单同吃一份 revision）。
+   *  必须带 expectedRevision 并回写响应 revision——价格保存会 bump 服务端计数，本地号若不动，
+   *  紧随的表单保存/启用携陈旧号吃伪 409「已在其他窗口被修改」，该笔操作被丢弃。 */
+  async function savePricing(id: string, pricing: PricingConfDto | null): Promise<boolean> {
+    return (
+      (await guardedWrite(async () => {
+        const r = await updateProviderPricing(id, pricing, revision.value)
+        advanceRevision(r.revision)
+        const i = providers.value.findIndex((p) => p.id === id)
+        if (i >= 0) providers.value[i] = { ...providers.value[i]!, pricing: r.pricing ?? undefined }
+        return true
+      })) === true
+    )
+  }
+
   /** 删除提供方；返回成功与否（成功后 currentId 已由响应更新）。 */
   async function remove(id: string): Promise<boolean> {
     return (
@@ -440,6 +457,7 @@ export const useProviderStore = defineStore('provider', () => {
     refreshAll,
     add,
     update,
+    savePricing,
     remove,
     activate,
     test,

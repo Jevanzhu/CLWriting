@@ -273,6 +273,10 @@ describe('findResidueHits：切除后残形（形态表的结构性盲区）', (
     ['// 价格表与金额口径——加性扩展（-①）。', '括注破折号+圈号'],
     ['// 此前两道 re-export 中转（-优化', '括注破折号+汉字'],
     ['// 同构段抽入公共（-deepseek-v4.1-flash ）', '括注破折号+拉丁词'],
+    // 括注被逐 token 切走、只剩短拉丁词（带尾随空白）或一个单符号——两形同族。
+    // 尾随空白是识别键：正常术语标注（`（ms）`/`（ISO）`）词与闭括紧邻。
+    ['// 前缀族加词首断言（c ）：原正则无界', '括注残留·短词或单符号'],
+    ['// 备料前发现近章（/）摘要缺失或过期 → 现场补生成', '括注残留·短词或单符号'],
   ] as const
 
   it.each(damaged)('%s → 残形命中 %s', (line, name) => {
@@ -283,7 +287,7 @@ describe('findResidueHits：切除后残形（形态表的结构性盲区）', (
     for (const [line] of damaged) expect(hits(line), line).toHaveLength(0)
   })
 
-  it('判据表覆盖八族且名称唯一（漏一族则某类残形整支漏判）', () => {
+  it('判据表覆盖九族且名称唯一（漏一族则某类残形整支漏判）', () => {
     const names = RESIDUE_PATTERNS.map((p: { name: string }) => p.name)
     expect(names).toEqual([
       '括注破折号+圈号',
@@ -293,6 +297,7 @@ describe('findResidueHits：切除后残形（形态表的结构性盲区）', (
       '破折号圈号+左括',
       '注释冒号起首',
       '分隔线直贴冒号',
+      '括注残留·短词或单符号',
       '纯标点注释行',
     ])
     expect(new Set(names).size).toBe(names.length)
@@ -350,6 +355,14 @@ describe('findResidueHits：切除后残形（形态表的结构性盲区）', (
       // 花括号括注（非全角/半角圆括）
       '// 集合 {A, B} - C 的差集运算',
       '// 属性 window.devicePixelRatio（-0.5 误差内）',
+      // 短拉丁词术语标注：词与闭括紧邻（无尾随空白），不是「被切空」残形
+      '// 首次退避基数（ms）与 Retry-After 封顶（ISO 时刻）',
+      '// 章号门槛（int）与平台分隔符（sep）两处口径',
+      '// 输出规范形（LF）——MP2-4 行尾保真语义',
+      // 半角括注是代码样例与备选标记，不入射程（残形族只认全角）
+      '// 备选 (a) 与备选 (b) 两法取其一',
+      // 全角括注的整段内容是正常行文（含斜杠并列），不是「只剩一个符号」
+      '// 近章（当前章的前两章）摘要缺失或过期',
     ]) {
       expect(residue(line), line).toHaveLength(0)
     }

@@ -13,6 +13,7 @@
  * 并经 ErrorBoundary 转成未处理拒绝（R0916-7 批 3 复现并定位）。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { readRepoFile } from '../../../helpers/repo-root.js'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
@@ -102,10 +103,8 @@ describe('R42-3/R42-4: 反馈层与模态全局挂载（非工作区路由语境
   })
 
   it('静态锚：五件全局挂载于 App.vue，WorkspaceShell 不再重复挂载（防双挂载回归）', () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('node:fs')
-    const app = fs.readFileSync('src/studio/web-next/src/App.vue', 'utf-8')
-    const shell = fs.readFileSync('src/studio/web-next/src/components/shell/WorkspaceShell.vue', 'utf-8')
+    const app = readRepoFile('src/studio/web-next/src/App.vue')
+    const shell = readRepoFile('src/studio/web-next/src/components/shell/WorkspaceShell.vue')
     for (const tag of ['<Toast />', '<ConfirmPrompt />', '<SettingsModal />', '<ShelfModal />', '<ExportDialog />']) {
       expect(app.includes(tag), `App.vue 缺全局挂载 ${tag}`).toBe(true)
       expect(shell.includes(tag), `WorkspaceShell 不得重复挂载 ${tag}`).toBe(false)

@@ -84,6 +84,11 @@ export const useTreeStore = defineStore('tree', () => {
   // 触发刷新：load 后拉一次；CheckPanel 跑完机检 / ReviewPanel verdict 后各拉一次。
   const issues = ref<Record<string, TreeIssue>>({})
 
+  // 红点降级说明（服务端四类降级全量上报）：非空 = 本轮红点不完整（机检索引构建失败 /
+  // 账本全书性红项失败 / 单章机检失败 / 清单读失败）。无消费者时作者会把「没有红点」读成
+  // 「本章没问题」，故按服务端上报逐条透出到树面板（见 ChapterTreePanel 的降级提示）。
+  const issueWarnings = ref<string[]>([])
+
   /**
    * 冒泡后的「有 issue」path 集合（叶子自身命中 + 目录子树命中均纳入）。
    * 后序 DFS：任一子树命中 → 父 path 入集合，供 ChapterTreeItem 行尾红点渲染。
@@ -117,6 +122,8 @@ export const useTreeStore = defineStore('tree', () => {
       const r = await getTreeIssues(name)
       if (issuesGen.stale(gen)) return // 旧书慢响应后到：防覆盖新书红点
       issues.value = r.issues ?? {}
+      // 无降级即清空——上一轮的降级说明不得滞留在本轮（否则修好后仍长挂提示）
+      issueWarnings.value = r.warnings ?? []
     } catch {
       /* 网络抖动等：保留旧值，不惊扰作者 */
     }
@@ -185,6 +192,7 @@ export const useTreeStore = defineStore('tree', () => {
     loading.value = false
     error.value = null
     issues.value = {}
+    issueWarnings.value = []
     ownerBook.value = '' // 树清空即无属主
   }
 
@@ -203,6 +211,7 @@ export const useTreeStore = defineStore('tree', () => {
     clear,
     issues,
     issuePaths,
+    issueWarnings,
     loadIssues,
   }
 })

@@ -378,3 +378,37 @@ describe('跨窗失效通知（树红点 / 机检判态线）', () => {
     expect(getTreeIssues).toHaveBeenCalledWith(BOOK)
   })
 })
+
+// ── 红点降级提示接线（服务端 warnings 数组 → store.issueWarnings → 树面板提示行）──
+// 服务端四类降级(机检索引构建失败 / 账本全书性项失败 / 单章机检失败 / 清单读失败)下
+// 红点不完整;前端不提示则作者把「没有红点」读成「本章没问题」。此处锚接线可观察面:
+// 接口 warnings 原样入 store,无降级时清空(不滞留上一轮)。面板渲染面见 DOM 用例。
+
+describe('树红点降级提示接线(issueWarnings)', () => {
+  it('接口 warnings 原样入 store;下一轮无降级即清空(不滞留)', async () => {
+    vi.mocked(getTree).mockResolvedValue({ nodes: sampleRaw(), revision: 'r1', validatedAt: '' })
+    vi.mocked(getTreeIssues).mockResolvedValueOnce({
+      ok: true,
+      issues: {},
+      warnings: ['机检索引构建失败,仅显示审稿驳回红点', '3 个章节本轮机检失败,对应红点可能缺失'],
+    })
+    const tree = useTreeStore()
+    await tree.load(BOOK)
+    await flushCrossWindow()
+    expect(tree.issueWarnings).toEqual(['机检索引构建失败,仅显示审稿驳回红点', '3 个章节本轮机检失败,对应红点可能缺失'])
+
+    // 第二轮无降级:上一轮说明必须清掉,否则修好之后仍长挂提示
+    vi.mocked(getTreeIssues).mockResolvedValueOnce({ ok: true, issues: {} })
+    await tree.loadIssues(BOOK)
+    expect(tree.issueWarnings).toEqual([])
+  })
+
+  it('clear 一并清空降级说明(切书不留前书提示)', async () => {
+    vi.mocked(getTreeIssues).mockResolvedValueOnce({ ok: true, issues: {}, warnings: ['清单读取失败'] })
+    const tree = useTreeStore()
+    await tree.loadIssues(BOOK)
+    expect(tree.issueWarnings).toEqual(['清单读取失败'])
+    tree.clear()
+    expect(tree.issueWarnings).toEqual([])
+  })
+})

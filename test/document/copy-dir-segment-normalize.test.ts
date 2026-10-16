@@ -10,12 +10,13 @@
  *   的 `..`/`.` 双拒。
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 import { legacyId } from '../../src/document/stable-id.js'
+import { chapterNoMismatchFailure } from '../../src/document/structure-core.js'
 
 describe('doCopy 目录段净化（R2W-5）', () => {
   /** 单章书夹具：正文目录 + 一章源文件，返回 service（目标目录由用例自选） */
@@ -89,5 +90,76 @@ describe('doCopy 目录段 `.` 前置拒绝（重评-0914b P2-2）', () => {
     const r = await svc.copyDocument({ docId: created.docId, relPath: '写作/正文/0002-副本.md' })
     expect(r.ok).toBe(true)
     expect(existsSync(join(bookRoot, '写作/正文/0002-副本.md'))).toBe(true)
+  })
+})
+
+// 副本章号失配：复制是字节级搬运，文件名由调用方另取新章号，fm 里还是源章的号——
+// 「fm 号 ≠ 文件名号」的章撞全书章号一致性闸（CHAPTER_NO_MISMATCH），此后并入上一章 /
+// 撤销并入 / 光标拆分等结构操作全被 409 拦。修法 = 复制出口把 fm 章号重写为文件名号。
+describe('doCopy 副本 fm 章号对齐（章号失配闸）', () => {
+  let bookRoot: string
+  let svc: DocumentService
+  beforeEach(() => {
+    bookRoot = mkdtempTracked(join(tmpdir(), 'clw-copy-renumber-'))
+    mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
+    svc = new DocumentService({ bookRoot })
+  })
+  afterEach(() => rmSync(bookRoot, { recursive: true, force: true }))
+
+  function fmOf(rel: string): string {
+    const text = readFileSync(join(bookRoot, rel), 'utf-8')
+    return text.split('\n---\n')[0] ?? text
+  }
+
+  it('源 fm 章号 1 → 副本落新章号 2：fm 与文件名一致，失配闸放行（结构操作不再被 409 拦）', async () => {
+    const created = await svc.createDocument({
+      relPath: '写作/正文/0001-源.md',
+      content: '---\n章号: 1\n标题: 源\n钩子: 伏笔\n---\n正文',
+    })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const r = await svc.copyDocument({ docId: created.docId, relPath: '写作/正文/0002-源 副本.md' })
+    expect(r.ok).toBe(true)
+    const fm = fmOf('写作/正文/0002-源 副本.md')
+    expect(fm).toContain('章号: 2') // 修复点：副本 fm 号跟文件名走
+    expect(fm).toContain('标题: 源') // 其余 fm 键逐字节保形
+    expect(fm).toContain('钩子: 伏笔')
+    // 闸可观察面：全书无失配 → 结构操作放行
+    expect(chapterNoMismatchFailure(bookRoot)).toBeNull()
+  })
+
+  it('fm 无「章号」键 → 原样复制（fm 缺失不拦的既有口径，不凭空补键）', async () => {
+    const created = await svc.createDocument({
+      relPath: '写作/正文/0001-源.md',
+      content: '---\n标题: 源\n---\n正文',
+    })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const r = await svc.copyDocument({ docId: created.docId, relPath: '写作/正文/0002-源 副本.md' })
+    expect(r.ok).toBe(true)
+    expect(fmOf('写作/正文/0002-源 副本.md')).not.toContain('章号')
+  })
+
+  it('号已一致（同号副本，AI 侧 copyChapter 口径）→ 不改写、字节不变', async () => {
+    const content = '---\n章号: 1\n标题: 源\n---\n正文'
+    const created = await svc.createDocument({ relPath: '写作/正文/0001-源.md', content })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const r = await svc.copyDocument({ docId: created.docId, relPath: '写作/正文/0001-源 副本.md' })
+    expect(r.ok).toBe(true)
+    const copied = readFileSync(join(bookRoot, '写作/正文/0001-源 副本.md'), 'utf-8')
+    expect(copied).toBe(content)
+  })
+
+  it('文件名取不到章号（番外.md）→ 原样复制，不误写', async () => {
+    const created = await svc.createDocument({
+      relPath: '写作/正文/0001-源.md',
+      content: '---\n章号: 1\n标题: 源\n---\n正文',
+    })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const r = await svc.copyDocument({ docId: created.docId, relPath: '写作/正文/番外.md' })
+    expect(r.ok).toBe(true)
+    expect(fmOf('写作/正文/番外.md')).toContain('章号: 1')
   })
 })

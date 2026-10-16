@@ -31,7 +31,8 @@ import { resolveBookOrReply, resolveDocEntry, resolveDraftByDocId } from '../boo
 import { readDraft } from '../../../format/draft.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import type { ChapterMeta } from '../../../format/types.js'
-import { readIronRules, computeFullStats } from '../../../metrics/style.js'
+import type { IronRules } from '../../../format/iron-rules.js'
+import { readIronRules, computeFullStats, pickAggregateStats, type FullStyleStats } from '../../../metrics/style.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { analysisSpec } from '../../../ai/tasks/specs.js'
 import type { AnalysisKind as ContractKind } from '../../../ai/contract/index.js'
@@ -78,17 +79,41 @@ export function buildAnalystPrompt(kind: AnalysisKind, body: string, chapter: Ch
     parts.push('', `## 章纲声明钩子\n类型：${chapter.钩子类型}；强弱：${chapter.钩子强弱}`)
   } else if (kind === 'style') {
     // 附本地文风 stats（句长/重复率/口癖命中）+ IronRules（作者基线铁律）为底
+    // stats 经聚合白名单——逐句内部字段不进 prompt（体积不随正文句数增长）
     const rules = readIronRules(bookRoot)
     const stats = computeFullStats(body, rules)
     parts.push(
       '',
-      `## 本地文风 stats\n${JSON.stringify(stats)}`,
+      `## 本地文风 stats\n${JSON.stringify(pickAggregateStats(stats))}`,
       '',
       `## IronRules（作者基线铁律）\n${JSON.stringify(rules)}`,
     )
   }
   parts.push('', `## 正文\n${body}`)
   return parts.join('\n')
+}
+
+/** 组 analyze-style 站点 prompt（全书最近 N 章文风总结）。
+ *  stats 一律经 pickAggregateStats 白名单——`_` 族逐句数组不进 prompt，
+ *  序列化体积不随全书句数增长（大书注入面曾经随句数线性膨胀）。 */
+export function buildBookStylePrompt(p: {
+  fullStats: FullStyleStats
+  rules: IronRules
+  sampleText: string
+  scannedChapters: number
+  recentChapters: number
+}): string {
+  return [
+    '[kind:style]',
+    '',
+    `## 任务\n对全书最近 ${p.recentChapters} 章做文风总结分析（口癖/重复度/漂移），只读不改稿。`,
+    '',
+    `## 全文本地 stats（全文 ${p.scannedChapters} 章扫描）\n${JSON.stringify(pickAggregateStats(p.fullStats))}`,
+    '',
+    `## IronRules（作者基线铁律）\n${JSON.stringify(p.rules)}`,
+    '',
+    `## 最近 ${p.recentChapters} 章采样正文\n${p.sampleText}`,
+  ].join('\n')
 }
 
 /** 信封过期判定（sourceHash 与当前正文不符）。内联别名，避免循环依赖 document/analysis 全量引入。 */
@@ -395,17 +420,13 @@ export async function runAnalyzeStyleGated(
   // 分钟级分析期间切档则信封溯源失真请求时刻口径）
   const modelAtRequest =
     ctx.driver.kind === 'mock' ? 'mock' : ctx.providers.resolveTier(ctx.userDataPath, 'assistant').model
-  const prompt = [
-    '[kind:style]',
-    '',
-    `## 任务\n对全书最近 ${recent.length} 章做文风总结分析（口癖/重复度/漂移），只读不改稿。`,
-    '',
-    `## 全文本地 stats（全文 ${sorted.length} 章扫描）\n${JSON.stringify(fullStats)}`,
-    '',
-    `## IronRules（作者基线铁律）\n${JSON.stringify(rules)}`,
-    '',
-    `## 最近 ${recent.length} 章采样正文\n${sampleText}`,
-  ].join('\n')
+  const prompt = buildBookStylePrompt({
+    fullStats,
+    rules,
+    sampleText,
+    scannedChapters: sorted.length,
+    recentChapters: recent.length,
+  })
 
   // 全书采样注入源登记（相对书根；readChapterDir 的 _path 为绝对路径）
   const styleSources = recent.filter((ch) => ch._path).map((ch) => relative(bookRoot, ch._path!).replace(/\\/g, '/'))

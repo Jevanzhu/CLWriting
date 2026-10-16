@@ -387,3 +387,24 @@ describe('存量书升级实测（旧件字节 = 退件前随包发布体）', (
     expect(second.seeded).toEqual([])
   })
 })
+
+// ── 现役段哈希直测门：versions.json 现役条目登记值必须含该资源文件当前 sha256 ──
+// 登记值错位（写错/漏更新）→ 升级判定对未改动的旧副本永不命中 → 下次语料变更时被判
+// 「作者改过」永久停在旧版（静默漏升级）。check:knowledge 不核对现役段，故此处直测钉住。
+describe('现役段哈希直测门（versions.json 登记值 ≠ 磁盘即红）', () => {
+  it('现役条目登记值均含该随包资源文件当前 sha256', async () => {
+    delete process.env['CLWRITING_RESOURCES_DIR']
+    const { hashFile } = await import('../../src/fs/hash.js')
+    const { bundledResource } = await import('../../src/fs/resources.js')
+    const { BUNDLED_KNOWLEDGE_SUBDIR } = await import('../../src/knowledge/corpus.js')
+    const { readKnowledgeVersions } = await import('../../src/knowledge/seed.js')
+    const versions = readKnowledgeVersions()
+    expect(Object.keys(versions).length).toBeGreaterThan(0)
+    const mismatched: string[] = []
+    for (const [rel, history] of Object.entries(versions)) {
+      const actual = hashFile(bundledResource(BUNDLED_KNOWLEDGE_SUBDIR, ...rel.split('/')))
+      if (!history.includes(actual)) mismatched.push(`${rel}: 登记 ${history.join(',')} ≠ 实测 ${actual}`)
+    }
+    expect(mismatched, mismatched.join('\n')).toEqual([])
+  })
+})

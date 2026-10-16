@@ -34,6 +34,7 @@ const providerMocks = vi.hoisted(() => ({
   updateRagProvider: vi.fn(),
   deleteRagProvider: vi.fn(),
   testRagProvider: vi.fn(),
+  updateProviderPricing: vi.fn(),
 }))
 
 vi.mock('../../../../src/studio/web-next/src/api/providers', () => providerMocks)

@@ -6,8 +6,8 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { tmpdir, homedir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, it, expect } from 'vitest'
 import type { ServerResponse } from 'node:http'
@@ -40,6 +40,51 @@ describe('replyError 统一信封单元', () => {
     expect(calls[0]!.status).toBe(409)
     expect(calls[0]!.headers['content-type']).toBe('application/json; charset=utf-8')
     expect(JSON.parse(calls[0]!.body)).toEqual({ code: 'BUSY', error: '本书正在生成' })
+  })
+
+  // 出口脱敏两层：凭据（redactSecret）+ 路径（log/path-scrub）。路径一层单点是必须的——
+  // Node 各 errno 只有部分带路径（ENOENT/EACCES/ENOTDIR 带，EISDIR 不带），逐 call site
+  // 判「这条 message 会不会带路径」判不准。
+  it('error 文本里的本机绝对路径按占位符消掉（家目录 / 家目录外 / 盘符三形态）', () => {
+    const calls: Array<{ body: string }> = []
+    const res = {
+      writeHead() {},
+      end(body: string) {
+        calls.push({ body })
+      },
+    } as unknown as ServerResponse
+    const home = homedir()
+    const outside = join(tmpdir(), 'clwriting-路径面', '书库', 'book.yaml')
+    replyError(
+      res,
+      500,
+      'IO_ERROR',
+      `读 book.yaml 失败:ENOENT: no such file or directory, open '${join(home, '书库', 'book.yaml')}'` +
+        ` / ENOTDIR: not a directory, open '${outside}'` +
+        ` / EACCES: permission denied, open 'C:\\Users\\bob\\书库\\book.yaml'`,
+    )
+    const j = JSON.parse(calls[0]!.body) as { error: string }
+    expect(j.error).not.toContain(home)
+    expect(j.error).not.toContain(tmpdir())
+    expect(j.error).not.toContain('C:\\Users\\bob')
+    expect(j.error).toContain("open '<用户目录>/书库/book.yaml'")
+    // 家目录外的绝对路径（临时卷 / 外接卷）没有带名占位符可用，落通用占位符
+    expect(j.error).toContain("open '<路径>'")
+    expect(j.error).toContain("open '<用户目录>\\书库\\book.yaml'")
+  })
+
+  it('对照：相对路径与中文人话逐字保留（防过度脱敏）', () => {
+    const calls: Array<{ body: string }> = []
+    const res = {
+      writeHead() {},
+      end(body: string) {
+        calls.push({ body })
+      },
+    } as unknown as ServerResponse
+    replyError(res, 404, 'NOT_FOUND', '没有这篇文档：写作/正文/0001-开篇.md（清单未登记）')
+    expect((JSON.parse(calls[0]!.body) as { error: string }).error).toBe(
+      '没有这篇文档：写作/正文/0001-开篇.md（清单未登记）',
+    )
   })
 })
 
@@ -87,15 +132,19 @@ describe('documents 端点结构化失败走统一信封（Q-7）', () => {
   let docServer: http.Server | undefined
   let docBaseUrl = ''
   let token = ''
+  let docWorkDir = ''
+  let docBookRoot = ''
 
   beforeAll(async () => {
     const workDir = mkdtempSync(join(tmpdir(), 'clwriting-envelope-doc-'))
+    docWorkDir = workDir
     mkdirSync(join(workDir, '.clwriting'), { recursive: true })
     writeFileSync(
       join(workDir, '.clwriting', 'books.jsonl'),
       JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
     )
     const bookRoot = join(workDir, BOOK)
+    docBookRoot = bookRoot
     mkdirSync(join(bookRoot, '项目'), { recursive: true })
     writeFileSync(
       join(bookRoot, 'book.yaml'),
@@ -173,5 +222,40 @@ describe('documents 端点结构化失败走统一信封（Q-7）', () => {
     const r2 = await call('DELETE', `/api/books/${encodeURIComponent(BOOK)}/trash/no-such-entry`)
     expect(r2.status).toBe(404)
     expect(((await r2.json()) as Record<string, unknown>)['code']).toBe('NOT_FOUND')
+  })
+
+  // 出口统一脱敏的端到端锚：Node 各 errno 消息把**绝对路径原样内嵌**（ENOENT/EACCES/
+  // ENOTDIR/EEXIST 带路径，EISDIR 不带），一路直出前端 toast——本机用户名与目录结构
+  // 随之泄漏。单点收口在 replyError（不逐 call site 判哪条 message 会带路径）。
+  it('坏档/缺文件请求：响应体不含本机绝对路径（出口统一脱敏）', async () => {
+    // 坏档形态：把「路径段是文件」造出来，mkdir -p 该段时 errno 原文内嵌目录绝对路径
+    writeFileSync(join(docBookRoot, '写作', '第二卷'), 'x')
+    const bad = await call('POST', `/api/books/${encodeURIComponent(BOOK)}/documents`, {
+      relPath: '写作/第二卷/0001-章.md',
+    })
+    expect(bad.status).toBe(409)
+    const badBody = (await bad.json()) as { code: string; error: string }
+    expect(badBody.code).toBe('WRITE_ERROR')
+    // 原文形态 `mkdir '/<tmp>/…/写作/第二卷'`——书库根按带名占位符替换
+    expect(badBody.error).toContain("mkdir '<书库根>")
+    expect(badBody.error).not.toContain(docWorkDir)
+    expect(badBody.error).not.toContain(tmpdir())
+    expect(badBody.error).not.toContain(homedir())
+
+    // 缺文件形态：book.yaml 被删，身份读数走 readBookConfig 失败分支
+    const yamlPath = join(docBookRoot, 'book.yaml')
+    const yaml = readFileSync(yamlPath, 'utf-8')
+    try {
+      rmSync(yamlPath)
+      const gone = await call('GET', `/api/books/${encodeURIComponent(BOOK)}`)
+      expect(gone.status).toBe(500)
+      const goneBody = (await gone.json()) as { code: string; error: string }
+      expect(goneBody.code).toBe('IO_ERROR')
+      expect(goneBody.error).not.toContain(docWorkDir)
+      expect(goneBody.error).not.toContain(tmpdir())
+      expect(goneBody.error).not.toContain(homedir())
+    } finally {
+      writeFileSync(yamlPath, yaml)
+    }
   })
 })

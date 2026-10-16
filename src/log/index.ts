@@ -233,8 +233,8 @@ export function initLogging(opts: { logsDir: string | null; mirrorConsole?: bool
  *    URL query 凭据（api_key/key/token/access_key/authorization=，掩值保留参数名）；
  *  - 裸 key 族（大小写敏感）：前缀族 sk-/xai-/sk_/gsk_/hf_/
  *    glpat-/ghp_（sk- 长度阈值维持 {8,}——取两源更严者，16+ 之外的短 key 也掩）+
- * 修复：原实现只覆盖 4 形态（sk-/Bearer/智谱/Gemini），注释却宣称「与
- *    （c ）：前缀族加词首断言 `(?<![A-Za-z0-9\-_])`——原正则无界，
+ *    智谱 + Gemini。
+ *    前缀族加词首断言 `(?<![A-Za-z0-9\-_])`——原正则无界，
  *    路径/文件名内的「sk-+8 位词字符」普通文本（如 `task-sk-20230801.md`、
  *    `mask-sensitive-data`）会被误掩破相；单加 `\b` 不够（`-task-sk-` 的连字符与
  *    词字符间恰是词边界），须排除前置 key 字符。另本表与 redact.ts 并非逐位对齐

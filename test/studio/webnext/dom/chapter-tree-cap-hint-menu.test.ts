@@ -23,6 +23,7 @@ vi.mock('../../../../src/studio/web-next/src/stores/tree', () => ({
     error: null,
     revision: '',
     issuePaths: new Set<string>(),
+    issueWarnings: [] as string[],
     grouped: holders.grouped,
     raw: holders.grouped,
     byPath: new Map(),
