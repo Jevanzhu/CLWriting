@@ -113,3 +113,40 @@ describe('拍板快断批 2026-09-15: inline 新建 seed 前缀拼回', () => {
     expect(createMock).toHaveBeenCalledWith('书A', expect.objectContaining({ relPath: '大纲/章纲/0006-铺垫.md' }))
   })
 })
+
+/**
+ * 错误条不跟成功操作陪跑：本档三处新建出口（内联提交 / 进新建态 / 单例新建）在
+ * 本条动作真正走通时清掉上一条失败写入的 openError——否则上一轮的错误文案会挂在
+ * 树上陪到下一次成功之后（作者已无对应动作可回，不知为何报错）。
+ */
+describe('新建成功出口清除上一条错误条', () => {
+  it('内联新建：名称被拒（清空名）后改填有效名提交成功 → 错误条消失', async () => {
+    const openError = ref<string | null>(null)
+    const actions = useChapterTreeActions({ bookName: () => '书A', openError })
+    actions.onNewChapter()
+    await actions.onCreateCommit('') // 空名 → 拒收，错误条置文案
+    expect(openError.value).toBeTruthy()
+    await actions.onCreateCommit('夜行') // 同一新建态改填有效名 → 落盘成功
+    expect(createMock).toHaveBeenCalledTimes(1)
+    expect(openError.value).toBeNull()
+  })
+
+  it('无该区域被拒后重开新建（守卫通过）→ 错误条消失', () => {
+    const openError = ref<string | null>(null)
+    const actions = useChapterTreeActions({ bookName: () => '书A', openError })
+    actions.startCreate('character', '设定', '设定/角色') // 树内无「设定」→ 拒建
+    expect(openError.value).toContain('无该区域')
+    actions.onNewChapter() // 落树内既有区域 → 守卫通过
+    expect(openError.value).toBeNull()
+  })
+
+  it('单例新建（世界观）成功 → 错误条消失', async () => {
+    const openError = ref<string | null>(null)
+    const actions = useChapterTreeActions({ bookName: () => '书A', openError })
+    actions.startCreate('character', '设定', '设定/角色')
+    expect(openError.value).toContain('无该区域')
+    await actions.createSingleton('设定/世界观.md', '世界观')
+    expect(createMock).toHaveBeenCalledTimes(1)
+    expect(openError.value).toBeNull()
+  })
+})

@@ -79,6 +79,9 @@ export function useChapterTreeCreate(deps: {
   async function createSingleton(relPath: string, label: string): Promise<void> {
     const bookName = deps.bookName()
     const existing = tree.byPath.get(relPath)
+    // 本次单例新建已发起：上一条失败的错误条不再描述当前动作，先清再走
+    //（真失败时下方 failScoped 会重新写入）
+    deps.openError.value = null
     if (existing?.docId) {
       await doc.open(existing)
       ws.openTab(existing.docId)
@@ -130,6 +133,8 @@ export function useChapterTreeCreate(deps: {
       deps.openError.value = '当前书库无该区域，无法在此新建'
       return
     }
+    // 守卫已过 = 进入新建态：上一次失败留下的错误条已不适用本动作，随清
+    deps.openError.value = null
     const seedPrefix =
       kind === 'chapter' || kind === 'chapter-outline' ? chapterFilePrefix(nextChapterNo(), bodyPadKind()) : ''
     const seed =
@@ -157,6 +162,9 @@ export function useChapterTreeCreate(deps: {
       return
     }
     creating.value = null
+    // 名称校验已过 = 本次提交会真去落盘：上一条「名称不合法」类错误条随清
+    //（createDoc 真失败时 catch 的 failScoped 会重新写入）
+    deps.openError.value = null
     // （作者指令「按建议顺序开工」取前端拼回档）：作者清掉种子
     // 前缀只填标题时拼回 seedPrefix——无章号文件名对 nextChapterNo 取号扫描/读侧
     // parseChapterFileName 双失明（连建多章 fm 章号重号、跨卷重号章被结构合并 400 拒收）；
