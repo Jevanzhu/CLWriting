@@ -10,7 +10,8 @@
  * api 层全书扫描的异步让出原语与 async 孪生落此共享（overview.ts
  * 的 computeTimeline / books.ts 书架循环同源引用）。
  */
-import { join } from 'node:path'
+import { realpathSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { readChapterDir, readChapterDirSummary } from '../../../format/chapters.js'
 import { yieldToEventLoop } from '../../../async.js'
 import { createTtlProbeCache } from '../ttl-cache.js' // TTL+FIFO 缓存壳单源
@@ -103,9 +104,22 @@ export function invalidateBookSummary(bookRoot: string): void {
  *  共 Map，见其头部收敛映射表）。 */
 const SUMMARY_TTL_MS = 30_000
 const SUMMARY_CACHE_MAX = 64
+/** 摘要缓存键归一：读路径（书架列表经 getShelfGuard → resolveWithinRoot）拿到 realpath
+ *  后的书根，写出口（documents 系端点经 resolveBook）拿到词法 join 的书根——macOS
+ *  /var→/private/var 等根链路 symlink 下二者拼写不同，直接作缓存键会让写出口失效打不中
+ *  读路径落的条目（失效静默失效、书架 30s 内回旧值）。故键取「存在则 realpath、否则词法
+ *  resolve」的规范化形态，与 resolveWithinRoot 自身契约同口径（不存在时保持词法，不破坏
+ *  调用方对账）。 */
+function summaryKey(bookRoot: string): string {
+  try {
+    return realpathSync(bookRoot)
+  } catch {
+    return resolve(bookRoot)
+  }
+}
 const summaryCache = createTtlProbeCache<string, BookSummary>({
   name: 'book-summary',
-  keyOf: (k) => k,
+  keyOf: summaryKey,
   max: SUMMARY_CACHE_MAX,
   ttl: () => SUMMARY_TTL_MS,
   computeSync: computeBookSummaryUncached,
