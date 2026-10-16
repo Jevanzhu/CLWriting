@@ -19,10 +19,10 @@
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { pathToFileURL } from 'node:url'
 
-// fileURLToPath 解码百分号编码（工作区路径含 ^ 时 pathname 会带 %5E，scandir 直接 ENOENT）
-const root = fileURLToPath(new URL('..', import.meta.url))
+// 仓根锚定单源 = ./repo-root.mjs（本档位置锚定，不取 cwd）
+import { REPO_ROOT as root } from './repo-root.mjs'
 
 const HARNESS_DIR = 'scripts/harness'
 const VERSION_JSON = `${HARNESS_DIR}/version.json`

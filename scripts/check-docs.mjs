@@ -30,9 +30,11 @@
  * 纯函数 export，直测见 test/scripts/check-docs.test.ts。
  */
 import { readFileSync } from 'node:fs'
-import { pathToFileURL, fileURLToPath } from 'node:url'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
-const root = fileURLToPath(new URL('..', import.meta.url))
+// 仓根锚定单源 = ./repo-root.mjs（本档位置锚定，不取 cwd）
+import { REPO_ROOT as root } from './repo-root.mjs'
 
 // ─ 索引面清单 ─────────────────────────────────────────────────
 // 只限单行长度（按「精简后实测最长行 + 留白」拟定）；不设文件体积上限——作者指令：
@@ -188,7 +190,7 @@ export function main() {
     for (const spec of files) {
       let content
       try {
-        content = readFileSync(`${root}${spec.path}`, 'utf8')
+        content = readFileSync(join(root, spec.path), 'utf8')
       } catch {
         mismatch.push(`${spec.label}：文件不存在（${spec.path}）——清单需随文档结构变更同步。`)
         continue

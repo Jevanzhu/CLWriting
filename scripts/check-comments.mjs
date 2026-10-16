@@ -60,9 +60,10 @@
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
-import { pathToFileURL, fileURLToPath } from 'node:url'
+import { pathToFileURL } from 'node:url'
 
-const root = fileURLToPath(new URL('..', import.meta.url))
+// 仓根锚定单源 = ./repo-root.mjs（本档位置锚定，不取 cwd）
+import { REPO_ROOT as root } from './repo-root.mjs'
 
 /**
  * 扫描的源码根目录（相对仓库根）。`src` 是生产面，`scripts` 是工具链面——机器门与清理器

@@ -8,6 +8,9 @@
  *   ② 参数中的路径（非选项）不存在即红（最常见形态：路径写错）；
  *   ③ 输出扫描 "No test files found" 终态即红（路径存在但与测试图无关的形态）。
  * 用法：`npm run test:related -- <改动文件>…`。透传 vitest 退出码。
+ * 仓根 = 本档位置（scripts/repo-root.mjs 单源），不取 cwd——路径参数一律按仓根相对
+ * 解析、vitest 子进程以仓根为 cwd 起；从子目录/仓外调用不再崩于 scandir `<cwd>/test`
+ *（cwd 推导的实测坏形态），也不再随调用处漂移配置发现与种子解析。
  *
  * 兜底选择的理由：vitest 的 related 只认**静态 import 边**，下面两类档改了 src 也不会
  * 被选中——它们的关联只存在于**测试档正文的字符串里**：
@@ -30,8 +33,9 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join, relative, resolve, sep } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { REPO_ROOT } from './repo-root.mjs'
 
-const root = process.cwd()
+const root = REPO_ROOT
 const args = process.argv.slice(2)
 if (args.length === 0) {
   console.error(
@@ -98,6 +102,8 @@ if (!existsSync(vitestMjs)) {
   process.exit(1)
 }
 const r = spawnSync(process.execPath, [vitestMjs, 'related', '--run', ...args, ...fallback], {
+  // 子进程以仓根为 cwd：种子路径解析、vitest 配置发现与产物落点都不随调用处漂移
+  cwd: root,
   encoding: 'utf8',
   maxBuffer: 256 * 1024 * 1024,
 })

@@ -32,15 +32,15 @@
 import { execFileSync } from 'node:child_process'
 import { lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { pathToFileURL } from 'node:url'
 import ts from 'typescript'
 // test/ 批号上锚门复用 check-comments 的标签形态单一源
 // （TAG_PATTERNS/TOKEN_EXCEPTIONS/逐字符注释抽取）——绝不在本脚本另立一套批号正则：
 // 「门与清理器两套形态」是本仓已付过学费的漂移根因（见 check-comments TAG_PATTERNS 头注）。
 import { extractCommentLines, findTagHits, tagSpansOf } from './check-comments.mjs'
 
-// fileURLToPath 解码百分号编码（工作区路径含 ^ 时 pathname 会带 %5E，scandir 直接 ENOENT）
-const root = fileURLToPath(new URL('..', import.meta.url))
+// 仓根锚定单源 = ./repo-root.mjs（本档位置锚定，不取 cwd）
+import { REPO_ROOT as root } from './repo-root.mjs'
 
 // ── 剥注释/字符串（e2e 用例计数与 .only 检查共用同一净化口径）────────────────
 // 背景 A（门禁补强）：test.only/it.only/describe.only 会让该文件其余用例
