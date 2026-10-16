@@ -23,6 +23,7 @@ import { atomicWriteFile } from '../fs/atomic.js'
 // 承载 fs 锁原语（provider/store.ts 与设置域改为直引 fs 层，不经记账模块借用）；
 // 的锁等待异步孪生语义随实现整体迁至该文件（本文件只留记账职责）
 import { serializedLockedWrite } from '../fs/lock-file.js'
+import { platformCaseFold } from '../fs/safe-path.js'
 import type { BookConfig } from '../format/types.js'
 import { GLOBAL_FALLBACK_DEFAULTS } from '../format/global-defaults.js'
 import type { TokenUsage } from './provider/types.js'
@@ -342,6 +343,15 @@ export function noteLedgerWriteFailure(
   )
 }
 
+/** 写链键 = 平台大小写折叠后的书键（platformCaseFold 单源：win/darwin 折叠，linux
+ *  原样）——同一本书仅大小写不同（外部改名 / 不同入口传入）必须落同一条进程内串行
+ *  链，否则拆成两条**并行**链，进程内读改写互斥（保调用序 = 落盘序）静默失效。
+ *  折叠只作用于进程内 Map 键：锁文件名仍派生自原始 bookRoot，磁盘键字节逐位不动
+ *  （跨版本进程混跑时锁互斥不受影响）。 */
+function writeChainKey(bookRoot: string): string {
+  return platformCaseFold(bookRoot)
+}
+
 /** 读改写互斥队列（per-bookRoot）薄壳。返回 undefined = 已同步完成**或**已入队未等待
  *  （两态同值：returnInflight:false 不把在途 promise 交给调用方），故返回值不可作
  *  成败判据——写段被拒/失败经 onFailure 回执通道（noteLedgerWriteFailure 计数 + 告警，
@@ -350,7 +360,7 @@ export function noteLedgerWriteFailure(
  *  单源承载（provider/store.ts saveProviders 同构薄壳），机制语义不变。 */
 function serializedWrite(bookRoot: string, doWrite: () => void, ctx?: LedgerWriteContext): void | Promise<void> {
   const lockPath = `${budgetPath(bookRoot)}.lock`
-  return serializedLockedWrite(writeChains, bookRoot, lockPath, doWrite, {
+  return serializedLockedWrite(writeChains, writeChainKey(bookRoot), lockPath, doWrite, {
     warnTag: 'ai-calls',
     fastWarn: (m) => `记账写段等待跨进程锁后失败（本轮账目缺失）：${m}`,
     queuedWarn: (m) => `排队记账写段失败（本轮账目缺失）：${m}`,

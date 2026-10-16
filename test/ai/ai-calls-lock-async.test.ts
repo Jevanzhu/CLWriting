@@ -11,7 +11,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   recordAiCall,
@@ -24,6 +24,14 @@ import { tryAcquireCrossProcessLock } from '../../src/fs/cross-process-lock.js'
 
 function tempDir(prefix: string): string {
   return mkdtempTracked(join(tmpdir(), prefix))
+}
+
+/** 大小写折叠面(platformCaseFold 单源口径:win32 + darwin 折叠,linux 不折叠)。 */
+const FOLD_FS = process.platform === 'win32' || process.platform === 'darwin'
+
+/** case 变体寻址:书目录名整体大写——折叠面上与原名指向同一物理目录。 */
+function caseVariant(root: string): string {
+  return join(dirname(root), basename(root).toUpperCase())
 }
 
 afterEach(() => {
@@ -122,6 +130,44 @@ describe('R30-3：ai-calls 跨进程锁等待改异步', () => {
       release!()
     }
   }, 15_000)
+
+  // 写链键 = 平台折叠后的书键(platformCaseFold):同一本书仅大小写不同(外部改名 /
+  // 不同入口传入)必须共用一条进程内写链,否则两笔写各成一条链**并行**等待,进程内
+  // 读改写互斥静默失效。观察面 = 第二笔的失败阶段:同链 → 排队(等第一笔 settle 后才
+  // 执行写段),异链 → 在途(与第一笔同时各起一个等待者)。linux 不折叠,链键逐字面
+  // 相等在此不成立(两路径是两本书),故按 FOLD_FS 门只在折叠面生效。
+  it.skipIf(!FOLD_FS)(
+    '同一书的 case 变体寻址:两笔写共用一条写链(第二笔排队,非并行的在途)',
+    async () => {
+      const bookRoot = tempDir('ai-calls-chainfold-')
+      const callsFp = join(bookRoot, '.cache', 'ai-calls.json')
+      __setAiCallsLockTimeoutForTest(80) // 注入短超时:两笔写段都必失败(锁被占至超时)
+      const release = tryAcquireCrossProcessLock(`${callsFp}.lock`)
+      expect(release).not.toBeNull()
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const before = ledgerWriteFailuresForTest()
+      const variant = caseVariant(bookRoot)
+      expect(variant).not.toBe(bookRoot)
+      try {
+        recordTaskUsage(bookRoot, 'chat', { inputTokens: 1, outputTokens: 2 })
+        recordTaskUsage(variant, 'chat', { inputTokens: 1, outputTokens: 2 })
+        await vi.waitFor(() => expect(ledgerWriteFailuresForTest()).toBe(before + 2), { timeout: 3_000, interval: 5 })
+        const ledgerWarns = warn.mock.calls
+          .map((a) => a.map(String).join(' '))
+          .filter((m) => m.includes('本轮账目缺失'))
+        expect(ledgerWarns).toHaveLength(2)
+        // 两笔都失败、同计数均不变;阶段分布才是链共享的判据——第二笔若与第一笔并行
+        // (各自成链)则同为「在途」,第二笔若排在链上则为「排队」
+        expect(ledgerWarns.filter((m) => m.includes('在途'))).toHaveLength(1)
+        expect(ledgerWarns.filter((m) => m.includes('排队'))).toHaveLength(1)
+        expect(existsSync(callsFp)).toBe(false) // 失败口径不变:本轮账目未记
+      } finally {
+        warn.mockRestore()
+        release!()
+      }
+    },
+    15_000,
+  )
 })
 
 // ── R30-3：providers.json 配置写锁 ──────────────────────────────────────
