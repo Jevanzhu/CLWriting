@@ -863,7 +863,10 @@ describe('关闭路径事件流自检', () => {
     } finally {
       db.close()
     }
-    const out = checkEventStreamIntegrity(new DatabaseSync(store.dbPath))
+    // 探针句柄显式关：win 下未关的 sqlite 文件删不掉——afterEach 的 rm-retry 预算耗尽即整档红
+    const probe = new DatabaseSync(store.dbPath)
+    const out = checkEventStreamIntegrity(probe)
+    probe.close()
     const msgs = out.issues.map((i) => i.message)
     expect(msgs.some((m) => m.includes('缺 shadowStart/shadowEnd 端点'))).toBe(true)
     expect(msgs.some((m) => m.includes('区间倒置'))).toBe(true)

@@ -54,7 +54,13 @@ describe('replyError 统一信封单元', () => {
       },
     } as unknown as ServerResponse
     const home = homedir()
-    const outside = join(tmpdir(), 'clwriting-路径面', '书库', 'book.yaml')
+    // 「家目录外」的反例须真在 home 之外——win 的 tmpdir 落在 home 内
+    //（C:\Users\<名>\AppData\Local\Temp），拿它当反例会把用例前提坐空（实测只会落成
+    // <用户目录>\AppData\... 而非通用占位符）。卷根两侧都在 home 外。
+    const outside =
+      process.platform === 'win32'
+        ? 'C:\\OtherVolume\\书库\\book.yaml'
+        : join('/Volumes', '外接卷', '书库', 'book.yaml')
     replyError(
       res,
       500,
@@ -65,9 +71,10 @@ describe('replyError 统一信封单元', () => {
     )
     const j = JSON.parse(calls[0]!.body) as { error: string }
     expect(j.error).not.toContain(home)
-    expect(j.error).not.toContain(tmpdir())
+    expect(j.error).not.toContain(outside)
     expect(j.error).not.toContain('C:\\Users\\bob')
-    expect(j.error).toContain("open '<用户目录>/书库/book.yaml'")
+    // 期望值按本机分隔符构造（win 的 join 出反斜杠）——写死正斜杠只在本机为 POSIX 时成立
+    expect(j.error).toContain(`open '${join('<用户目录>', '书库', 'book.yaml')}'`)
     // 家目录外的绝对路径（临时卷 / 外接卷）没有带名占位符可用，落通用占位符
     expect(j.error).toContain("open '<路径>'")
     expect(j.error).toContain("open '<用户目录>\\书库\\book.yaml'")
