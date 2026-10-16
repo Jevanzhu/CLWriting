@@ -9,62 +9,30 @@
  * 5. 三审出意见 + 通过 verdict
  * 6. 定稿 → 树节点 final
  *
- * 独立 server（端口 19013）+ CLWRITING_DRIVER=mock，不污染 globalSetup 的 18999。
+ * 独立 server（偏移 14，起停样板见 ./independent-server.ts），不污染 globalSetup 的 18999。
  */
 import { test, expect } from '@playwright/test'
-import http from 'node:http'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { startServer } from '../../src/studio/server/index.js'
-import { e2ePort } from './e2e-ports.js'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
+import { startIndependentServer, type IndependentServer } from './independent-server.js'
 // R0910-W：临时目录清理走重试封装（Windows 句柄异步收尾的 ENOTEMPTY/EPERM/EBUSY）
 import { rmDirRetry } from '../helpers/rm-dir-retry.js'
 
-// R73-75（批 F-8）：端口基址派生（CLW_E2E_PORT_BASE+14，旧硬编码 19013；偏移表见 e2e-ports.ts）
-const PORT = e2ePort(14)
-const BASE = `http://127.0.0.1:${PORT}`
-let server: http.Server
+let srv: IndependentServer
 let workDir = ''
-let userDataPath = ''
-let prevDriver: string | undefined
 
 test.beforeAll(async () => {
-  prevDriver = process.env.CLWRITING_DRIVER
-  process.env.CLWRITING_DRIVER = 'mock'
   workDir = mkdtempSync(join(tmpdir(), 'clw-e2e-shortflow-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), '')
-  userDataPath = mkdtempSync(join(tmpdir(), 'clw-e2e-shortflow-ud-'))
-  server = startServer({ port: PORT, workDir, userDataPath, staticDir: join(process.cwd(), 'dist', 'web') })
-  await new Promise<void>((r, reject) => {
-    server.once('listening', () => r())
-    // R64-40（十二轮）：固定端口被占给指因人话提示（X-36③ global-setup 同款——
-    // 环境争用时裸 EADDRINUSE 栈难排查）
-    server.once('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE') {
-        // 排查提示按平台分支：win 上只给 lsof 是死指引
-        const probe =
-          process.platform === 'win32'
-            ? `netstat -ano | findstr :${PORT} 查占用 PID 后 taskkill /PID <pid> /F`
-            : `lsof -i :${PORT} 查占用进程并 kill`
-        console.error(
-          `[e2e short-full-flow] 端口 ${PORT} 已被占用——通常是上一次 e2e 未退干净或本地 dev 服务抢占。\n` +
-            `排查：${probe} 后重跑。`,
-        )
-      }
-      reject(err)
-    })
-  })
+  srv = await startIndependentServer({ tag: 'short-full-flow', offset: 14, workDir })
 })
 
 test.afterAll(async () => {
-  if (prevDriver === undefined) delete process.env.CLWRITING_DRIVER
-  else process.env.CLWRITING_DRIVER = prevDriver
-  await new Promise<void>((r) => server.close(() => r()))
-  if (userDataPath) rmDirRetry(userDataPath)
-  if (workDir) rmDirRetry(workDir)
+  await srv.close()
+  rmDirRetry(workDir)
 })
 
 const BOOK = '手测短篇集'
@@ -72,7 +40,7 @@ const BOOK = '手测短篇集'
 test('短篇 UI 全流程：建书 → 开书 → 写章 → 机检 → 三审 → 定稿', async ({ page }) => {
   attachPageErrorBaseline(page, 'short-full-flow')
   // ── 1. 书架新建短篇书 ──
-  await page.goto(`${BASE}/shelf`)
+  await page.goto(`${srv.base}/shelf`)
   await expect(page.locator('.head-title', { hasText: '书架' })).toBeVisible()
   await page.locator('.btn.primary', { hasText: '新建书' }).first().click()
   await page.locator('.kind-btn', { hasText: '短篇' }).click()

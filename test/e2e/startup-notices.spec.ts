@@ -8,22 +8,17 @@
  * → 横幅可见 → 「知道了」dismiss 一次性语义（localStorage 指纹 kind@ts，刷新不再弹）。
  *
  * 独立 server（usage-card R76-10 同款）：需自有 workDir 播种幽灵登记，共享面不可污染。
- * 端口偏移 5（e2e-ports.ts 偏移表随批登记）。
+ * 偏移 5 + 起停样板见 ./independent-server.ts。
  */
 import { test, expect } from '@playwright/test'
-import http from 'node:http'
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { startServer } from '../../src/studio/server/index.js'
 import { makeDualTrackWorkdir } from '../studio/fixtures.js'
-import { e2ePort } from './e2e-ports.js'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
-// R0910-W：临时目录清理走重试封装（Windows 句柄异步收尾的 ENOTEMPTY/EPERM/EBUSY）
+import { startIndependentServer, type IndependentServer } from './independent-server.js'
 import { rmDirRetry } from '../helpers/rm-dir-retry.js'
 
-const PORT = e2ePort(5)
-const BASE = `http://127.0.0.1:${PORT}`
-let server: http.Server
+let srv: IndependentServer
 let workDir = ''
 
 test.beforeAll(async () => {
@@ -34,37 +29,24 @@ test.beforeAll(async () => {
     join(workDir, '.clwriting', 'books.jsonl'),
     JSON.stringify({ name: '幽灵旧书', path: '旧书库/幽灵旧书', kind: 'long' }) + '\n',
   )
-  server = startServer({ port: PORT, workDir, staticDir: join(process.cwd(), 'dist', 'web') })
-  await new Promise<void>((resolve, reject) => {
-    server.once('listening', () => resolve())
-    // R51-J-6：EADDRINUSE 人话提示（usage-card R64-40 口径同款）
-    server.once('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE') {
-        // 排查提示按平台分支：win 上只给 lsof 是死指引
-        const probe =
-          process.platform === 'win32'
-            ? `netstat -ano | findstr :${PORT} 查占用 PID 后 taskkill /PID <pid> /F`
-            : `lsof -i :${PORT} 查占用进程并 kill`
-        console.error(
-          `[e2e startup-notices] 端口 ${PORT} 已被占用——通常是上一次 e2e 未退干净或本地 dev 服务抢占。\n` +
-            `排查：${probe} 后重跑。`,
-        )
-      }
-      // R9-P2-4：listen 失败不留残——先清本次自建目录再上抛
-      if (workDir) rmDirRetry(workDir)
-      reject(err)
-    })
-  })
+  try {
+    // userDataPath: false —— 对齐 globalSetup 主 server 口径（不传 = 无事件库）
+    srv = await startIndependentServer({ tag: 'startup-notices', offset: 5, workDir, userDataPath: false })
+  } catch (err) {
+    // 自建 workDir 归调用方（壳不删非己物），监听失败路径同清、不留残
+    rmDirRetry(workDir)
+    throw err
+  }
 })
 
 test.afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()))
-  if (workDir) rmDirRetry(workDir)
+  await srv.close()
+  rmDirRetry(workDir)
 })
 
 test('启动通告横幅：幽灵登记 → boot 自愈通告 → 横幅可见（repair-books）', async ({ page }) => {
   attachPageErrorBaseline(page, 'startup-notices')
-  await page.goto(`${BASE}/`)
+  await page.goto(`${srv.base}/`)
   const banner = page.locator('.sn-banner')
   await expect(banner).toBeVisible()
   // 通告条数与来源 kind（机器可判别面）；自愈文案含缺失计数（幽灵条目未被清除）
@@ -75,7 +57,7 @@ test('启动通告横幅：幽灵登记 → boot 自愈通告 → 横幅可见�
 
 test('横幅一次性：「知道了」→ 刷新后同批通告不再提示（localStorage 指纹）', async ({ page }) => {
   attachPageErrorBaseline(page, 'startup-notices')
-  await page.goto(`${BASE}/`)
+  await page.goto(`${srv.base}/`)
   const banner = page.locator('.sn-banner')
   await expect(banner).toBeVisible()
   await banner.locator('.sn-close').click()

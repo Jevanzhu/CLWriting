@@ -1,83 +1,36 @@
 /**
  * 供应商配置全流程（审查 §八⑨：e2e 补供应商配置 spec）。
  *
- * 独立 server（端口 19001 + CLWRITING_DRIVER=mock + 显式 userDataPath），不污染 globalSetup 的 18999。
+ * 独立 server（偏移 2，起停样板见 ./independent-server.ts），不污染 globalSetup 的 18999。
  * 路径：设置 → AI 提供方 tab → 添加提供方 → 测试连接（mock 短路返回全能力）→ 设为当前 → ai-status 可达 → 工作台解灰。
  *
  * 面板内部分页：「AI 提供方」（聊天模型 + 任务档位）/「RAG 提供方」两个 tab——
  * 同一时刻只挂载其一，但聊天侧选择器仍按直接子级（>）收窄以防回归。
  */
 import { test, expect } from '@playwright/test'
-import http from 'node:http'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { startServer } from '../../src/studio/server/index.js'
-import { makeDualTrackWorkdir } from '../studio/fixtures.js'
-import { e2ePort } from './e2e-ports.js'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
-// R0910-W：临时目录清理走重试封装（Windows 句柄异步收尾的 ENOTEMPTY/EPERM/EBUSY）
-import { rmDirRetry } from '../helpers/rm-dir-retry.js'
+import { startIndependentServer, type IndependentServer } from './independent-server.js'
 
-// R73-75（批 F-8）：端口基址派生（CLW_E2E_PORT_BASE+2，旧硬编码 19001；偏移表见 e2e-ports.ts）
-const PORT = e2ePort(2)
-const BASE = `http://127.0.0.1:${PORT}`
-let server: http.Server
-let workDir = ''
-let userDataPath = ''
-let prevDriver: string | undefined
+let srv: IndependentServer
+let studioToken = ''
 
 test.beforeAll(async () => {
-  prevDriver = process.env.CLWRITING_DRIVER
-  process.env.CLWRITING_DRIVER = 'mock'
-  workDir = makeDualTrackWorkdir()
-  userDataPath = mkdtempSync(join(tmpdir(), 'clwriting-e2e-provider-ud-'))
-  server = startServer({ port: PORT, workDir, userDataPath, staticDir: join(process.cwd(), 'dist', 'web') })
-  await new Promise<void>((resolve, reject) => {
-    server.once('listening', () => resolve())
-    // R64-40（十二轮）：固定端口被占给指因人话提示（X-36③ global-setup 同款——
-    // 环境争用时裸 EADDRINUSE 栈难排查）
-    server.once('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE') {
-        // 排查提示按平台分支：win 上只给 lsof 是死指引
-        const probe =
-          process.platform === 'win32'
-            ? `netstat -ano | findstr :${PORT} 查占用 PID 后 taskkill /PID <pid> /F`
-            : `lsof -i :${PORT} 查占用进程并 kill`
-        console.error(
-          `[e2e ai-provider] 端口 ${PORT} 已被占用——通常是上一次 e2e 未退干净或本地 dev 服务抢占。\n` +
-            `排查：${probe} 后重跑。`,
-        )
-      }
-      // R9-P2-4：listen 失败不留残——对齐 global-setup R27-124 口径（usage-card/auto-write 同批）
-      if (userDataPath) rmDirRetry(userDataPath)
-      if (workDir) rmDirRetry(workDir)
-      if (prevDriver === undefined) delete process.env.CLWRITING_DRIVER
-      else process.env.CLWRITING_DRIVER = prevDriver
-      reject(err)
-    })
-  })
+  srv = await startIndependentServer({ tag: 'ai-provider', offset: 2 })
 })
 
 test.afterAll(async () => {
-  if (prevDriver === undefined) delete process.env.CLWRITING_DRIVER
-  else process.env.CLWRITING_DRIVER = prevDriver
-  await new Promise<void>((resolve) => server.close(() => resolve()))
-  if (userDataPath) rmDirRetry(userDataPath)
-  // R65-60（F-4）：workDir 同清（对齐 auto-write）
-  if (workDir) rmDirRetry(workDir)
+  await srv.close()
 })
 
 // T2-3：GET /api/* 读端点要求 token——boot 取一次缓存，直打 API 的断言统一带 x-studio-token
-let studioToken = ''
 test.beforeAll(async () => {
-  const boot = await (await fetch(`${BASE}/api/boot`)).json()
+  const boot = await (await fetch(`${srv.base}/api/boot`)).json()
   studioToken = boot.token
 })
 
 test('添加→测试→双供应商切换→工作台解灰 全流程', async ({ page }) => {
   attachPageErrorBaseline(page, 'ai-provider')
-  await page.goto(`${BASE}/`)
+  await page.goto(`${srv.base}/`)
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
 
   // 打开设置 → 服务提供方 tab（提供方面板在「AI 提供方」tab，非「AI 功能」tab）
@@ -126,7 +79,7 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
 
   // 后端 ai-status 即刻可达（P0-2 无缓存）
   const j = await (
-    await page.request.get(`${BASE}/api/ai-status`, { headers: { 'x-studio-token': studioToken } })
+    await page.request.get(`${srv.base}/api/ai-status`, { headers: { 'x-studio-token': studioToken } })
   ).json()
   expect(j).toMatchObject({ available: true })
 
@@ -157,7 +110,7 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
   await ragGroup.locator('.setting-item', { hasText: '本书使用独立设定' }).locator('.switch').click()
   await ragGroup.locator('.setting-item', { hasText: '启用检索' }).locator('.switch').click()
   const ragList = await (
-    await page.request.get(`${BASE}/api/rag-providers`, { headers: { 'x-studio-token': studioToken } })
+    await page.request.get(`${srv.base}/api/rag-providers`, { headers: { 'x-studio-token': studioToken } })
   ).json()
   expect(ragList.ragProviders).toHaveLength(1)
   await ragGroup.locator('.rag-prov-select').selectOption(ragList.ragProviders[0].id)
@@ -166,7 +119,9 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
   await expect
     .poll(async () => {
       const c = await (
-        await page.request.get(`${BASE}/api/books/长篇测试书/config`, { headers: { 'x-studio-token': studioToken } })
+        await page.request.get(`${srv.base}/api/books/长篇测试书/config`, {
+          headers: { 'x-studio-token': studioToken },
+        })
       ).json()
       return c.config?.rag ?? null
     })
@@ -182,7 +137,7 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
 // 保存持久化、卡片 tag 显示 Responses（后端 parseProviderInput 放行三选一）
 test('Responses 协议三选一：添加 openai-responses 供应商保存成功', async ({ page }) => {
   attachPageErrorBaseline(page, 'ai-provider')
-  await page.goto(`${BASE}/`)
+  await page.goto(`${srv.base}/`)
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
 
   await page.locator('.rbtn[data-tip^="设置（"]').click()
@@ -205,7 +160,7 @@ test('Responses 协议三选一：添加 openai-responses 供应商保存成功'
 
   // 持久化核验：GET /api/providers 返回该条目且 protocol 字段保真
   const j = await (
-    await page.request.get(`${BASE}/api/providers`, { headers: { 'x-studio-token': studioToken } })
+    await page.request.get(`${srv.base}/api/providers`, { headers: { 'x-studio-token': studioToken } })
   ).json()
   const saved = j.providers.find((p: { name: string }) => p.name === 'Responses 官方')
   expect(saved).toMatchObject({ protocol: 'openai-responses', auth: 'bearer' })

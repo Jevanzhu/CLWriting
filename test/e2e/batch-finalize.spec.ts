@@ -4,27 +4,22 @@
  * 独立 server + 自制长篇 fixture（2 章 revision 态）：
  * 右键第 2 章 → 「批量定稿到此章」→ 弹确认 → 2 章全定稿 → toast + 树节点全绿。
  * 不污染 globalSetup fixture。
+ * 端口偏移 15（见 e2e-ports.ts 偏移表），起停样板见 ./independent-server.ts。
  */
 import { test, expect } from '@playwright/test'
-import http from 'node:http'
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { startServer } from '../../src/studio/server/index.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
-import { e2ePort } from './e2e-ports.js'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
+import { startIndependentServer, type IndependentServer } from './independent-server.js'
 // R0910-W：临时目录清理走重试封装（Windows 句柄异步收尾的 ENOTEMPTY/EPERM/EBUSY）
 import { rmDirRetry } from '../helpers/rm-dir-retry.js'
 
-// R73-75（批 F-8）：端口基址派生（CLW_E2E_PORT_BASE+15，旧硬编码 19014；偏移表见 e2e-ports.ts）
-const PORT = e2ePort(15)
-const BASE = `http://127.0.0.1:${PORT}`
 const BOOK = '批量定稿e2e书'
-let server: http.Server
+let srv: IndependentServer
 let workDir = ''
-let userDataPath = ''
 
 test.beforeAll(async () => {
   workDir = mkdtempSync(join(tmpdir(), 'clw-e2e-batchfin-'))
@@ -68,38 +63,17 @@ test.beforeAll(async () => {
     })
   }
   writeManifest(join(bookRoot, '项目', '文档清单.jsonl'), m)
-  userDataPath = mkdtempSync(join(tmpdir(), 'clw-e2e-batchfin-ud-'))
-  server = startServer({ port: PORT, workDir, userDataPath, staticDir: join(process.cwd(), 'dist', 'web') })
-  await new Promise<void>((r, reject) => {
-    server.once('listening', () => r())
-    // R64-40（十二轮）：固定端口被占给指因人话提示（X-36③ global-setup 同款——
-    // 环境争用时裸 EADDRINUSE 栈难排查）
-    server.once('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE') {
-        // 排查提示按平台分支：win 上只给 lsof 是死指引
-        const probe =
-          process.platform === 'win32'
-            ? `netstat -ano | findstr :${PORT} 查占用 PID 后 taskkill /PID <pid> /F`
-            : `lsof -i :${PORT} 查占用进程并 kill`
-        console.error(
-          `[e2e batch-finalize] 端口 ${PORT} 已被占用——通常是上一次 e2e 未退干净或本地 dev 服务抢占。\n` +
-            `排查：${probe} 后重跑。`,
-        )
-      }
-      reject(err)
-    })
-  })
+  srv = await startIndependentServer({ tag: 'batch-finalize', offset: 15, workDir })
 })
 
 test.afterAll(async () => {
-  await new Promise<void>((r) => server.close(() => r()))
-  if (userDataPath) rmDirRetry(userDataPath)
-  if (workDir) rmDirRetry(workDir)
+  await srv.close()
+  rmDirRetry(workDir)
 })
 
 test('批量定稿到此章：右键第2章 → 菜单 → 2章全定稿 → toast + 树全绿', async ({ page }) => {
   attachPageErrorBaseline(page, 'batch-finalize')
-  await page.goto(`${BASE}/shelf`)
+  await page.goto(`${srv.base}/shelf`)
   await page.locator('.book-title', { hasText: BOOK }).click()
   await expect(page.locator('.ws-shell')).toBeVisible()
 

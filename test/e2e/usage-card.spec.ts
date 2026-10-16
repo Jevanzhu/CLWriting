@@ -11,75 +11,27 @@
  *   前端写 fm」无盘副作用）→ 表格 + ≥1 行任务数据确定性可见。
  */
 import { test, expect } from '@playwright/test'
-import http from 'node:http'
-import { mkdtempSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { startServer } from '../../src/studio/server/index.js'
-import { makeDualTrackWorkdir } from '../studio/fixtures.js'
-import { e2ePort } from './e2e-ports.js'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
-// R0910-W：临时目录清理走重试封装（Windows 句柄异步收尾的 ENOTEMPTY/EPERM/EBUSY）
-import { rmDirRetry } from '../helpers/rm-dir-retry.js'
+import { startIndependentServer, type IndependentServer } from './independent-server.js'
 
-// R73-75（批 F-8）：端口基址派生（偏移 4 此前未用；偏移表见 e2e-ports.ts）
-const PORT = e2ePort(4)
-const BASE = `http://127.0.0.1:${PORT}`
-let server: http.Server
-let workDir = ''
-let userDataPath = ''
+let srv: IndependentServer
 let studioToken = ''
 
-let prevDriver: string | undefined
-
 test.beforeAll(async () => {
-  // R32-36（三十二轮）：env 保存/恢复惯例（ai-provider/auto-write spec 同款）——
-  // 此前无差别 delete 会把外层（CLI/CI）预设的 CLWRITING_DRIVER 抹掉
-  prevDriver = process.env.CLWRITING_DRIVER
-  process.env['CLWRITING_DRIVER'] = 'mock'
-  workDir = makeDualTrackWorkdir()
-  userDataPath = mkdtempSync(join(tmpdir(), 'clwriting-e2e-usage-ud-'))
-  server = startServer({ port: PORT, workDir, userDataPath, staticDir: join(process.cwd(), 'dist', 'web') })
-  await new Promise<void>((resolve, reject) => {
-    server.once('listening', () => resolve())
-    // R51-J-6（五十一轮）：补 EADDRINUSE 人话提示（ai-provider/auto-write 等同批 spec
-    // 的 R64-40 口径——固定端口被占时裸 EADDRINUSE 只留栈，看不出该查谁）
-    server.once('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE') {
-        // 排查提示按平台分支：win 上只给 lsof 是死指引
-        const probe =
-          process.platform === 'win32'
-            ? `netstat -ano | findstr :${PORT} 查占用 PID 后 taskkill /PID <pid> /F`
-            : `lsof -i :${PORT} 查占用进程并 kill`
-        console.error(
-          `[e2e usage-card] 端口 ${PORT} 已被占用——通常是上一次 e2e 未退干净或本地 dev 服务抢占。\n` +
-            `排查：${probe} 后重跑。`,
-        )
-      }
-      // R9-P2-4：listen 失败不留残——对齐 global-setup R27-124 口径：先清本次自建目录 +
-      // 还原 env，再上抛（原写法 reject 后 dirs/env 残留在测试进程退出前一直悬空）
-      if (userDataPath) rmDirRetry(userDataPath)
-      if (workDir) rmDirRetry(workDir)
-      if (prevDriver === undefined) delete process.env.CLWRITING_DRIVER
-      else process.env.CLWRITING_DRIVER = prevDriver
-      reject(err)
-    })
-  })
+  srv = await startIndependentServer({ tag: 'usage-card', offset: 4 })
   // T2-3：写端点要求 token——boot 取一次
-  const boot = await (await fetch(`${BASE}/api/boot`)).json()
+  const boot = await (await fetch(`${srv.base}/api/boot`)).json()
   studioToken = boot.token
 })
 
 test.afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()))
-  if (userDataPath) rmDirRetry(userDataPath)
-  if (workDir) rmDirRetry(workDir)
-  if (prevDriver === undefined) delete process.env.CLWRITING_DRIVER
-  else process.env.CLWRITING_DRIVER = prevDriver
+  await srv.close()
 })
 
 async function openWorkbench(page: import('@playwright/test').Page): Promise<void> {
-  await page.goto(`${BASE}/`)
+  await page.goto(`${srv.base}/`)
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await page.getByRole('button', { name: '工作台' }).click()
 }
@@ -99,14 +51,14 @@ test('用量卡表格态：自种 autotag 事件 → 表格 + ≥1 行任务数�
   // 种事件：0001 的 autotag（mock driver）→ llm calls 库记一条本书事件（本 spec 私有
   // userDataPath，不受共享环境影响；autotag 不写盘——返回 tags 由前端落 fm）。
   // docId 直接读私有 workDir 的文档清单（fs 可达，免多一跳 API）
-  const manifest = readFileSync(join(workDir, '长篇', '长篇测试书', '项目', '文档清单.jsonl'), 'utf-8')
+  const manifest = readFileSync(join(srv.workDir, '长篇', '长篇测试书', '项目', '文档清单.jsonl'), 'utf-8')
   const docId = manifest
     .split('\n')
     .filter((l) => l.trim())
     .map((l) => JSON.parse(l) as { id: string; path?: string })
     .find((e) => (e.path ?? '').includes('0001-'))!.id
   const resp = await fetch(
-    `${BASE}/api/books/${encodeURIComponent('长篇测试书')}/documents/${encodeURIComponent(docId)}/autotag`,
+    `${srv.base}/api/books/${encodeURIComponent('长篇测试书')}/documents/${encodeURIComponent(docId)}/autotag`,
     { method: 'POST', headers: { 'x-studio-token': studioToken } },
   )
   expect(resp.ok, `autotag 应成功（实测 ${resp.status}）`).toBe(true)

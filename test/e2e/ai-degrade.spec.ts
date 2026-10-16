@@ -1,68 +1,39 @@
 /**
  * T1.7 AI 降级（M11 E1）：AI 不可达态 → 编辑保存照常 + 辅助入口置灰。
  *
- * 独立 server（端口 19000 + CLWRITING_E2E_AI_DOWN=1）不污染其余动线（globalSetup 的 18999）。
+ * 独立 server（偏移 1，起停样板见 ./independent-server.ts）+ CLWRITING_E2E_AI_DOWN=1，不污染其余动线（globalSetup 的 18999）。
  * - GET /api/ai-status 短路返回 available:false（ai-status.ts 跳缓存直接探）
  * - 编辑器不依赖 AI：选章编辑 + ⌘S 保存成功
  * - 工作台 UI 降级：.ai-warn 警告条可见 + 生成按钮 disabled
  */
 import { test, expect } from '@playwright/test'
-import http from 'node:http'
-import { join } from 'node:path'
-import { startServer } from '../../src/studio/server/index.js'
-import { makeDualTrackWorkdir } from '../studio/fixtures.js'
-import { e2ePort } from './e2e-ports.js'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
-// R0910-W：临时目录清理走重试封装（Windows 句柄异步收尾的 ENOTEMPTY/EPERM/EBUSY）
-import { rmDirRetry } from '../helpers/rm-dir-retry.js'
+import { startIndependentServer, type IndependentServer } from './independent-server.js'
 
-// R73-75（批 F-8）：端口基址派生（CLW_E2E_PORT_BASE+1，旧硬编码 19000；偏移表见 e2e-ports.ts）
-const PORT = e2ePort(1)
-const BASE = `http://127.0.0.1:${PORT}`
-let server: http.Server
-// R65-60（F-4）：workDir 提到模块级——此前 afterAll 只清环境变量不清书目录，临时区残留
-let workDir = ''
+let srv: IndependentServer
 
 test.beforeAll(async () => {
-  process.env['CLWRITING_E2E_AI_DOWN'] = '1'
-  workDir = makeDualTrackWorkdir()
-  server = startServer({ port: PORT, workDir, staticDir: join(process.cwd(), 'dist', 'web') })
-  await new Promise<void>((resolve, reject) => {
-    server.once('listening', () => resolve())
-    // R64-40（十二轮）：固定端口被占给指因人话提示（X-36③ global-setup 同款——
-    // 环境争用时裸 EADDRINUSE 栈难排查）
-    server.once('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE') {
-        // 排查提示按平台分支：win 上只给 lsof 是死指引
-        const probe =
-          process.platform === 'win32'
-            ? `netstat -ano | findstr :${PORT} 查占用 PID 后 taskkill /PID <pid> /F`
-            : `lsof -i :${PORT} 查占用进程并 kill`
-        console.error(
-          `[e2e ai-degrade] 端口 ${PORT} 已被占用——通常是上一次 e2e 未退干净或本地 dev 服务抢占。\n` +
-            `排查：${probe} 后重跑。`,
-        )
-      }
-      reject(err)
-    })
+  srv = await startIndependentServer({
+    tag: 'ai-degrade',
+    offset: 1,
+    userDataPath: false,
+    env: { CLWRITING_E2E_AI_DOWN: '1' },
   })
 })
 
 test.afterAll(async () => {
-  delete process.env['CLWRITING_E2E_AI_DOWN']
-  await new Promise<void>((resolve) => server.close(() => resolve()))
-  if (workDir) rmDirRetry(workDir)
+  await srv.close()
 })
 
 test('AI 不可达：编辑保存照常 + 辅助置灰', async ({ page }) => {
   attachPageErrorBaseline(page, 'ai-degrade')
   // ① ai-status 报告不可达（T2-3：GET 读端点要求 token，boot 取）
-  const boot = await page.request.get(`${BASE}/api/boot`)
+  const boot = await page.request.get(`${srv.base}/api/boot`)
   const token = (await boot.json()).token
-  const r = await page.request.get(`${BASE}/api/ai-status`, { headers: { 'x-studio-token': token } })
+  const r = await page.request.get(`${srv.base}/api/ai-status`, { headers: { 'x-studio-token': token } })
   expect(await r.json()).toMatchObject({ available: false })
 
-  await page.goto(`${BASE}/`)
+  await page.goto(`${srv.base}/`)
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
 
   // ② 编辑器不依赖 AI：选章编辑 + ⌘S 保存成功

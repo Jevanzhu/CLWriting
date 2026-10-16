@@ -21,11 +21,11 @@
  * 清理所有权：workDir 由本壳创建（未传 opts.workDir）时由本壳删；调用方传入自建
  * workDir（需播种 ghost 登记/自制 fixture 的场景）时**归调用方自清**——本壳不删非己物。
  *
- * 未迁移项（本批不扩面，留后续批按同一方向推进）：既有 8 个自带同形样板的独立 server
- * spec（ai-degrade/ai-provider/auto-write/usage-card/startup-notices/short-full-flow/
- * batch-finalize/release-smoke）仍持各自拷贝——它们各有差异分支（AI_DOWN 旗标、
- * 子进程起服、自制 fixture 播种），迁移需逐档核差异，与「缩小连坐半径」无收益，故本批
- * 零触碰；后续批可照本壳形状逐个收编。
+ * 收编面：同形样板族已全部收本壳——ai-degrade/ai-provider/auto-write/usage-card/
+ * overview-short/short-full-flow/batch-finalize（差异分支均由本壳参数表达：AI_DOWN 旗标
+ * 走 env；startup-notices/short-full-flow/batch-finalize 需播种，走调用方自建 workDir）。
+ * 例外 = release-smoke：其起服是生成子进程（非进程内 startServer），本壳形态不可达，
+ * 自持端口派生。
  */
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
