@@ -536,11 +536,11 @@ jobs:
       # 双腿工件分目录下载（不用 merge-multiple 合并——两腿各带一份 SHA256SUMS.txt，
       # 同名合并会静默覆盖；本 job 要按腿归位重算全量清单，分目录是前提）。SHA 钉版口径
       # 同 G406（v4 tag → commit，git ref 端点实取）。
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: clwriting-desktop-macos-latest
           path: release-assets/mac
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: clwriting-desktop-windows-latest
           path: release-assets/win
