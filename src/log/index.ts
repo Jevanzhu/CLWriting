@@ -388,19 +388,19 @@ function enqueueWrite(line: string): void {
           // startServer 只镜像不落盘）可落在排空循环中间——此前 dayFile(null) 抛
           // ERR_INVALID_ARG_TYPE 被 fail-open 吞掉，真实丢弃原因被错误形态掩盖。
           // 每行开头快照目标目录：logsDir=null 语义 = 「此后不再落盘」，在途剩余行
-          // 按 fail-open 降级 console 后丢弃（resetLoggingForTest 同语义：旧目录可能
+          // 按 fail-open 降级 stderr 后丢弃（resetLoggingForTest 同语义：旧目录可能
           // 已被测试清理，续写只会复活目录制造 ENOENT 噪音）；快照同时保证同一行的
           // mkdir 与 appendFile 不会被两个 await 之间的 init 置空撕开。
           const targetDir = state.logsDir
           if (!targetDir) {
-            console.error(`[log] logsDir 已置空（initLogging(null)/reset），在途行降级 console：${pending}`)
+            process.stderr.write(`[log] logsDir 已置空（initLogging(null)/reset），在途行降级 stderr：${pending}\n`)
             continue
           }
           try {
             if (targetDir !== pumpedDir) {
               await mkdir(targetDir, { recursive: true }).catch((e) => {
                 // mkdir 失败不再静默：appendFile 的 ENOENT 常源于此，错误码必须可观测
-                console.error(`[log] mkdir(${targetDir}) 失败：${e instanceof Error ? e.message : String(e)}`)
+                process.stderr.write(`[log] mkdir(${targetDir}) 失败：${e instanceof Error ? e.message : String(e)}\n`)
               })
               pumpedDir = targetDir
             }

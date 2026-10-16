@@ -142,6 +142,42 @@ describe('log 模块（A4 批 0）', () => {
     rmSync(blocked, { force: true })
   })
 
+  // 泵内两条降级出口（在途行遇 logsDir 置空 / mkdir 失败）此前走 console API——本文件
+  // 头注纪律（降级告警用 process.stderr.write 直写，不走 console API，vitest 收尾窗
+  // 撞 vitest#11153）只覆盖了落盘失败出口，这两条漏网。用例钉「直写 stderr + console 零调用」。
+  it('在途行遇 logsDir 置空：降级直写 process.stderr，不走 console API', async () => {
+    // 入队后、泵排空前把 logsDir 置空（initLogging(null)/reset 语义）：行不再落盘，
+    // 只能在降级出口留痕——直写 stderr
+    dir = mkdtempTracked(join(tmpdir(), 'clw-log-nul-'))
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const consoleErrSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    initLogging({ logsDir: dir, mirrorConsole: false })
+    log.info('t', 'in-flight')
+    initLogging({ logsDir: null, mirrorConsole: false })
+    await flushLogsForTest()
+    const lines = stderrSpy.mock.calls.map((c) => String(c[0])).filter((s) => s.includes('logsDir 已置空'))
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('in-flight')
+    expect(consoleErrSpy).not.toHaveBeenCalled()
+  })
+
+  it('mkdir 失败：降级直写 process.stderr，不走 console API', async () => {
+    // 目录段被普通文件占住 → mkdir(<file>/logs) 报错（ENOTDIR/ENOENT，随平台）
+    const blocked = mkdtempTracked(join(tmpdir(), 'clw-log-mk-'))
+    rmSync(blocked, { recursive: true, force: true })
+    writeFileSync(blocked, 'not a dir')
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const consoleErrSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    initLogging({ logsDir: join(blocked, 'logs'), mirrorConsole: false })
+    log.error('io', 'mk-fail')
+    await flushLogsForTest()
+    const lines = stderrSpy.mock.calls.map((c) => String(c[0])).filter((s) => s.includes('mkdir('))
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('失败：')
+    expect(consoleErrSpy).not.toHaveBeenCalled()
+    rmSync(blocked, { force: true })
+  })
+
   it('非 Error 值收编为 {name,message} 字符串形状', async () => {
     dir = mkdtempTracked(join(tmpdir(), 'clw-log-'))
     vi.spyOn(console, 'error').mockImplementation(() => {})
