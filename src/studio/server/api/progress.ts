@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import { readChapterDir, readChapterDirSummary } from '../../../format/chapters.js'
 import { yieldToEventLoop } from '../../../async.js'
 import { createTtlProbeCache } from '../ttl-cache.js' // TTL+FIFO 缓存壳单源
+import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
 
 // ── 服务热路径全书扫描的逐块让出 ──────────────────────
 // 服务是 Electron 主进程内嵌的单进程 HTTP 服务，同步全书扫描在大书上单请求冻结事件
@@ -110,6 +111,10 @@ const summaryCache = createTtlProbeCache<string, BookSummary>({
   computeSync: computeBookSummaryUncached,
   computeAsync: computeBookSummaryUncachedAsync,
 })
+
+// 登记制（模块顶层自登记；登记靠本模块被聚合入口求值）：键 = bookRoot，删/改名后同名
+// 重建书须即时重扫（不等 30s TTL）——摘要带章数/字数/最近编辑，跨书复用即书架卡读旧书。
+registerBookKeyedCache('book-summary', invalidateBookSummary)
 
 /** win 书架性能专项双线合并：同步版未命中路径——readChapterDirSummary
  *  单轮算出（scanChapterDir 同轮 stat 跟踪 latest，不再逐章二次 statSync）。 */

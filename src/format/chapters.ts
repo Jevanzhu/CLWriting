@@ -14,6 +14,7 @@ import type { ChapterMeta, ParseError, HookType, HookLevel, Emotion, SceneType }
 import { driveToEnd } from '../async.js'
 import { preludeYieldStats } from '../shared/yield-stats.js'
 import { isCoarseMtimeNs } from '../fs/mtime-precision.js'
+import { registerBookKeyedCache } from '../studio/server/cache-registry.js' // 书键缓存登记表（登记制单源）
 
 /** #7 第 3 节枚举值校验集 */
 const HOOK_TYPES: HookType[] = ['危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩']
@@ -465,6 +466,10 @@ export function clearChapterDirCacheForBook(bookRoot: string): number {
   }
   return removed
 }
+
+// 登记制（模块顶层自登记；登记靠本模块被聚合入口求值）：外层键 = readChapterDir 的 dirPath
+// （调用方一律 join(bookRoot, …) 构造），删/改名后同名重建书不复用该书目录的元数据条目。
+registerBookKeyedCache('chapter-dir-cache', clearChapterDirCacheForBook)
 
 // re-export 抽离到 words.ts 的纯函数（保本模块 API 不变，T2.1）
 export { countWords, parseChapterFileName } from './words.js'

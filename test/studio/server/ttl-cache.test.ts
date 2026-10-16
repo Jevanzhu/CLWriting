@@ -4,9 +4,9 @@
  * forget），另覆盖两级探针节流、in-flight 去重、storeIf 只缓存成功、写侧全表清扫四个
  * 收敛变体。时序断言用 vi.setSystemTime 控钟（生产件直读 Date.now），不依赖真实墙钟。
  *
- * 另承载**书键缓存登记制机器门**（登记制改版）：src/** 全部 forget* 导出与
- * cache-registry 登记表运行时实际登记项双向对账（漏登记 / 登记死项 / 僵尸豁免均红）
- * ——登记完整性不靠人记；详见文末 describe 头注。
+ * 另承载**书键缓存登记制机器门**（登记制改版）：src/** 全部缓存失效族导出
+ *（forget* / invalidate* / clear*）与 cache-registry 登记表运行时实际登记项双向对账
+ *（漏登记 / 登记死项 / 僵尸豁免均红）——登记完整性不靠人记；详见文末 describe 头注。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
@@ -266,10 +266,12 @@ describe('ttl-cache 收敛变体', () => {
 // 兜底。登记制改版后：各缓存模块顶层自登记（registerBookKeyedCache），本门即
 // 「登记完整性不靠人记」的机器兜底。
 //
-// 口径（比评审原文更紧——不只首参 bookRoot，所有 forget* 导出都必须落到登记表或
+// 口径（比评审原文更紧——不只首参 bookRoot，缓存失效族的全部导出都必须落到登记表或
 // 逐项豁免，防「改参数名逃逸」）：
-// - 扫描 src/** 全部 `export function forget*` / `export const forget*`（行首锚定，
-//   JSDoc 行以 ' *' 起头不会误捕）；
+// - 扫描 src/** 全部 `export function (forget|invalidate|clear)*` /
+//   `export const (forget|invalidate|clear)*`（行首锚定，JSDoc 行以 ' *' 起头不会误捕）；
+//   同义族同等对待——只认 forget* 时，一个书键缓存是否入门只看作者给它的失效函数起
+//   什么名（invalidateBookSummary / clearChapterDirCacheForBook 一类即落在观测盲区）；
 // - 正向：每个扫描项必须已登记（按函数名对账）或在下方 EXEMPT 逐项豁免（含理由；
 //   禁目录级豁免——豁免清单自身过僵尸检查）；
 // - 反向：登记表每项须来自真实源码（forgetFn.name 非空者必须命中扫描集），
@@ -279,7 +281,7 @@ describe('ttl-cache 收敛变体', () => {
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 const SRC = join(ROOT, 'src')
 
-interface ForgetExport {
+interface InvalidatorExport {
   /** 仓库相对路径（正斜杠） */
   rel: string
   fn: string
@@ -298,27 +300,36 @@ function listSources(dir: string, out: string[] = []): string[] {
   return out
 }
 
-/** 扫描 src/** 导出的 forget* 函数（函数声明 + const 箭头两形态）。 */
-function scanForgetExports(): ForgetExport[] {
-  const found: ForgetExport[] = []
-  const fnRe = /^[ \t]*export\s+(?:async\s+)?function\s+(forget\w+)\s*(?:<[^(]*>)?\s*\(([^)]*)\)/gm
-  const constRe = /^[ \t]*export\s+const\s+(forget\w+)\s*[:=]/gm
-  for (const fp of listSources(SRC)) {
-    const rel = relative(ROOT, fp).split('\\').join('/')
-    const text = readFileSync(fp, 'utf-8')
-    for (const m of text.matchAll(fnRe)) {
-      const pm = /^([A-Za-z_$][\w$]*)/.exec((m[2] ?? '').trim())
-      found.push({ rel, fn: m[1]!, firstParam: pm ? pm[1] : undefined })
-    }
-    for (const m of text.matchAll(constRe)) {
-      found.push({ rel, fn: m[1]!, firstParam: undefined })
-    }
+/** 单份 .ts 正文里的缓存失效族导出（函数声明 + const 箭头两形态）——纯函数，门自身用例直测。 */
+function matchInvalidatorExports(text: string, rel: string): InvalidatorExport[] {
+  const found: InvalidatorExport[] = []
+  const fnRe = /^[ \t]*export\s+(?:async\s+)?function\s+((?:forget|invalidate|clear)\w+)\s*(?:<[^(]*>)?\s*\(([^)]*)\)/gm
+  const constRe = /^[ \t]*export\s+const\s+((?:forget|invalidate|clear)\w+)\s*[:=]/gm
+  for (const m of text.matchAll(fnRe)) {
+    const pm = /^([A-Za-z_$][\w$]*)/.exec((m[2] ?? '').trim())
+    found.push({ rel, fn: m[1]!, firstParam: pm ? pm[1] : undefined })
+  }
+  for (const m of text.matchAll(constRe)) {
+    found.push({ rel, fn: m[1]!, firstParam: undefined })
   }
   return found
 }
 
-/** 逐项豁免（禁目录级；键 = `仓库相对路径::函数名`）。每条豁免即一条认账。 */
-const EXEMPT_FORGET_EXPORTS: ReadonlyArray<{ key: string; why: string }> = [
+/** 扫描 src/** 的 forget/invalidate/clear 族导出（口径见文末 describe 头注）。 */
+function scanInvalidatorExports(): InvalidatorExport[] {
+  const found: InvalidatorExport[] = []
+  for (const fp of listSources(SRC)) {
+    const rel = relative(ROOT, fp).split('\\').join('/')
+    found.push(...matchInvalidatorExports(readFileSync(fp, 'utf-8'), rel))
+  }
+  return found
+}
+
+/** 逐项豁免（禁目录级；键 = `仓库相对路径::函数名`）。每条豁免即一条认账。
+ *  豁免判据（须命中其一）：非「进程内书键结果缓存」的失效面——进程全局缓存 / 按书名单键 /
+ *  文件态记录与状态 / 需额外上下文（db 句柄、relPath、structural 形态、userDataPath）/
+ *  测试专用导出（零生产调用）/ 前端树（web-next 浏览器侧）。 */
+const EXEMPT_CACHE_INVALIDATORS: ReadonlyArray<{ key: string; why: string }> = [
   {
     key: 'src/studio/server/cache-registry.ts::forgetBookKeyedCaches',
     why: '广播本体（登记表遍历）——失效编排入口，非缓存失效项',
@@ -347,10 +358,103 @@ const EXEMPT_FORGET_EXPORTS: ReadonlyArray<{ key: string; why: string }> = [
     key: 'src/studio/server/api/stream-sse-writer.ts::forgetSseCount',
     why: 'per-book SSE 连接计数按书名（bookName）键控，非 bookRoot 键族；删/改名路由行内直调',
   },
+  // ── invalidate 族（同义族扩面后新入场，逐项复核结论）──────────────────────
+  {
+    key: 'src/document/tree.ts::invalidateTreeIndex',
+    why: '结构性变更失效 API——第二参 structural 决定是否连带清磁盘树红点表（invalidateTreeIndex(true) 形态），finalize/trash/move/merge/split 等 document 层 mutation 共用；非「按书清本缓存」的纯失效器，登记表单参调用面表达不了该契约（删/改名行内直调携带 structural=true）',
+  },
+  {
+    key: 'src/document/tree.ts::invalidateTreeIndexForContent',
+    why: '内容保存的单键失效——第二参 relPath 必需（整书清由 invalidateTreeIndex 承担），登记表单参形态表达不了',
+  },
+  // ── clear 族 ─────────────────────────────────────────────────────────────
+  {
+    key: 'src/check/tree-issues-cache.ts::clearTreeIssuesCacheForBook',
+    why: '磁盘表（<bookRoot>/.cache/index.db，键为 rel_path）整表清——表随书目录同生共死：删书随目录入墓地、改名随目录平移（rel_path 键跨改名仍有效），删/改名时旧路径已不存在，清理恒为 no-op；到达面是 document/tree.ts 的 invalidateTreeIndex(structural=true)',
+  },
+  {
+    key: 'src/format/chapters.ts::clearChapterDirCache',
+    why: '测试专用导出（零生产调用）且无参全局清（全清会误伤他书活跃条目——按书清走 clearChapterDirCacheForBook，后者已自登记）',
+  },
+  {
+    key: 'src/ai/orchestrate/chat/state.ts::clearChatHistory',
+    why: '对话历史清理（内存 Map + 事件库行），非结果缓存；按书名键控且删/改名路由行内 await 直调（含事件库半完成态降级口径）',
+  },
+  {
+    key: 'src/ai/provider/registry.ts::clearProviderCache',
+    why: '测试专用导出（零生产调用）——provider 实例缓存按 conf hash 键控（非书键），生产侧失效由键自然完成',
+  },
+  {
+    key: 'src/cache/schema.ts::clearAllTables',
+    why: '需 DatabaseSync 句柄的清表原语（缓存库全量重建前调用），键面为表名而非书键',
+  },
+  {
+    key: 'src/events/store-open.ts::clearStaleMigrationTombstone',
+    why: '事件库迁移墓碑（文件态标记）清理，需 dbPath 第二参；非缓存条目',
+  },
+  {
+    key: 'src/process/gui-active.ts::clearGuiActive',
+    why: '清 .gui-active 存活记录文件（GUI 退出/切书），非缓存数据',
+  },
+  {
+    key: 'src/process/settings-context.ts::clearCharacterCardCache',
+    why: '测试专用导出（零生产调用）；角色卡缓存键为角色卡目录路径、按 (mtimeMs,size) 指纹逐轮自愈，生产侧无书级清理面',
+  },
+  {
+    key: 'src/state/batch-pause.ts::clearBatchPause',
+    why: '工作区暂停记录（文件态用户数据）清理，非缓存',
+  },
+  {
+    key: 'src/studio/server/api/books-lifecycle.ts::clearPendingEventMigration',
+    why: '改名事件迁移待办档（userDataPath + 新 root 键）清理，非缓存；由改名路由按迁移结果直调',
+  },
+  {
+    key: 'src/studio/web-next/src/api/audit.ts::clearAudit',
+    why: 'web-next 前端树（浏览器侧 API 壳，按书名单键调服务端端点）——非进程内书键结果缓存，登记表语义不适用',
+  },
+  {
+    key: 'src/studio/web-next/src/api/chat.ts::clearChatHistory',
+    why: 'web-next 前端树（浏览器侧 API 壳，同上）——非进程内书键结果缓存',
+  },
+  {
+    key: 'src/studio/web-next/src/composables/useChatComposer.ts::clearFailedDrafts',
+    why: 'web-next 前端树（浏览器侧 composer 草稿态）——非进程内书键结果缓存',
+  },
+  {
+    key: 'src/studio/web-next/src/stores/check.ts::clearFalsePositiveMarks',
+    why: 'web-next 前端树（浏览器侧 store 误报标记，按书名）——非进程内书键结果缓存',
+  },
+  {
+    key: 'src/studio/web-next/src/stores/check.ts::clearFalsePositiveMarksForDoc',
+    why: 'web-next 前端树（浏览器侧 store 误报标记，按书名 + 文档 id）——非进程内书键结果缓存',
+  },
 ]
 
 describe('书键缓存登记制对账（机器门）', () => {
-  const scanned = scanForgetExports()
+  const scanned = scanInvalidatorExports()
+
+  it('门自身：同义族（forget|invalidate|clear）× 两形态（函数声明 / const 箭头）全识别', () => {
+    // src 现存无 `export const <失效族>` 形态（const 箭头覆盖面靠本用例锚定）；非导出行不误捕。
+    const fixture = [
+      'export function forgetA(bookRoot: string): void {}',
+      'export function invalidateB(bookRoot: string): void {}',
+      'export async function clearC(bookRoot: string): Promise<void> {}',
+      'export const forgetD = (bookRoot: string): void => {}',
+      'export const invalidateE: (r: string) => void = () => {}',
+      'export const clearF = (): void => {}',
+      'function clearNotExported(): void {}',
+      'const forgetLocal = (): void => {}',
+      'export function buildIndex(bookRoot: string): void {}',
+    ].join('\n')
+    expect(matchInvalidatorExports(fixture, 'fixture.ts').map((e) => e.fn)).toEqual([
+      'forgetA',
+      'invalidateB',
+      'clearC',
+      'forgetD',
+      'invalidateE',
+      'clearF',
+    ])
+  })
 
   it('前置：扫描面非空；登记表已由聚合入口装满（历史 22 条挂点全量在册）', () => {
     expect(scanned.length).toBeGreaterThan(0)
@@ -363,9 +467,9 @@ describe('书键缓存登记制对账（机器门）', () => {
     }
   })
 
-  it('正向：src/** 每个 forget* 导出都已在登记表（或在豁免清单内——逐项 + 理由）', () => {
+  it('正向：src/** 每个缓存失效族导出都已在登记表（或在豁免清单内——逐项 + 理由）', () => {
     const registeredFnNames = new Set(listBookKeyedCaches().map((e) => e.forget.name))
-    const exempt = new Set(EXEMPT_FORGET_EXPORTS.map((e) => e.key))
+    const exempt = new Set(EXEMPT_CACHE_INVALIDATORS.map((e) => e.key))
     const missing: string[] = []
     for (const s of scanned) {
       if (registeredFnNames.has(s.fn)) continue
@@ -376,7 +480,7 @@ describe('书键缓存登记制对账（机器门）', () => {
           '否则删/改名后同名重建书会读到跨书陈旧数据',
       )
     }
-    expect(missing, '存在未登记的书键缓存 forget* 导出:\n' + missing.join('\n')).toEqual([])
+    expect(missing, '存在未登记的书键缓存失效族导出:\n' + missing.join('\n')).toEqual([])
   })
 
   it('反向：登记表每项都来自真实源码导出（防登记死项 / 重名）', () => {
@@ -398,7 +502,7 @@ describe('书键缓存登记制对账（机器门）', () => {
 
   it('豁免清单无僵尸：每条豁免都对应一个真实扫描项（防白名单漂移）', () => {
     const scannedKeys = new Set(scanned.map((s) => `${s.rel}::${s.fn}`))
-    const stale = EXEMPT_FORGET_EXPORTS.filter((e) => !scannedKeys.has(e.key)).map((e) => e.key)
+    const stale = EXEMPT_CACHE_INVALIDATORS.filter((e) => !scannedKeys.has(e.key)).map((e) => e.key)
     expect(stale, '豁免条目已无对应源码导出（已治理/被改名），请从清单移除:\n' + stale.join('\n')).toEqual([])
   })
 })
