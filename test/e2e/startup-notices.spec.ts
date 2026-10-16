@@ -40,9 +40,14 @@ test.beforeAll(async () => {
     // R51-J-6：EADDRINUSE 人话提示（usage-card R64-40 口径同款）
     server.once('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
+        // 排查提示按平台分支：win 上只给 lsof 是死指引
+        const probe =
+          process.platform === 'win32'
+            ? `netstat -ano | findstr :${PORT} 查占用 PID 后 taskkill /PID <pid> /F`
+            : `lsof -i :${PORT} 查占用进程并 kill`
         console.error(
           `[e2e startup-notices] 端口 ${PORT} 已被占用——通常是上一次 e2e 未退干净或本地 dev 服务抢占。\n` +
-            `排查：lsof -i :${PORT} 查占用进程并 kill 后重跑。`,
+            `排查：${probe} 后重跑。`,
         )
       }
       // R9-P2-4：listen 失败不留残——先清本次自建目录再上抛

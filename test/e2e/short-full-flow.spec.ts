@@ -44,9 +44,14 @@ test.beforeAll(async () => {
     // 环境争用时裸 EADDRINUSE 栈难排查）
     server.once('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
+        // 排查提示按平台分支：win 上只给 lsof 是死指引
+        const probe =
+          process.platform === 'win32'
+            ? `netstat -ano | findstr :${PORT} 查占用 PID 后 taskkill /PID <pid> /F`
+            : `lsof -i :${PORT} 查占用进程并 kill`
         console.error(
           `[e2e short-full-flow] 端口 ${PORT} 已被占用——通常是上一次 e2e 未退干净或本地 dev 服务抢占。\n` +
-            `排查：lsof -i :${PORT} 查占用进程并 kill 后重跑。`,
+            `排查：${probe} 后重跑。`,
         )
       }
       reject(err)
