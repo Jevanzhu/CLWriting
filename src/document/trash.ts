@@ -16,6 +16,7 @@
 import { existsSync, readFileSync, mkdirSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { atomicWriteFile, linkOrRenameExclusive, renameWithRetry, rmWithRetry } from '../fs/atomic.js'
+import { isCoarseMtimeNs } from '../fs/mtime-precision.js'
 import { resolveWithinRoot, safeDocId } from '../fs/safe-path.js'
 import {
   manifestPathOf,
@@ -115,7 +116,7 @@ export function readTrashManifest(bookRoot: string): TrashEntry[] {
 // 高频触发）。同 document/manifest.ts manifestCache 先例：trash 清单全库单文件，
 // 单槽 stat 指纹缓存即够——命中零 IO 零解析。指纹 = size:mtimeNs（bigint stat，
 // manifest.ts 同款：mtimeMs 毫秒粒度在 FAT/exFAT + 同尺寸他进程写下指纹
-// 不变会假命中，ns 粒度消同尺寸窗口）——他进程改写必变 mtime/size → 失效重读，
+// 不变会假命中，ns 粒度消同尺寸窗口，低精度卷降级不缓存）——他进程改写必变 mtime/size → 失效重读，
 // executeSave 锁内复核（service.ts 双调用点）依赖读到最新数据的语义保真。
 // 写侧 writeTrashManifest 主动清槽双保险（原子写自身必 bump mtime，防指纹巧合）。
 // 只缓存解析成功的结果：stat 非确定性失败（sig=null）与读失败路径绕过缓存走原
@@ -127,10 +128,13 @@ let trashCacheSig = ''
 let trashCacheEntries: TrashEntry[] = []
 
 /** stat 签名：ENOENT → 'absent'（合法空态可缓存）；其他 stat 失败 → null（绕过缓存，
- *  交原路径判读——读失败面与 stat 失败面同族）。 */
+ *  交原路径判读——读失败面与 stat 失败面同族）；低精度 mtime 卷（整毫秒对齐，
+ *  isCoarseMtimeNs 单源）→ 同走 null——粗粒度窗口内同尺寸写的陈旧窗仍在，指纹
+ *  判据不可信（manifest.ts manifestStatSig 同款）。 */
 function trashManifestStatSig(bookRoot: string): string | null {
   try {
     const st = statSync(trashManifestPath(bookRoot), { bigint: true })
+    if (isCoarseMtimeNs(st.mtimeNs)) return null
     return `${st.size}:${st.mtimeNs}`
   } catch (e) {
     return (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'absent' : null

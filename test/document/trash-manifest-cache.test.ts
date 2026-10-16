@@ -6,10 +6,11 @@
  * - 写侧（appendTrashEntryAsync）后缓存失效重读；
  * - 他进程绕开写侧直接改写文件（mtime/size 变化）→ 失效重读，executeSave 锁内
  *   复核依赖「读到最新数据」的语义保真（service.ts 双调用点）；
- * - 缓存主本不外借：调用方 mutate 返回数组不污染缓存。
+ * - 缓存主本不外借：调用方 mutate 返回数组不污染缓存；
+ * - 低精度 mtime 卷（整毫秒对齐）降级不缓存：同尺寸 + 同 mtime 外部改写立即可见。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -98,5 +99,24 @@ describe('R0912-E-P3-1: trash 清单单槽指纹缓存', () => {
     const after = readTrashManifestStrict(root)
     expect(after).toHaveLength(1)
     expect(after[0]!.id).toBe('doc_external')
+  })
+
+  // 低精度 mtime 卷（FAT 2s / exFAT 10ms / 部分 SMB）的 mtime 对齐整毫秒——粗粒度窗口内
+  // 同尺寸他进程写（外部编辑器改清单）指纹不变，ns 粒度的 size:mtimeNs 判据随之失效。
+  // mtime 钉回同一时刻模拟该形态：低精度命中降级不缓存（isCoarseMtimeNs 单源）。
+  it('低精度 mtime（整毫秒对齐）→ 降级不缓存：同尺寸 + 同 mtime 外部改写立即可见', () => {
+    const pinned = new Date(1_700_000_000_000)
+    writeFileSync(manifestPath, JSON.stringify(entryOf('doc_a')) + '\n', 'utf-8')
+    utimesSync(manifestPath, pinned, pinned)
+    expect(readTrashManifestStrict(root)[0]!.id).toBe('doc_a')
+    const before = manifestReadCalls()
+    // 降级语义 = 绕缓存（get 侧）：指纹可信度不足，重复读也重读盘
+    expect(readTrashManifestStrict(root)[0]!.id).toBe('doc_a')
+    expect(manifestReadCalls()).toBeGreaterThan(before)
+    // 外部同字节长度改写（doc_a → doc_b，两 id 等长）并把 mtime 钉回同一时刻：
+    // 指纹 size:mtimeNs 两读全同——修复前陈旧命中返回 doc_a
+    writeFileSync(manifestPath, JSON.stringify(entryOf('doc_b')) + '\n', 'utf-8')
+    utimesSync(manifestPath, pinned, pinned)
+    expect(readTrashManifestStrict(root)[0]!.id).toBe('doc_b')
   })
 })
