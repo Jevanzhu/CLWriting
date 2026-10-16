@@ -455,7 +455,14 @@ export function useChapterTreeActions(deps: { bookName: () => string; openError:
     // 补零宽度走 chapterFilePrefix 单源（与服务端草稿新建/改名同口径）；
     // 宽度按本书口径推断（原硬编码 'chapter'——短篇书副本也 4 位）
     const no = chapterFilePrefix(nextChapterNo(), bodyPadKind(node))
-    const relPath = `写作/正文/${no}${title} 副本.md`
+    // 落点 = 源文件同目录（勿再钉「写作/正文」根）：TreeNode.path 是完整相对路径，
+    // 目录段即 path 的 dirname——与 AI 侧 copyChapter 的 dirname(relPath) 派生同口径，
+    // 沿用 shared/chapter-tree 的目录段派生惯用法（不查树：节点不在树中/树态陈旧
+    // 都不影响落点）。源在正文根（写作/正文/）时目录段恰为该目录 → 落点与钉死版逐位
+    // 相同；无目录段（源在书根）→ 副本落书根（同 dirname('.') 口径）。
+    const slash = node.path.lastIndexOf('/')
+    const dir = slash === -1 ? '' : node.path.slice(0, slash)
+    const relPath = dir === '' ? `${no}${title} 副本.md` : `${dir}/${no}${title} 副本.md`
     // L-：同 onCreateCommit——await 前捕获书名 + 守卫
     const book = deps.bookName()
     await mutateAndReload(book, () => copyDoc(book, docId, relPath), {

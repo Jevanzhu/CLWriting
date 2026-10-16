@@ -7,6 +7,9 @@
  * R34D-26（三十四轮）回归：正文文件名补零三口径统一到 chapterFilePrefix 单源
  * （M-4 权威口径：长篇 4 位 / 短篇 3 位）——doCopy 按被复制文件宽度推 kind（原硬编码
  * 'chapter'，短篇书副本也 4 位）、新建种子与卷内首章补零（原完全不补零）。
+ *
+ * 批 F 第 5 项回归：副本落点从「写作/正文」硬编码改为源文件同目录派生
+ * （对齐 AI 侧 copyChapter 的 dirname(relPath) 口径）——卷内章的副本不再落正文根。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
@@ -234,5 +237,26 @@ describe('R34D-26: 补零口径统一 chapterFilePrefix 单源（长篇 4 位 / 
     const actions = useChapterTreeActions({ bookName: () => currentBook, openError })
     await actions.doCopy(src)
     expect(copyMock).toHaveBeenCalledWith('书A', 'd_12-手建章.md', '写作/正文/0013-手建章 副本.md')
+  })
+})
+
+describe('副本落点：源文件同目录（与 AI 侧 copyChapter 的目录派生口径统一）', () => {
+  it('卷内章建副本 → 落点与源同目录（修复前钉死在「写作/正文」根）', async () => {
+    const src = bodyFile('写作/正文/第一卷/0002-雪.md')
+    treeMock.grouped = [src]
+    copyMock.mockResolvedValue({ ok: true, path: '写作/正文/第一卷/0003-雪 副本.md' })
+    const actions = useChapterTreeActions({ bookName: () => currentBook, openError })
+    await actions.doCopy(src)
+    // 修复点：目录段取源文件所在卷（修复前 写作/正文/0003-雪 副本.md）
+    expect(copyMock).toHaveBeenCalledWith('书A', 'd_0002-雪.md', '写作/正文/第一卷/0003-雪 副本.md')
+  })
+
+  it('正文根章建副本 → 落点同改前（「写作/正文」，回退不变的那部分）', async () => {
+    const src = bodyFile('写作/正文/0001-雪.md')
+    treeMock.grouped = [src]
+    copyMock.mockResolvedValue({ ok: true, path: '写作/正文/0002-雪 副本.md' })
+    const actions = useChapterTreeActions({ bookName: () => currentBook, openError })
+    await actions.doCopy(src)
+    expect(copyMock).toHaveBeenCalledWith('书A', 'd_0001-雪.md', '写作/正文/0002-雪 副本.md')
   })
 })
