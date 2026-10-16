@@ -28,7 +28,7 @@ const { state, render, ops } = useRelationGraph(props.bookName)
           <h2 class="rel-title">关系网络 <BetaBadge /></h2>
           <span class="rel-count">
             <span class="kc">{{ state.visibleNodes.length }}</span
-            ><template v-if="state.hiddenCount > 0">/{{ render.nodeCount }}</template> 角色
+            ><template v-if="state.hiddenCount > 0 || state.capHidden > 0">/{{ render.nodeCount }}</template> 角色
             <span class="sep">·</span>
             <span class="kc">{{ render.edgeCount }}</span> 关系
             <template v-if="render.debtCount"
@@ -37,6 +37,10 @@ const { state, render, ops } = useRelationGraph(props.bookName)
             <button v-if="state.hiddenCount > 0" class="show-all-btn" @click="state.showOrphans = !state.showOrphans">
               {{ state.showOrphans ? '收起' : `+${state.hiddenCount}无关系` }}
             </button>
+            <!-- RENDER_CAP 截断口径：帽值单源 shared/render-cap，取义与出路见 useRelationGraph.cappedNodes -->
+            <span v-if="state.capHidden > 0" class="cap-hint">
+              画面已省略 {{ state.capHidden }} 个节点（按关系数保留，可搜索定位）
+            </span>
           </span>
         </div>
         <div class="rel-bar-right">
@@ -104,6 +108,14 @@ const { state, render, ops } = useRelationGraph(props.bookName)
 .rel-count .sep {
   margin: 0 4px;
   color: var(--text-faint);
+}
+/* 渲染上限省略提示（纯展示不可点；弱化色与 TrashPanel/ForeshadowPanel cap-hint 同式） */
+.cap-hint {
+  margin-left: var(--size-4-2);
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
+  font-style: italic;
+  cursor: default;
 }
 .show-all-btn {
   margin-left: var(--size-4-2);

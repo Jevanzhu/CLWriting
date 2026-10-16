@@ -7,6 +7,7 @@ import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { listSnapshots, restoreSnapshot, type SnapshotEntry } from '../../api/snapshots'
+import { capView, RENDER_CAP } from '../../shared/render-cap'
 import { flushBodyWriteback } from '../../shared/body-writeback'
 import { useDebouncedWordCount } from '../../composables/useDebouncedWordCount'
 import { useStaleGuard } from '../../composables/useStaleGuard'
@@ -21,6 +22,11 @@ const entries = ref<SnapshotEntry[]>([])
 const loading = ref(false)
 const err = ref<string | null>(null)
 const restoring = ref<string | null>(null)
+
+// 帽值与切片/计数样板取自 shared/render-cap 单源：列表新在前，只裁渲染面前 RENDER_CAP
+// 条（= 最近 N 个版本）+ 尾部省略计数；数据面不动（更早版本仍在 .版本 目录与快照接口里，
+// 需要旧版时经审计视图/外源工具取）。
+const entriesCap = computed(() => capView(entries.value, RENDER_CAP))
 
 const current = computed(() => (ws.activeDocId ? doc.get(ws.activeDocId) : undefined))
 // 当前字数 150ms 防抖（EditorView 同款；此前每击键全文
@@ -177,7 +183,7 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
         <span class="time">当前</span>
         <span class="words">{{ currentWords.toLocaleString() }} 字</span>
       </div>
-      <div v-for="e in entries" :key="e.id" class="row">
+      <div v-for="e in entriesCap.view" :key="e.id" class="row">
         <div class="meta">
           <span class="time">{{ fmtTime(e.time) }}</span>
           <span class="origin">{{ ORIGIN_LABEL[e.origin] ?? e.origin }}</span>
@@ -198,6 +204,8 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
           </button>
         </div>
       </div>
+      <!-- RENDER_CAP 截断省略提示行（与 TrashPanel/ChapterTree 尾部提示行同语义） -->
+      <div v-if="entriesCap.omitted > 0" class="cap-hint">已省略 {{ entriesCap.omitted }} 条更早版本</div>
     </template>
   </div>
 </template>
@@ -240,6 +248,14 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
 }
 .row:hover {
   background: var(--background-modifier-hover);
+}
+/* 渲染上限省略提示行——纯展示不可点（弱化色，TrashPanel cap-hint 同式） */
+.cap-hint {
+  padding-left: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+  font-style: italic;
+  cursor: default;
 }
 .row.current {
   color: var(--text-normal);

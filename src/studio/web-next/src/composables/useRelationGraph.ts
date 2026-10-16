@@ -37,6 +37,7 @@ import { useUiStore } from '../stores/ui'
 import { usePrefsStore } from '../stores/prefs'
 import { friendlyError } from '../shared/error'
 import { CX, CY, W, H, computeRadialLayout } from '../shared/relation-layout'
+import { capView, RENDER_CAP } from '../shared/render-cap'
 import { useRelationInteraction } from './useRelationInteraction'
 
 export interface SimNode {
@@ -106,6 +107,9 @@ export interface RelationState {
   hiddenColors: Set<string>
   visibleNodes: SimNode[]
   hiddenCount: number
+  /** 超渲染帽被省略的节点数（仅渲染面口径，不计入 hiddenCount——那是过滤面口径，
+   *  驱动「+N无关系」按钮的展开语义；两者混一会让按钮文案与实际集合不符） */
+  capHidden: number
   hoverId: string | null
   selectedId: string | null
   dragId: string | null
@@ -499,8 +503,8 @@ export function useRelationGraph(bookName: string): RelationGraphHandle {
   })
   /** 图例过滤后仍可见的边（用于计算有效 degree / 孤立判定） */
   const effectiveEdges = computed(() => edges.value.filter((e) => !hiddenColors.value.has(edgeColor(e))))
-  /** 可见节点：默认隐藏孤立（含因图例过滤变孤立的），搜索时只留匹配+邻居 */
-  const visibleNodes = computed(() => {
+  /** 过滤面：默认隐藏孤立（含因图例过滤变孤立的），搜索时只留匹配+邻居 */
+  const filteredNodes = computed(() => {
     const visEdgeIds = new Set(effectiveEdges.value.flatMap((e) => [e.from, e.to]))
     let ns = nodes.value
     if (!showOrphans.value) {
@@ -511,7 +515,23 @@ export function useRelationGraph(bookName: string): RelationGraphHandle {
     }
     return ns
   })
-  const hiddenCount = computed(() => nodes.value.length - visibleNodes.value.length)
+  /** 渲染面：过滤面超帽时按「中心角色钉首位 + 度数降序」取前 RENDER_CAP。
+   *  只裁渲染面（画布节点与随端点的边），数据面不动。度数降序的取义：这是关系图，
+   *  关系越多的角色越该留在画面上——按建图序直接切尾巴会先把「仅被提及」的外围节点
+   *  留下、把有卡的边缘角色切掉，取义反了。裁掉的节点仍可经搜索定位（搜索把集合收窄到
+   *  匹配+一阶邻居，必落在帽内），此为超帽时的作者出路。未超帽直通原数组（不动序）。 */
+  const cappedNodes = computed(() => {
+    const ns = filteredNodes.value
+    if (ns.length <= RENDER_CAP) return { view: ns, omitted: 0 }
+    const ranked = [...ns].sort((a, b) => Number(b.isCenter) - Number(a.isCenter) || b.degree - a.degree)
+    return capView(ranked, RENDER_CAP)
+  })
+  /** 可见节点（渲染面：画布 v-for、边集合、键盘停靠与方向键跳转同一源） */
+  const visibleNodes = computed(() => cappedNodes.value.view)
+  /** 过滤面被隐藏数（孤立折叠/搜索/图例过滤——非渲染帽口径） */
+  const hiddenCount = computed(() => nodes.value.length - filteredNodes.value.length)
+  /** 渲染帽省略数（提示行口径） */
+  const capHidden = computed(() => cappedNodes.value.omitted)
 
   function isDim(id: string): boolean {
     // 只有主动 hover 才压暗他人。选中态不压暗——否则一进来默认选中主角，
@@ -620,6 +640,7 @@ export function useRelationGraph(bookName: string): RelationGraphHandle {
     hiddenColors,
     visibleNodes,
     hiddenCount,
+    capHidden,
     hoverId,
     selectedId,
     dragId,

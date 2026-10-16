@@ -7,7 +7,8 @@
  * 共享面按职能分组提供（provide/inject），组内字段更名不该让行为测试变红。
  *
  * 覆盖：建图契约（互记去重/债务边/主角居中默认选中）、载入失败与重试、
- * 三层筛选（孤立默认隐藏/搜索聚焦子图/图例语义色过滤）、点选 → 焦点与图渲染同步、
+ * 三层筛选（孤立默认隐藏/搜索聚焦子图/图例语义色过滤）、渲染帽（超帽集有界：
+ * 中心钉首位 + 度数降序 + 边随之收窄 + 提示行与搜索出路）、点选 → 焦点与图渲染同步、
  * AI 梳理（成功重载/空产不重载/失败不覆盖图错误态/在途切书静默/防重入）、
  * 自动梳理门（探测中与不可达不放行）、画布左键平移守卫、节点视觉三级编码、
  * provide/inject 契约（作用域外即抛）、键盘可达（roving/方向键/Enter/详情项/图例 chip）、
@@ -123,6 +124,35 @@ function extendedFixture(): SettingsResult {
 /** 自动梳理全条件满足的载荷（章节增量 5 ≥ 阈值 1；开关在用例里开） */
 function autoFixture(): SettingsResult {
   return { ...fixture(), relationCache: { chapterCount: 0, currentChapters: 5 } }
+}
+
+/** 超帽人海：林远（主角/中心）+ 路人1..130 各与林远一条同门边 + 李四。
+ *  李四建图序末位而度数 2（连林远与路人2）——「度数降序」与「按序切尾」两种取法的
+ *  可观察分野：前者入选，后者必落选。132 节点全部有边，默认视图即超 RENDER_CAP。 */
+function crowdFixture(): SettingsResult {
+  const crowd = Array.from({ length: 130 }, (_, i) => `路人${i + 1}`)
+  return {
+    kind: 'long',
+    characters: [
+      { file: 'a.md', 姓名: '林远', 身份: '主角', 目标: '', 境界: '', 关系: '', 正文: '' },
+      ...crowd.map((name) => ({
+        file: `${name}.md`,
+        姓名: name,
+        身份: '路人',
+        目标: '',
+        境界: '',
+        关系: '',
+        正文: '',
+      })),
+      { file: 'z.md', 姓名: '李四', 身份: '反派', 目标: '', 境界: '', 关系: '', 正文: '' },
+    ],
+    characterRelations: [
+      ...crowd.map((name) => ({ from: name, to: '林远', type: '同门' })),
+      { from: '李四', to: '林远', type: '同门' },
+      { from: '李四', to: '路人2', type: '宿敌' },
+    ],
+    debtGraph: [],
+  }
 }
 
 beforeEach(() => {
@@ -271,6 +301,43 @@ describe('关系图三层筛选（顶栏 + 图例交互）', () => {
       expect(v.findAll('.legend .lg.clickable')[0]!.attributes('aria-pressed')).toBe('false')
       await v.findAll('.legend .lg.clickable')[0]!.trigger('click')
       expect(v.findAll('.edge')).toHaveLength(2)
+    } finally {
+      v.unmount()
+    }
+  })
+})
+
+describe('关系图渲染帽（超帽节点集有界 + 截断口径）', () => {
+  it('132 节点 → 只渲染 100 个（中心钉首位 + 度数降序），边随渲染面收窄，计数给全量', async () => {
+    mocks.getSettings.mockResolvedValue(crowdFixture())
+    const v = await mountView()
+    try {
+      // 帽值 = shared/render-cap RENDER_CAP(100)；132 全部有边（默认不隐孤立）→ 省略 32
+      expect(v.findAll('.node-g')).toHaveLength(100)
+      // 排序可观察面①：径向图的圆心钉在首位
+      expect(nodeLabels(v)[0]).toBe('林远')
+      // 排序可观察面②：李四建图序末位但度数 2（连林远 + 路人2）→ 度数降序入选；
+      // 按建图序直接切尾巴则必落选
+      expect(nodeLabels(v)).toContain('李四')
+      // 被裁的是度数最低的建图序尾段
+      expect(nodeLabels(v)).not.toContain('路人130')
+      // 边集随渲染面收窄：渲染中除林远外的 99 个节点各连林远一条（99 条）+ 李四—路人2 的 1 条
+      expect(v.findAll('.edge')).toHaveLength(100)
+      // 计数行给「渲染数/全量」——帽生效与孤儿过滤是两条口径，各自在册
+      expect(v.find('.rel-count').text()).toContain('100/132')
+    } finally {
+      v.unmount()
+    }
+  })
+
+  it('截断提示行 + 搜索出路：被裁节点可搜到（集合收窄回帽内，提示随之收起）', async () => {
+    mocks.getSettings.mockResolvedValue(crowdFixture())
+    const v = await mountView()
+    try {
+      expect(v.find('.cap-hint').text()).toContain('已省略 32 个节点')
+      await v.find('.search-box input').setValue('路人130')
+      expect(nodeLabels(v)).toEqual(expect.arrayContaining(['路人130', '林远']))
+      expect(v.find('.cap-hint').exists()).toBe(false) // 过滤面 2 条 ≤ 帽 → 无截断
     } finally {
       v.unmount()
     }

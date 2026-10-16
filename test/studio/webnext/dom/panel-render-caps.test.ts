@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   listTrash: vi.fn(),
   restoreTrash: vi.fn(),
   purgeTrash: vi.fn(),
+  listSnapshots: vi.fn(),
 }))
 
 vi.mock('../../../../src/studio/web-next/src/api/check', () => ({
@@ -51,6 +52,10 @@ vi.mock('../../../../src/studio/web-next/src/api/documents', () => ({
   restoreTrash: mocks.restoreTrash,
   purgeTrash: mocks.purgeTrash,
 }))
+vi.mock('../../../../src/studio/web-next/src/api/snapshots', () => ({
+  listSnapshots: mocks.listSnapshots,
+  restoreSnapshot: vi.fn(async () => undefined),
+}))
 vi.mock('../../../../src/studio/web-next/src/api/client', () => {
   class ApiError extends Error {
     status: number
@@ -69,6 +74,7 @@ import CheckPanel from '../../../../src/studio/web-next/src/components/panels/Ch
 import ReviewPanel from '../../../../src/studio/web-next/src/components/panels/ReviewPanel.vue'
 import ForeshadowPanel from '../../../../src/studio/web-next/src/components/panels/ForeshadowPanel.vue'
 import TrashPanel from '../../../../src/studio/web-next/src/components/panels/TrashPanel.vue'
+import HistoryPanel from '../../../../src/studio/web-next/src/components/panels/HistoryPanel.vue'
 import { useCheckStore } from '../../../../src/studio/web-next/src/stores/check'
 import { useReviewStore } from '../../../../src/studio/web-next/src/stores/review'
 import { useWorkspaceStore } from '../../../../src/studio/web-next/src/stores/workspace'
@@ -311,6 +317,43 @@ describe('R1010c-FE1-P3-1: TrashPanel 操作钮键盘焦点显形（源码锚定
     for (const btn of w.findAll('.action-btn')) {
       expect(btn.element.tagName).toBe('BUTTON')
     }
+    w.unmount()
+  })
+})
+
+// ── 评审余面批 E5：HistoryPanel 快照列表补帽（新在前列表，尾窗 = 最近 N 个版本） ──
+describe('评审余面批 E5: HistoryPanel 快照列表渲染上限', () => {
+  const snap = (i: number) => ({
+    id: `s${i}`,
+    time: 1_700_000_000_000 + i * 1000,
+    origin: 'autosave',
+    reason: '',
+    words: 1000 + i,
+    pinned: false,
+  })
+  function mountPanel(n: number) {
+    mocks.listSnapshots.mockResolvedValue(Array.from({ length: n }, (_, i) => snap(i + 1)))
+    useWorkspaceStore().activeDocId = 'doc_ch1'
+    return mount(HistoryPanel, { props: { bookName: '书A' } })
+  }
+
+  it('130 个版本 → 只渲染前 100 行（最近 100 个）+ 「已省略 30 条更早版本」', async () => {
+    const w = mountPanel(130)
+    await flushPromises()
+    expect(w.findAll('.row:not(.current)')).toHaveLength(100)
+    const hint = w.find('.cap-hint')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('已省略 30 条更早版本')
+    // 「当前」行不受渲染裁剪影响（它不入 entries 面）
+    expect(w.find('.row.current').exists()).toBe(true)
+    w.unmount()
+  })
+
+  it('不超上限（5 个版本）→ 全量渲染零提示', async () => {
+    const w = mountPanel(5)
+    await flushPromises()
+    expect(w.findAll('.row:not(.current)')).toHaveLength(5)
+    expect(w.find('.cap-hint').exists()).toBe(false)
     w.unmount()
   })
 })
