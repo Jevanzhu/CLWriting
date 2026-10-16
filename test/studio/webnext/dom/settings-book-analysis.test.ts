@@ -1017,6 +1017,7 @@ describe('R0911b-P2①：失配态「重建索引」入口', () => {
         ok: false,
         chunkCount: 0,
         chapterCount: 0,
+        code: 'NEEDS_REBUILD',
         error: 'embedding 维度与现有索引不一致（现有：1024，当前：1536），请重建索引（POST /rag/rebuild）后重试。',
       },
     })
@@ -1024,6 +1025,32 @@ describe('R0911b-P2①：失配态「重建索引」入口', () => {
     const rebuildBtn = wrapper.find('button[aria-label="重建索引"]')
     expect(rebuildBtn.exists()).toBe(true) // 修复前：只有错误文案、无操作入口
     expect(rebuildBtn.attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('失败结果带 code=NEEDS_REBUILD（error 文案不含「重建索引」）→ 重建按钮仍出现（判据锚结构化码）', async () => {
+    usePrefsStore().set('ragEnabled', true)
+    mocks.getRagStatus.mockResolvedValue({
+      running: false,
+      indexedChapters: 3,
+      chunkCount: 12,
+      model: 'embed-old',
+      indexState: 'built',
+      indexModelMismatch: false, // 维度失配：模型同名，标记不亮
+      ragConfig: {},
+      providerName: null,
+      legacy: false,
+      lastResult: {
+        ok: false,
+        chunkCount: 0,
+        chapterCount: 0,
+        code: 'NEEDS_REBUILD',
+        // 文案故意不含「重建索引」字样——判据不得依赖服务端文案子串
+        error: '嵌入服务返回异常，当前索引无法继续使用。',
+      },
+    })
+    const wrapper = await mountOpen()
+    expect(wrapper.find('button[aria-label="重建索引"]').exists()).toBe(true)
     wrapper.unmount()
   })
 })

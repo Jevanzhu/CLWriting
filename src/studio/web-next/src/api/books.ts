@@ -156,7 +156,17 @@ export interface RagStatus {
    * rebuild 端点而 GUI 不可达」的断头）。
    */
   indexModelMismatch: boolean
-  lastResult: { ok: boolean; chunkCount: number; chapterCount: number; error?: string } | null
+  lastResult: {
+    ok: boolean
+    chunkCount: number
+    chapterCount: number
+    error?: string
+    /**
+     * 结构化失败码（服务端 BuildIndexResult.code）——「需清库重建」语义。
+     * 「重建索引」按钮显隐据此判定，不依赖 error 文案子串（服务端改文案不静默失配）。
+     */
+    code?: 'NEEDS_REBUILD'
+  } | null
 }
 
 export async function getRagStatus(name: string): Promise<RagStatus> {

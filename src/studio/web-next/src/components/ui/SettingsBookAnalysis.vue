@@ -86,14 +86,15 @@ const ragRebuildFailedHint = computed(
 )
 // ①：需要重建索引的判定（「重建索引」按钮的显隐）——三种形态任一即出：
 // ① 服务端失配标记（已建索引模型 ≠ 当前生效模型，status 实测字段 indexModelMismatch）；
-// ② 最近一次建索引失败且错误指向重建（维度失配等文案含「重建索引」——维度失配
-//    配置侧无从比对，只经 buildIndex 错误信封透出）；
+// ② 最近一次建索引失败带「需重建」结构化码（服务端模型/维度失配结果的
+//    code === 'NEEDS_REBUILD'；维度失配配置侧无从比对，只经 buildIndex 结果透出）——
+//    判码不判文案，服务端改文案不致按钮静默失配；
 // ③ 本组件触发过重建且已失败（ragRebuildFailedHint）——出路提示指向的重试按钮须在场。
 const ragNeedsRebuild = computed(() => {
   const s = ragStatus.value
   if (!s) return false
   if (s.indexModelMismatch) return true
-  if (s.lastResult?.ok === false && (s.lastResult.error ?? '').includes('重建索引')) return true
+  if (s.lastResult?.ok === false && s.lastResult.code === 'NEEDS_REBUILD') return true
   return ragRebuildFailedHint.value
 })
 

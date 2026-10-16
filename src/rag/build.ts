@@ -135,6 +135,10 @@ export interface BuildIndexResult {
   /** 覆盖的章数（同上口径：本轮实际提交指纹的章数，跳过章不计；零块章计章不计块） */
   chapterCount: number
   error?: string
+  /** 结构化失败码——消费方（「重建索引」按钮显隐）据码判定，不依赖 error 文案子串。
+   *  仅 embedding 模型/维度失配（须清库走 rag/rebuild 才能继续）置此码；
+   *  取消、嵌入端点失败、超时等其余失败出口不带码（避免误亮重建入口）。 */
+  code?: 'NEEDS_REBUILD'
 }
 
 /** 取消出口（signal.aborted）的结果单源：计数归零——本轮零写入，没有可对外声明的
@@ -365,6 +369,7 @@ export async function buildIndex(
         ok: false,
         chunkCount: 0,
         chapterCount: 0,
+        code: 'NEEDS_REBUILD',
         // 文案指向 rag/rebuild 重建端点——「请重建索引」无程序化出路
         //（前端按钮未加，不虚构入口，写真实接口）
         error: `embedding 模型与现有索引不一致（现有：${indexedModel}，当前：${config.model}），请重建索引（POST /rag/rebuild）后重试。`,
@@ -615,6 +620,7 @@ async function commitIndexBatch(
         ok: false,
         chunkCount: 0,
         chapterCount: 0,
+        code: 'NEEDS_REBUILD',
         error: `embedding 维度与现有索引不一致（现有：${existingIndexedDim}，当前：${refDim}），请重建索引（POST /rag/rebuild）后重试。`,
       }
     }
@@ -745,6 +751,7 @@ async function commitIndexBatch(
         chunkCount: 0,
         chapterCount: 0,
         // 同模型失配文案——指向 rag/rebuild 重建端点
+        code: 'NEEDS_REBUILD',
         error: `embedding 维度与现有索引不一致（现有：${indexedDim}，当前：${vectorDim}），请重建索引（POST /rag/rebuild）后重试。`,
       }
     }
