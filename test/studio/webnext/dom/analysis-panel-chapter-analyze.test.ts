@@ -171,4 +171,45 @@ describe('AnalysisPanel: 单章分析触发行', () => {
     expect(btn.attributes('data-tip')).toContain('未配置 AI 服务供应商（请在设置页添加）')
     w.unmount()
   })
+
+  it('AI 不可达 → 面板内另两处 AI 动作（分析标签 / AI 推断）同款置灰并带原因', async () => {
+    mocks.uiState.aiAvailable = false
+    mocks.uiState.aiReasonText = '未配置 AI 服务供应商（请在设置页添加）'
+    const w = mountPanel()
+    await flushPromises()
+    for (const label of ['分析标签', 'AI 推断']) {
+      const btn = findBtn(w, label)!
+      expect(btn.attributes('disabled')).toBeDefined()
+      expect(btn.attributes('data-tip')).toContain('未配置 AI 服务供应商（请在设置页添加）')
+    }
+    w.unmount()
+  })
+
+  it('分析标签在途 → 该按钮置灰，AI 推断按钮不受牵连', async () => {
+    let resolveTag!: (v: unknown) => void
+    mocks.autotag.mockImplementationOnce(() => new Promise((res) => (resolveTag = res)))
+    const w = mountPanel()
+    await flushPromises()
+    await findBtn(w, '分析标签')!.trigger('click')
+    expect(findBtn(w, '分析中')!.attributes('disabled')).toBeDefined()
+    expect(findBtn(w, 'AI 推断')!.attributes('disabled')).toBeUndefined()
+    resolveTag({})
+    await flushPromises()
+    expect(findBtn(w, '分析标签')!.attributes('disabled')).toBeUndefined()
+    w.unmount()
+  })
+
+  it('AI 推断在途 → 该按钮置灰，分析标签按钮不受牵连', async () => {
+    let resolveInfer!: (v: unknown) => void
+    mocks.inferMeta.mockImplementationOnce(() => new Promise((res) => (resolveInfer = res)))
+    const w = mountPanel()
+    await flushPromises()
+    await findBtn(w, 'AI 推断')!.trigger('click')
+    expect(findBtn(w, '推断中')!.attributes('disabled')).toBeDefined()
+    expect(findBtn(w, '分析标签')!.attributes('disabled')).toBeUndefined()
+    resolveInfer({})
+    await flushPromises()
+    expect(findBtn(w, 'AI 推断')!.attributes('disabled')).toBeUndefined()
+    w.unmount()
+  })
 })

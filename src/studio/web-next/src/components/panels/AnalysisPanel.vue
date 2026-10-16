@@ -132,8 +132,8 @@ const ANALYZE_KIND_OPTIONS: ReadonlyArray<{ value: AnalyzeKind; label: string }>
 ]
 const analyzeKind = ref<AnalyzeKind>('score')
 const analyzing = ref(false)
-// AI 不可达置灰（同面板其它 AI 动作口径）——本面板两处旧 AI 动作未接此闸，
-// 新增动作按库内统一口径（RewritePanel/ReviewPanel/StyleAcceptancePanel）接上
+// AI 不可达置灰（库内统一口径，同 RewritePanel/ReviewPanel/StyleAcceptancePanel）：面板内
+// 三个 AI 动作（分析标签 / AI 推断 / 分析本章）同走此闸；探测中（aiAvailable === null）不算不可达
 const aiOff = computed(() => ui.aiAvailable === false)
 async function runAnalyze(): Promise<void> {
   if (!docId.value || analyzing.value) return
@@ -213,7 +213,12 @@ function gotoOverview(): void {
     <div class="ap-card">
       <div class="ap-card-head">
         <div class="ap-card-title"><Tag :size="14" /><span>章节标签</span></div>
-        <button class="ap-run" :disabled="tagging" @click="analyzeTags">
+        <button
+          class="ap-run"
+          :disabled="tagging || aiOff"
+          :data-tip="aiOff ? `AI 暂不可用（${ui.aiReasonText}）` : ''"
+          @click="analyzeTags"
+        >
           <RefreshCw :size="12" :class="{ spin: tagging }" />
           <span>{{ tagging ? '分析中…' : '分析标签' }}</span>
         </button>
@@ -231,7 +236,12 @@ function gotoOverview(): void {
     <div class="ap-card">
       <div class="ap-card-head">
         <div class="ap-card-title"><Sparkles :size="14" /><span>情绪/反转</span></div>
-        <button class="ap-run" :disabled="inferring" @click="inferChapterMeta">
+        <button
+          class="ap-run"
+          :disabled="inferring || aiOff"
+          :data-tip="aiOff ? `AI 暂不可用（${ui.aiReasonText}）` : ''"
+          @click="inferChapterMeta"
+        >
           <RefreshCw :size="12" :class="{ spin: inferring }" />
           <span>{{ inferring ? '推断中…' : 'AI 推断' }}</span>
         </button>
