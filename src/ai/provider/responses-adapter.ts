@@ -30,6 +30,7 @@ import type {
 import type { ProviderStore } from './store.js'
 import { modelConfOf } from './store.js'
 import { responsesQuirksFor } from './model-quirks.js'
+import { normalizeBaseUrl } from './models.js' // baseUrl 归单单源——本线传 'openai-responses'（只去尾斜杠，不剥 /v1）
 import { resolveToolChoiceIntent } from './tool-choice.js' // tool_choice 分档决策单源
 import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
 import { createStreamFinalizer } from './stream-finalize.js'
@@ -245,7 +246,9 @@ export function createOpenAIResponsesProvider(
   userDataPath?: string,
 ): ModelProvider {
   // SDK 内建重试关闭（runner 重试层是唯一重试决策方，见 openai-adapter 同注）
-  const c = client ?? new OpenAI({ apiKey: conf.apiKey, baseURL: normalizeBaseUrl(conf.baseUrl), maxRetries: 0 })
+  const c =
+    client ??
+    new OpenAI({ apiKey: conf.apiKey, baseURL: normalizeBaseUrl(conf.baseUrl, 'openai-responses'), maxRetries: 0 })
   const q = responsesQuirksFor(conf.model ?? '')
 
   return {
@@ -346,9 +349,4 @@ export function createOpenAIResponsesProvider(
       }
     },
   }
-}
-
-/** 归一化 baseUrl（方案 §4.5）：只去尾部斜杠，不剥 /v1（openai SDK 不自拼 /v1）。 */
-function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, '')
 }

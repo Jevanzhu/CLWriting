@@ -31,6 +31,7 @@ import type {
 import type { ProviderStore } from './store.js'
 import { modelConfOf } from './store.js'
 import { quirksFor, type FamilyQuirks } from './model-quirks.js'
+import { normalizeBaseUrl } from './models.js' // baseUrl 归单单源——本线传 'openai'（只去尾斜杠，不剥 /v1）
 import { resolveToolChoiceIntent } from './tool-choice.js' // tool_choice 按表 toolChoiceMode 翻译（表驱动重构 §6.1）：分档决策单源见
 import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
 import { createStreamFinalizer, normalizeStopReason, type StreamFinalizer } from './stream-finalize.js'
@@ -43,25 +44,16 @@ const toErrorEvent = makeToErrorEvent({
   label: 'OpenAI API',
 })
 
-/** 创建 OpenAI 客户端（baseUrl 归一化，防 /v1 重复） */
+/** 创建 OpenAI 客户端（baseUrl 归一 走 models.normalizeBaseUrl 单源） */
 function createClient(conf: ProviderConf): OpenAI {
   return new OpenAI({
     apiKey: conf.apiKey,
-    baseURL: normalizeOpenAIBaseUrl(conf.baseUrl),
+    baseURL: normalizeBaseUrl(conf.baseUrl, 'openai'),
     // SDK 内建重试关闭——runner 重试层是唯一重试决策方
     //（Retry-After/退避都在那）；SDK 默认 maxRetries=2 会叠加放大 HTTP 请求
     //（runTask 4 attempts × SDK 3 = 12 次）且 SDK 退避消耗 60s 首字节窗
     maxRetries: 0,
   })
-}
-
-/**
- * 归一化 baseUrl（方案 §4.5）：只去尾部斜杠，**不剥 /v1**。
- * openai SDK 不自拼 /v1，基址须自带版本路径（官方 https://api.openai.com/v1）；
- * 剥了官方端点 404。anthropic 侧 SDK 自拼 /v1，行为不同（见 anthropic 适配器）。
- */
-function normalizeOpenAIBaseUrl(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, '')
 }
 
 /**

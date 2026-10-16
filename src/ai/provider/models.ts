@@ -13,10 +13,13 @@ import OpenAI from 'openai'
 import type { Protocol, AuthStrategy } from './types.js'
 
 /**
- * 归一化 baseUrl（方案 §4.5，openai/chat 与 anthropic 行为不同）：
- * - openai：**只去尾部斜杠**，不剥 /v1——openai SDK 不自拼 /v1，
- *   剥了官方端点反而 404（models.list 会打 {base}/models）
+ * 归一化 baseUrl（方案 §4.5，三线归单单源）：
  * - anthropic：去尾斜杠 + 剥尾部 /v1——anthropic SDK 自拼 /v1/messages，防 /v1/v1
+ * - 其余（openai / openai-responses）：**只去尾部斜杠**，不剥 /v1——openai SDK 不自拼
+ *   /v1，基址须自带版本路径，剥了官方端点 404（models.list 会打 {base}/models）
+ *
+ * 调用点显式传各自协议：anthropic-adapter='anthropic'、openai-adapter='openai'、
+ * responses-adapter='openai-responses'。
  */
 export function normalizeBaseUrl(baseUrl: string, protocol: Protocol): string {
   const trimmed = baseUrl.replace(/\/+$/, '')

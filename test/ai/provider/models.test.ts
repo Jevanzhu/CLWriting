@@ -3,6 +3,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { normalizeBaseUrl, anthropicClientOpts } from '../../../src/ai/provider/models.js'
+import { readRepoFile } from '../../helpers/repo-root.js'
 
 describe('normalizeBaseUrl 协议分流（方案 §4.5 P0）', () => {
   it('openai：只去尾部斜杠，不剥 /v1', () => {
@@ -33,6 +34,68 @@ describe('normalizeBaseUrl 协议分流（方案 §4.5 P0）', () => {
 
   it('多级路径尾部 /v1 也剥（anthropic）', () => {
     expect(normalizeBaseUrl('https://gw.example.com/xxx/v1', 'anthropic')).toBe('https://gw.example.com/xxx')
+  })
+})
+
+describe('normalizeBaseUrl 单源边界表（openai 线两协议逐位同结果）', () => {
+  // 边界面：尾斜杠（单/多）、/v1 保留、/v1/messages 类后缀不误伤、空串、
+  // 空白（不 trim）、大小写（不折）
+  const OPENAI_LINE: Array<[string, string]> = [
+    ['https://api.openai.com/v1', 'https://api.openai.com/v1'],
+    ['https://api.openai.com/v1/', 'https://api.openai.com/v1'],
+    ['https://api.openai.com/v1///', 'https://api.openai.com/v1'],
+    ['https://api.deepseek.com', 'https://api.deepseek.com'],
+    ['https://gw.example.com/xxx/v1', 'https://gw.example.com/xxx/v1'],
+    ['https://gw.example.com/v1/messages', 'https://gw.example.com/v1/messages'],
+    ['', ''],
+    ['https://api.x.ai/v1 ', 'https://api.x.ai/v1 '],
+    ['HTTPS://API.X.AI/V1', 'HTTPS://API.X.AI/V1'],
+  ]
+
+  it('openai 与 openai-responses 同输入 → 同归一结果（openai-adapter/responses-adapter 共用单源）', () => {
+    for (const [input, expected] of OPENAI_LINE) {
+      expect(normalizeBaseUrl(input, 'openai'), `${input} @openai`).toBe(expected)
+      expect(normalizeBaseUrl(input, 'openai-responses'), `${input} @openai-responses`).toBe(expected)
+    }
+  })
+
+  it('anthropic 线差异面：仅多剥一层尾部 /v1（其余边界与 openai 线同构）', () => {
+    expect(normalizeBaseUrl('https://api.anthropic.com/v1///', 'anthropic')).toBe('https://api.anthropic.com')
+    expect(normalizeBaseUrl('https://gw.example.com/v1/messages', 'anthropic')).toBe(
+      'https://gw.example.com/v1/messages',
+    )
+    expect(normalizeBaseUrl('', 'anthropic')).toBe('')
+    expect(normalizeBaseUrl('https://api.x.ai/v1 ', 'anthropic')).toBe('https://api.x.ai/v1 ')
+    expect(normalizeBaseUrl('HTTPS://API.ANTHROPIC.COM/V1', 'anthropic')).toBe('HTTPS://API.ANTHROPIC.COM/V1')
+  })
+})
+
+// ── 归单单源锁：normalizeBaseUrl 的唯一实现体住 models.ts，三条线
+//    （anthropic / openai / openai-responses）各自按协议显式调用，档内不得复写副本。──
+describe('baseUrl 归单单源锁（三档委派 models.normalizeBaseUrl）', () => {
+  const CALL_SITES: Array<[string, string]> = [
+    ['src/ai/provider/anthropic-adapter.ts', "normalizeBaseUrl(conf.baseUrl, 'anthropic')"],
+    ['src/ai/provider/openai-adapter.ts', "normalizeBaseUrl(conf.baseUrl, 'openai')"],
+    ['src/ai/provider/responses-adapter.ts', "normalizeBaseUrl(conf.baseUrl, 'openai-responses')"],
+  ]
+  // 单源委派形态：从 './models.js' import 出 normalizeBaseUrl
+  const IMPORT_FROM_MODELS = /import\s*\{[^}]*\bnormalizeBaseUrl\b[^}]*\}\s*from\s*'\.\/models\.js'/
+  // 本地实现体形态（任一档复活副本即红）
+  const LOCAL_IMPL = /function\s+normalize(?:BaseUrl|OpenAIBaseUrl)\s*\(/
+
+  it('单源本尊：models.ts 导出协议分流的唯一实现体', () => {
+    const src = readRepoFile('src/ai/provider/models.ts')
+    expect(src).toContain('export function normalizeBaseUrl(baseUrl: string, protocol: Protocol): string')
+    expect(src).toContain("protocol === 'anthropic'")
+  })
+
+  it('三档均 import 单源并显式传各自协议；档内不再出现本地实现体', () => {
+    for (const [file, call] of CALL_SITES) {
+      const src = readRepoFile(file)
+      expect(IMPORT_FROM_MODELS.test(src), `${file} 应 import 单源`).toBe(true)
+      expect(src, file).toContain(call)
+      expect(LOCAL_IMPL.test(src), `${file} 不得再写本地副本`).toBe(false)
+    }
   })
 })
 
