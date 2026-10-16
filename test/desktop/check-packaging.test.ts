@@ -176,11 +176,15 @@ describe('打包判据适用面显式声明：distFontListGateApplicability（�
     expect(distFontListGateApplicability(dir, 'darwin')).toEqual({ applies: true, reason: '' })
   })
   it('真实脚本直跑：dist 未构建的根下打印跳过注解（跳过得看得见，不静默返回 []）', () => {
-    // 根系 fixture：脚本 root = 自身所在 scripts/ 的上一级，故复制脚本到临时根的
-    // scripts/ 下即可让全链读 fixture 而非真实仓库；dist/desktop/main.js 缺席。
+    // 根系 fixture：脚本 root 按其自身位置解析（仓根单源 repo-root.mjs），故复制脚本
+    // 与单一并到临时根的 scripts/ 下即可让全链读 fixture 而非真实仓库；dist/desktop/main.js 缺席。
     const fixtureRoot = mkdtempTracked(join(tmpdir(), 'clw-pkg-skip-note-'))
     mkdirSync(join(fixtureRoot, 'scripts'), { recursive: true })
     copyFileSync(scriptPath, join(fixtureRoot, 'scripts', 'check-packaging.mjs'))
+    copyFileSync(
+      fileURLToPath(new URL('../../scripts/repo-root.mjs', import.meta.url)),
+      join(fixtureRoot, 'scripts', 'repo-root.mjs'),
+    )
     writeFileSync(join(fixtureRoot, 'package.json'), JSON.stringify({ files: ['dist', 'resources'], dependencies: {} }))
     writeFileSync(join(fixtureRoot, 'tsup.config.ts'), 'export default { noExternal: [] }\n')
     writeFileSync(
