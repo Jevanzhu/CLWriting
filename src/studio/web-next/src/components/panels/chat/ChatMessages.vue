@@ -45,6 +45,9 @@ const truncatedHint = computed(() => {
 
 const scrollRef = ref<HTMLElement | null>(null)
 let scrollRaf = 0
+// 本帧待兑现的强制请求——在途帧吞掉后置起的 force 不另起帧（同帧只滚一次），
+// 由既有回调按 force 优先兑现
+let scrollForcePending = false
 // 用户上滚离开底部的距离阈值（px）——流式输出自动滚动只在距底阈值内跟随，
 // 上滚读历史时不再被 SSE 流式内容拽回去
 const AUTO_FOLLOW_THRESHOLD = 64
@@ -58,11 +61,14 @@ function onScroll(): void {
 /** 滚底。force=false（流式默认）只在用户距底阈值内才滚——上滚读历史不打扰；
  *  force=true（发送后/显式调用）无条件滚底。 */
 function scrollToBottom(force = false): void {
+  if (force) scrollForcePending = true
   if (scrollRaf) return
   scrollRaf = requestAnimationFrame(() => {
     scrollRaf = 0
+    const pendingForce = scrollForcePending
+    scrollForcePending = false
     if (!scrollRef.value) return
-    if (force || nearBottom) scrollRef.value.scrollTop = scrollRef.value.scrollHeight
+    if (pendingForce || nearBottom) scrollRef.value.scrollTop = scrollRef.value.scrollHeight
   })
 }
 

@@ -8,12 +8,14 @@
  * - Enter 发送 / Shift+Enter 换行
  * - G1 重新生成按钮（末条已完成才渲染/running 禁用/点击调 regenerate）
  * - G1 变体切换器（双变体组才渲染/标签 n/m/首尾循环/running 禁用）
+ * - 消息流滚底（rAF 节流 + force 语义：在途的非 force 帧不得吞掉紧接的 force 请求）
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 import ChatPanel from '../../../../src/studio/web-next/src/components/panels/ChatPanel.vue'
+import ChatMessages from '../../../../src/studio/web-next/src/components/panels/chat/ChatMessages.vue'
 import { useChatStore } from '../../../../src/studio/web-next/src/stores/chat'
 import { useUiStore } from '../../../../src/studio/web-next/src/stores/ui'
 import { useTreeStore } from '../../../../src/studio/web-next/src/stores/tree'
@@ -507,5 +509,73 @@ describe('ChatMessages: 历史截断提示行（重评-0912-2 P3）', () => {
     const w = mountPanel()
     await nextTick()
     expect(w.find('.chat-truncated-hint').exists()).toBe(false)
+  })
+})
+
+// ── 消息流滚底：force 语义不得被在途的非 force 节流帧吞掉 ──
+// 现象：非 force 滚动入队 rAF 后（在途），紧接的 force 调用被 `if (scrollRaf) return`
+// 早退吞掉 —— force（发送后无条件滚底）不兑现。不变量：同一帧只滚一次（节流不变），
+// 但该帧内出现 force 请求时按 force 兑现。
+
+describe('ChatMessages: 滚底 force 语义与在途节流帧共存', () => {
+  /** fake rAF：手动排队 + 手动 flush（真实帧定时器会让「同帧只滚一次」断言竞态） */
+  let rafQueue: FrameRequestCallback[] = []
+  function flushRaf(): void {
+    const cbs = rafQueue
+    rafQueue = []
+    for (const cb of cbs) cb(0)
+  }
+
+  beforeEach(() => {
+    rafQueue = []
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback): number => {
+      rafQueue.push(cb)
+      return rafQueue.length
+    })
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  /** 挂载并制造「已上滚离开底部」：距底 900px > 64px 阈值 → 非 force 不跟随 */
+  async function mountScrolled() {
+    const w = mount(ChatMessages, { props: { bookName: 'test-book' } })
+    const el = w.find('.chat-messages').element as HTMLElement
+    Object.defineProperty(el, 'scrollHeight', { value: 1000, configurable: true })
+    Object.defineProperty(el, 'clientHeight', { value: 100, configurable: true })
+    el.scrollTop = 0
+    await w.find('.chat-messages').trigger('scroll')
+    const scroll = (w.vm as unknown as { scrollToBottom: (force?: boolean) => void }).scrollToBottom
+    return { w, el, scroll }
+  }
+
+  it('非 force 在途 → 紧接 force：复用同一帧兑现滚底（同帧只滚一次）', async () => {
+    const { w, el, scroll } = await mountScrolled()
+    scroll() // 非 force 入队（rAF 在途）
+    scroll(true) // force：修复前被在途判据吞掉
+    expect(rafQueue).toHaveLength(1) // force 不另起帧
+    flushRaf()
+    expect(el.scrollTop).toBe(1000)
+    w.unmount()
+  })
+
+  it('未在途时 force 照常滚底（距底阈值外也无条件）', async () => {
+    const { w, el, scroll } = await mountScrolled()
+    scroll(true)
+    flushRaf()
+    expect(el.scrollTop).toBe(1000)
+    w.unmount()
+  })
+
+  it('非 force 在途 + 非 force：节流语义不变（同帧只滚一次，阈值外不跟随）', async () => {
+    const { w, el, scroll } = await mountScrolled()
+    scroll()
+    scroll()
+    expect(rafQueue).toHaveLength(1)
+    flushRaf()
+    expect(el.scrollTop).toBe(0) // 上滚读历史不被非 force 拽回
+    w.unmount()
   })
 })
