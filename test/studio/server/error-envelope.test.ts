@@ -43,6 +43,21 @@ describe('replyError 统一信封单元', () => {
     expect(JSON.parse(calls[0]!.body)).toEqual({ code: 'BUSY', error: '本书正在生成' })
   })
 
+  // 保留键不可被 extra 顶掉：extra 是调用方传入的诊断扩展面，其键名不受本出口控制——
+  // 一旦 extra 含 code/error，后展的 extra 会静默改写信封两个保留字段（错误码/人话被
+  // 覆写，前端按 code 分流与 error 展示随之错位）。本出口契约 = 保留键恒由形参决定。
+  it('extra 含 code/error 时保留键优先，不被覆盖', () => {
+    const calls: Array<{ body: string }> = []
+    const res = {
+      writeHead() {},
+      end(body: string) {
+        calls.push({ body })
+      },
+    } as unknown as ServerResponse
+    replyError(res, 400, 'BAD_INPUT', 'x', { code: 'OTHER', error: 'y' })
+    expect(JSON.parse(calls[0]!.body)).toEqual({ code: 'BAD_INPUT', error: 'x' })
+  })
+
   // 出口脱敏两层：凭据（redactSecret）+ 路径（log/path-scrub）。路径一层单点是必须的——
   // Node 各 errno 只有部分带路径（ENOENT/EACCES/ENOTDIR 带，EISDIR 不带），逐 call site
   // 判「这条 message 会不会带路径」判不准。

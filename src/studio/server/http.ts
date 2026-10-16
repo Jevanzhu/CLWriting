@@ -165,7 +165,9 @@ export function replyError(
   const safeError = scrubErrorText(error)
   // 同 reply——错误信封统一补 nosniff
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'x-content-type-options': 'nosniff' })
-  res.end(JSON.stringify({ code, error: safeError, ...(extra ? (scrubExtra(extra) as Record<string, unknown>) : {}) }))
+  // extra 先展、保留键后置：extra 的键名由调用方给定（诊断扩展面），一旦含 code/error
+  // 会静默覆写形参给定的信封两保留字段。保留键恒由本出口形参决定（信封契约）。
+  res.end(JSON.stringify({ ...(extra ? (scrubExtra(extra) as Record<string, unknown>) : {}), code, error: safeError }))
 }
 
 /** HttpError → 统一信封（dispatch catch / readJson 抛错的兜底出口）。 */
