@@ -36,7 +36,6 @@ import { tags as t } from '@lezer/highlight'
 const props = defineProps<{
   modelValue: string
   mode: 'text' | 'md'
-  readonly?: boolean
   typewriter?: boolean
   historyKey?: string
 }>()
@@ -194,9 +193,8 @@ function characterCompletion(context: CompletionContext): CompletionResult | nul
 
 // 打字机滚动实现收编 editor/typewriter.ts 单源（含 CM6 更新中禁 dispatch 的根因注释与回归测试）
 const typewriterConf = new Compartment()
-// mode/readonly 用 Compartment 管理，切文档时动态重配（非仅在 mount 时读取）
+// mode 用 Compartment 管理，切文档时动态重配（非仅在 mount 时读取）
 const modeConf = new Compartment()
-const readonlyConf = new Compartment()
 // （口径校正）：history 唯一挂载点在此 Compartment——注意 reconfigure
 // 对已存在的 historyField 携带旧值不重建（CM6 reconfigure 语义），单靠重配并**不**清栈；
 // 真清栈靠切文档时的「卸载 → 重挂」两步（字段重新 init，见下方 watch），全量替换事务
@@ -212,7 +210,6 @@ onMounted(() => {
       editorSetup,
       editorTheme,
       EditorView.lineWrapping,
-      readonlyConf.of(EditorState.readOnly.of(props.readonly ?? false)),
       modeConf.of(props.mode === 'md' ? [markdown()] : []),
       EditorView.updateListener.of((u) => {
         // 单次 toString 复用——emit 值与同文档外部同步判据
@@ -305,15 +302,6 @@ watch(
   (m) => {
     if (!view) return
     view.dispatch({ effects: modeConf.reconfigure(m === 'md' ? [markdown()] : []) })
-  },
-)
-
-// readonly 切换：动态重配
-watch(
-  () => props.readonly,
-  (r) => {
-    if (!view) return
-    view.dispatch({ effects: readonlyConf.reconfigure(EditorState.readOnly.of(r ?? false)) })
   },
 )
 
@@ -455,7 +443,7 @@ const compReqGen = useStaleGuard()
 watch(
   () => ws.bookName,
   async (name) => {
-    if (!name || props.readonly) {
+    if (!name) {
       completionEntries.value = []
       return
     }
@@ -469,8 +457,8 @@ watch(
       // 失败清空（若本请求仍是最新）——原 catch 静默吞掉后
       // completionEntries 残留上一本书的名单：A 书成功拉过 → 切 B 书恰逢请求失败
       //（服务瞬时异常窗），B 书编辑器 @ 弹 A 书角色/物品名，且 completionFetchedAt
-      // 只在成功路径计龄，TTL 补拉闸使陈旧窗最长 5 分钟。名单按书作用域（readonly/
-      // falsy 分支同样清空），失败清空同口径——空优于错书；下次 @ 触发即重试
+      // 只在成功路径计龄，TTL 补拉闸使陈旧窗最长 5 分钟。名单按书作用域（书名为空
+      // 的清空分支同口径），失败清空同口径——空优于错书；下次 @ 触发即重试
       //（completionFetchedAt 未计龄，-④ 语义不变）。
       if (compReqGen.fresh(myId)) completionEntries.value = []
     }
@@ -488,7 +476,7 @@ let completionFetchedAt = 0
 let completionTtlInflight = false
 function refreshCompletionNamesIfStale(): void {
   const book = ws.bookName
-  if (!book || props.readonly) return
+  if (!book) return
   if (completionTtlInflight || Date.now() - completionFetchedAt < COMPLETION_TTL_MS) return
   completionTtlInflight = true
   const myId = compReqGen.begin()

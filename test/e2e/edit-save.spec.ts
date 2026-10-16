@@ -11,7 +11,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
 // R0910-W：.cache 目录含 node:sqlite 句柄（index.db），删除走重试封装避免 ENOTEMPTY/EPERM/EBUSY
-import { rmTempDirRetry } from './tmp-cleanup.js'
+import { rmDirRetry } from '../helpers/rm-dir-retry.js'
 
 /** 从状态栏「全书 N · 今日 +M」提取全书字数。 */
 function parseTotalWords(s: string | null): number {
@@ -72,7 +72,7 @@ test.afterAll(() => {
   }
   // R73-70②：树缓存整目录移除——collectTreeIssues 对缺席缓存自动 rebuild（纯加速语义）
   try {
-    rmTempDirRetry(join(bookRoot, '.cache'))
+    rmDirRetry(join(bookRoot, '.cache'))
   } catch (e) {
     reportRestoreFailure('树缓存目录移除', e)
   }

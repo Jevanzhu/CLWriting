@@ -1,10 +1,10 @@
-import { test, expect } from 'vitest'
+import { test, expect, vi } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { exportBook } from '../../src/export/index.js'
-import { SUBMISSION_TEMPLATES } from '../../src/metrics/short-index.js'
+import { SUBMISSION_TEMPLATES, scanShortCollection } from '../../src/metrics/short-index.js'
 
 // ── 辅助 fixture ────────────────────────────────
 
@@ -123,6 +123,45 @@ test('exportBook: 短篇分支产全本 + 分章 + 投稿视图', () => {
     // split 目录为「分章」+ 4 位补零（R69-22 对齐正文写侧）
     expect(r.files.some((f) => f.includes('分章/0001-雪夜.md'))).toBe(true)
   } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// D2：投稿视图只消费画像标识/重点 + 策划分布，逐章反转质量（正文锚点扫描）
+// 不该上导出链；质量族在链上无声（输出里本就不含），故用锚点识别器注入计数取证
+test('exportBook: 投稿视图导出路径零触发正文锚点扫描（质量族停算）', async () => {
+  const sectionHeading = await import('../../src/format/section-heading.js')
+  const spy = vi.spyOn(sectionHeading, 'extractSectionHeadings')
+  const root = mkdtempTracked(join(tmpdir(), 'export-short-quality-'))
+  writeFileSync(
+    join(root, 'book.yaml'),
+    ['spec_version: 1', 'kind: short', '', 'book:', '  title: 短篇集', '  genre: 悬疑'].join('\n'),
+    'utf-8',
+  )
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  for (const num of [1, 2]) {
+    writeFileSync(
+      join(root, '写作', '正文', `${num}-雪夜${num}.md`),
+      `---\n章号: ${num}\n标题: 雪夜${num}\n---\n## 铺垫\n雪夜的正文。`,
+      'utf-8',
+    )
+  }
+  try {
+    const r = exportBook({ bookRoot: root, format: 'merged' })
+    expect(r.ok).toBe(true)
+    expect(r.files.some((f) => f.includes('投稿视图-短篇集.md'))).toBe(true)
+    expect(spy).toHaveBeenCalledTimes(0)
+
+    // 对照腿：库内全量扫描（quality 默认 true）逐章扫一次——计数锚非恒零
+    spy.mockClear()
+    expect(scanShortCollection(root)).toHaveLength(2)
+    expect(spy).toHaveBeenCalledTimes(2)
+    // 视图面显式降级后同样零调用
+    spy.mockClear()
+    expect(scanShortCollection(root, { quality: false })).toHaveLength(2)
+    expect(spy).toHaveBeenCalledTimes(0)
+  } finally {
+    spy.mockRestore()
     rmSync(root, { recursive: true, force: true })
   }
 })

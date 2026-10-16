@@ -92,7 +92,7 @@ export function registerSearchRoutes(ctx: SearchCtx): void {
       const q = (url.searchParams.get('q') ?? '').trim()
       const scope = url.searchParams.get('scope') ?? undefined
 
-      // 异步扫描 + 缓存/去重（原同步 searchBook 冻结事件循环，见上方块注）
+      // 异步扫描 + 缓存/去重（同步全书扫描会冻结事件循环，见上方块注）
       // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
       const out = await searchBookCached(r.bookRoot, q, scope, ctx.searchTtlMs ?? undefined)
       if (out.truncated) reply(res, 200, { results: out.results, truncated: true })

@@ -41,8 +41,11 @@ interface BookScaffoldOpts {
 /**
  * 建书仓库骨架（book.yaml + 6.2 目录 + 文风冷启动 + 初始 manifest）。
  *
- * 产物：book.yaml、定稿/大纲/文风/工作区 全套目录、
- * 初始文档清单（去 git：不再 git init——状态机/定稿由 fingerprint + manifest 自管）。
+ * 产物：book.yaml、写作/设定/大纲/布线/文风/工作区 目录树、初始文档清单
+ *（去 git：不再 git init——状态机/定稿由 fingerprint + manifest 自管）。
+ *
+ * 注：`定稿/` **不是**实体目录——定稿在本仓是清单状态（fingerprint + manifest 自管），
+ * 与「把正文文件挪进 定稿/ 」的实体目录模型无关。
  */
 export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void {
   mkdirSync(bookRoot, { recursive: true })
@@ -83,7 +86,7 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
   const configPath = join(bookRoot, 'book.yaml')
   if (!existsSync(configPath)) writeBookConfig(configPath, config)
 
-  // 母本 6.2 目录：定稿 / 大纲 / 文风 / 工作区
+  // 母本 6.2 目录：大纲 / 文风 / 工作区（定稿无实体目录，见文件头注）
   scaffoldDirectories(bookRoot, opts)
 
   // 初始文档清单（去 git：新建书即有清单，状态机/定稿自管的账本基座）。

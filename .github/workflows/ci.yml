@@ -222,10 +222,16 @@ jobs:
       # 2026-10-14：链面门（project-harness 校验器副本，判据与采用面见 05-规范/文档操作链）——
       # Markdown 链接与锚点、一句一行、文档链索引与篇数对账三合一；扫描面与槽位声明住
       # scripts/harness/ 的 markdown-patterns.json 与 doc-index.manifest.json，链上存量硬换行
-      # 挂 baseline.json 债务台账。本步与自建五 check、下方决策记录门合为「七 check」
-      #（AGENTS.md 恒常纪律）。
+      # 挂 baseline.json 债务台账。本步与自建六 check（含下方采用面申报对账门）、下方决策记录门
+      # 合为「八 check」（AGENTS.md 恒常纪律）。
       - name: 链面门（check:harness）
         run: npm run check:harness
+
+      # 2026-10-16：采用面申报对账门（自建第六 check，判据与申报表见 05-规范/文档操作链 §八）——
+      # 副本版本号两处一致 + 四份空判据门实文与申报一致。与自建五 check、上方链面门、下方
+      # 决策记录门合为「八 check」（AGENTS.md 恒常纪律）。
+      - name: 采用面申报对账门（check:harness-copy）
+        run: npm run check:harness-copy
 
       # 2026-10-14：决策记录门（agent-notes 校验器副本，判据与语料声明见 05-规范/文档操作链 §九）——
       # 路径 / 命名 / 头部 / 骨架与归档封存三合一；归档门以 PR base 提交为受信基线（浅检出下

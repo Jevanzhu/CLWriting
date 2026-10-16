@@ -27,7 +27,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { libraryInstanceKey } from '../../src/fs/user-data-path.js'
 import { LONG_BOOK, makeDualTrackWorkdir } from '../studio/fixtures.js'
-import { rmTempDirRetry } from './tmp-cleanup.js'
+import { rmDirRetry } from '../helpers/rm-dir-retry.js'
 import { attachPageErrorBaseline, dismissStartupNotices } from './page-error-baseline.js'
 
 test.skip(!process.env['CLWRITING_E2E_RELEASE'], '多库多窗 e2e：CLWRITING_E2E_RELEASE=1 才跑（需打包产物）')
@@ -140,9 +140,9 @@ const tmpDirs: string[] = []
 test.afterAll(async () => {
   await closeApp(appA)
   await closeApp(appB)
-  // 退出落定后再删临时目录（子进程收尾后句柄可能短暂未释放，rmTempDirRetry 重试口径）
-  for (const d of tmpDirs) rmTempDirRetry(d)
-  if (home) rmTempDirRetry(home)
+  // 退出落定后再删临时目录（子进程收尾后句柄可能短暂未释放，rmDirRetry 重试口径）
+  for (const d of tmpDirs) rmDirRetry(d)
+  if (home) rmDirRetry(home)
 })
 
 test('两库并行两实例各显其库 → 同库第三实例自动退出 → 实例目录/日志/窗口几何按库隔离', async () => {

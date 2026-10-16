@@ -1,10 +1,9 @@
 /**
  * book_search：全书关键词检索（readonly）。复用服务层 searchBookAsync，不复制逻辑。
- * 同步版 searchBook 切异步孪生——chat 工具经 TOOL_EXECUTORS 在
- * studio 服务进程事件循环内执行（非 spawn CLI 子进程面），同步全书扫描（冷门词扫完
- * 写作/设定/大纲/布线/工作区 全部 .md，每文件整读+小写副本）期间同进程全部书的
- * SSE 心跳/保存停摆；ToolExecutor 契约本就支持 Promise（harvest_style 先例），
- * agent 循环调用处 await 不变。
+ * 走异步孪生而非同步扫描：chat 工具经 TOOL_EXECUTORS 在 studio 服务进程的事件循环内
+ * 执行（非 spawn CLI 子进程面），同步全书扫描（冷门词扫完 写作/设定/大纲/布线/工作区
+ * 全部 .md，每文件整读 + 小写副本）期间同进程全部书的 SSE 心跳与保存一并停摆；
+ * ToolExecutor 契约支持 Promise（harvest_style 先例），agent 循环调用处 await 不变。
  */
 import { searchBookAsync } from '../../process/book-search.js'
 // 命中行截断改用码位口径助手——rewrite.ts 预览切片同款（第 4 处

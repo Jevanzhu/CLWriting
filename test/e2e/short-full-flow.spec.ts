@@ -20,7 +20,7 @@ import { startServer } from '../../src/studio/server/index.js'
 import { e2ePort } from './e2e-ports.js'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
 // R0910-W：临时目录清理走重试封装（Windows 句柄异步收尾的 ENOTEMPTY/EPERM/EBUSY）
-import { rmTempDirRetry } from './tmp-cleanup.js'
+import { rmDirRetry } from '../helpers/rm-dir-retry.js'
 
 // R73-75（批 F-8）：端口基址派生（CLW_E2E_PORT_BASE+14，旧硬编码 19013；偏移表见 e2e-ports.ts）
 const PORT = e2ePort(14)
@@ -58,8 +58,8 @@ test.afterAll(async () => {
   if (prevDriver === undefined) delete process.env.CLWRITING_DRIVER
   else process.env.CLWRITING_DRIVER = prevDriver
   await new Promise<void>((r) => server.close(() => r()))
-  if (userDataPath) rmTempDirRetry(userDataPath)
-  if (workDir) rmTempDirRetry(workDir)
+  if (userDataPath) rmDirRetry(userDataPath)
+  if (workDir) rmDirRetry(workDir)
 })
 
 const BOOK = '手测短篇集'

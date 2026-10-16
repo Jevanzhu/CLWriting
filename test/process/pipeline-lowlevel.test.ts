@@ -18,7 +18,7 @@ import { prepare } from '../../src/process/prepare.js'
 import { assembleStatus } from '../../src/process/assemble.js'
 import { readBookConfig, writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { readSamplesByScene } from '../../src/format/style.js'
-import { searchBook } from '../../src/process/book-search.js'
+import { searchBookAsync } from '../../src/process/book-search.js'
 import type { BookConfig } from '../../src/format/types.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -217,7 +217,7 @@ test('低级项（第六轮）：样章库读取按文件名排序（跨平台�
 // Windows 建 symlink 需开发者模式（无防护 symlinkSync 直建 EPERM），该守卫语义由 macOS/Linux CI 腿覆盖
 test.skipIf(process.platform === 'win32')(
   '低级项（第六轮）：book_search 不跟随越出 bookRoot 的 symlink（目录与文件）',
-  () => {
+  async () => {
     const root = mkdtempTracked(join(tmpdir(), 'search-symlink-'))
     const outside = mkdtempTracked(join(tmpdir(), 'outside-'))
     try {
@@ -233,7 +233,7 @@ test.skipIf(process.platform === 'win32')(
       symlinkSync(join(outside, 'dir'), join(bodyDir, '外链目录'))
       symlinkSync(join(outside, 'secret.md'), join(bodyDir, '0002-外链.md'))
 
-      const out = searchBook(root, 'needle', 'all')
+      const out = await searchBookAsync(root, 'needle', 'all')
       const paths = out.results.map((h) => h.path)
       expect(paths).toEqual(['写作/正文/0001-在内.md'])
     } finally {
@@ -243,17 +243,17 @@ test.skipIf(process.platform === 'win32')(
   },
 )
 
-test.skipIf(!canSymlink)('P5-管线（第七轮）：书内 symlink 环（a→b→a）不再无限递归（visited 剪枝）', () => {
+test.skipIf(!canSymlink)('P5-管线（第七轮）：书内 symlink 环（a→b→a）不再无限递归（visited 剪枝）', async () => {
   const root = mkdtempTracked(join(tmpdir(), 'search-cycle-'))
   try {
     const bodyDir = join(root, '写作', '正文')
     mkdirSync(join(bodyDir, 'a'), { recursive: true })
     mkdirSync(join(bodyDir, 'b'), { recursive: true })
     writeFileSync(join(bodyDir, 'a', '0001-环内.md'), '环内命中 needle', 'utf-8')
-    // 环完全在书内：isWithinRoot 拦不住，修复前 walkMd 无限递归直至栈溢出（RangeError）
+    // 环完全在书内：isWithinRoot 拦不住，靠 realpath 已访集剪枝，否则无限递归直至栈溢出
     symlinkSync(join(bodyDir, 'a'), join(bodyDir, 'b', 'back-a'))
     symlinkSync(join(bodyDir, 'b'), join(bodyDir, 'a', 'back-b'))
-    const out = searchBook(root, 'needle', 'all')
+    const out = await searchBookAsync(root, 'needle', 'all')
     expect(out.results.map((h) => h.path)).toContain('写作/正文/a/0001-环内.md')
   } finally {
     rmSync(root, { recursive: true, force: true })

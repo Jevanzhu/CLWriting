@@ -60,27 +60,6 @@ export interface LlmCallReadOutcome {
   degraded: boolean
 }
 
-/**
- * 从事件库读 llm/call 事件行投影（读失败 → [] + warn 留痕，degraded 经
- * streamLlmCallRows 反馈；本入口无消费方，保留供全量读语义）。
- * 事件挂 workspace 会话（bookHash(bookRoot) 为 book 标识），按事件创建时间聚日。
- */
-export async function readLlmCallRows(
-  userDataPath: string | null | undefined,
-  bookRoot: string,
-  opts: ReadLlmCallRowsOptions,
-): Promise<LlmCallReadRow[]> {
-  const out: LlmCallReadRow[] = []
-  try {
-    const r = await streamLlmCallRows(userDataPath, bookRoot, opts, (row) => out.push(row))
-    if (r.degraded) return [] // 观测层读失败 → []（失败丢弃全量，不留半截）
-  } catch (e) {
-    log.warn('llm-call-read', `llm/call 事件读取失败，本入口返回空（观测层降级）：${errMsg(e)}`)
-    return []
-  }
-  return out
-}
-
 /** 单事件 → 投影行（skipMissingUsage 见 options 注）；跳过的行返回 null。 */
 function projectRow(e: ChatEvent, skipMissingUsage: boolean): LlmCallReadRow | null {
   const d = e.data as unknown as LlmCallData
@@ -103,7 +82,7 @@ function projectRow(e: ChatEvent, skipMissingUsage: boolean): LlmCallReadRow | n
 
 /**
  * 流式读——逐行投影并回调，不物化全量行数组。重书
- * llm/call 事件可达数十万条，原 readLlmCallRows 返回全量数组（叠加 store 侧
+ * llm/call 事件可达数十万条，全量读会物化整份行数组（叠加 store 侧
  * listEvents 物化的 ChatEvent 数组）在每次指标刷新时峰值巨大；本入口经 store
  * iterateEvents 游标逐行读，调用方（cost-stats / trace-stats）边读边聚合，峰值只与
  * 聚合桶规模相关。iter 顺序 = seq 升序（与全量读一致），故聚合结果逐字段相同。

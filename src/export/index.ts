@@ -893,7 +893,8 @@ export function writeSubmissionView(args: {
       archiveOldExport(exportDir, old, warnings)
     }
     // 投稿视图同口径滤未定稿（entries 按实际产出章号对齐）
-    const entries = scanShortCollection(bookRoot).filter((e) => writtenNums.has(e.num))
+    // 视图面不消费反转质量（弱反转/铺垫回收），quality: false 跳过逐章正文锚点扫描
+    const entries = scanShortCollection(bookRoot, { quality: false }).filter((e) => writtenNums.has(e.num))
     // 同名投稿视图先归档再覆盖（与 merged 同族修法哲学补齐）
     // 归档失败改序号兜底名，不覆写（同 merged 侧口径）
     if (existsSync(join(exportDir, submissionName)) && !archiveOldExport(exportDir, submissionName, warnings)) {

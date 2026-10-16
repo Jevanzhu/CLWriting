@@ -25,7 +25,7 @@ import { readChapter } from '../../src/format/chapters.js'
 import { parseChapterFileName } from '../../src/format/words.js'
 import { atomicWriteStream } from '../../src/fs/atomic.js'
 import { parseBookConfig } from '../../src/format/yaml.js'
-import { searchBook } from '../../src/process/book-search.js'
+import { searchBookAsync } from '../../src/process/book-search.js'
 import { log } from '../../src/log/index.js'
 
 let root: string
@@ -278,12 +278,12 @@ test('R64-24：book.yaml 无冒号残行 → warn 留痕（不中断解析）', 
   expect(warn).toHaveBeenCalledWith('yaml', expect.stringContaining('无冒号行'))
 })
 
-test('R64-24：bookSearch 命中行截断不劈代理对（200 码位含完整 emoji）', () => {
+test('R64-24：bookSearch 命中行截断不劈代理对（200 码位含完整 emoji）', async () => {
   const dir = join(root, '写作', '正文')
   mkdirSync(dir, { recursive: true })
   const line = 'x'.repeat(199) + '𝄞' + '目标词尾部'
   writeFileSync(join(dir, '0001-章.md'), line, 'utf-8')
-  const out = searchBook(root, '目标词')
+  const out = await searchBookAsync(root, '目标词')
   expect(out.results).toHaveLength(1)
   const text = out.results[0]!.matches[0]!.text
   expect([...text]).toHaveLength(200) // 199 x + 完整 𝄞（修复前 slice(0,200) 劈出落单高代理）

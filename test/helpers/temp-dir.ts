@@ -16,10 +16,11 @@
  * 后提前删共享目录）、e2e（Playwright 无 vitest 钩子）、跨用例寿命混合的助手函数。
  * 新增测试默认走 mkdtempTracked；beforeAll 共享目录保持手工 beforeAll/afterAll 对。
  */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach } from 'vitest'
+import { rmDirRetry } from './rm-dir-retry.js'
 
 const pending = new Set<string>()
 
@@ -49,11 +50,9 @@ export function tempDirTracked(prefix: string): string {
 afterEach(() => {
   if (pending.size === 0) return
   for (const dir of pending) {
-    try {
-      rmSync(dir, { recursive: true, force: true })
-    } catch {
-      // best-effort：进程占用（如 Windows cwd 停在目录内）时放弃，不掩盖测试失败
-    }
+    // 兜底清理跑在失败路径上：瞬时 errno 有界重试，仍失败则留痕一行、不反抛
+    //（用例自身的成败不被清理故障改写）。
+    rmDirRetry(dir, { onExhausted: 'warn' })
   }
   pending.clear()
 })

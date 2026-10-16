@@ -19,7 +19,7 @@ import { makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { e2ePort } from './e2e-ports.js'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
 // R0910-W：临时目录清理走重试封装（Windows 句柄异步收尾的 ENOTEMPTY/EPERM/EBUSY）
-import { rmTempDirRetry } from './tmp-cleanup.js'
+import { rmDirRetry } from '../helpers/rm-dir-retry.js'
 
 const PORT = e2ePort(5)
 const BASE = `http://127.0.0.1:${PORT}`
@@ -46,7 +46,7 @@ test.beforeAll(async () => {
         )
       }
       // R9-P2-4：listen 失败不留残——先清本次自建目录再上抛
-      if (workDir) rmTempDirRetry(workDir)
+      if (workDir) rmDirRetry(workDir)
       reject(err)
     })
   })
@@ -54,7 +54,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()))
-  if (workDir) rmTempDirRetry(workDir)
+  if (workDir) rmDirRetry(workDir)
 })
 
 test('启动通告横幅：幽灵登记 → boot 自愈通告 → 横幅可见（repair-books）', async ({ page }) => {

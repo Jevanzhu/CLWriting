@@ -16,7 +16,7 @@
  * 3. EADDRINUSE 打指因人话提示（含本 spec tag + win 分支探针命令——只给 lsof 在 win
  *    上是死指引）；
  * 4. close 顺序 = 先 server.close 再删目录（Windows 句柄异步收尾，目录清理走
- *    rmTempDirRetry 重试封装）。
+ *    rmDirRetry 重试封装）。
  *
  * 清理所有权：workDir 由本壳创建（未传 opts.workDir）时由本壳删；调用方传入自建
  * workDir（需播种 ghost 登记/自制 fixture 的场景）时**归调用方自清**——本壳不删非己物。
@@ -34,7 +34,7 @@ import { startServer } from '../../src/studio/server/index.js'
 import { makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { e2ePort } from './e2e-ports.js'
 // R0910-W：临时目录清理走重试封装（Windows 句柄异步收尾的 ENOTEMPTY/EPERM/EBUSY）
-import { rmTempDirRetry } from './tmp-cleanup.js'
+import { rmDirRetry } from '../helpers/rm-dir-retry.js'
 
 export interface IndependentServer {
   /** 相对 CLW_E2E_PORT_BASE 的偏移（偏移表见 e2e-ports.ts） */
@@ -85,8 +85,8 @@ export async function startIndependentServer(opts: StartIndependentServerOptions
     opts.userDataPath === false ? '' : (opts.userDataPath ?? mkdtempSync(join(tmpdir(), `clwriting-e2e-${tag}-ud-`)))
   const cleanup = (): void => {
     restoreEnv()
-    if (userDataPath) rmTempDirRetry(userDataPath)
-    if (ownsWorkDir) rmTempDirRetry(workDir)
+    if (userDataPath) rmDirRetry(userDataPath)
+    if (ownsWorkDir) rmDirRetry(workDir)
   }
 
   process.env['CLWRITING_DRIVER'] = 'mock'

@@ -11,7 +11,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { searchBook, searchBookAsync } from '../../src/process/book-search.js'
+import { searchBookAsync } from '../../src/process/book-search.js'
 
 let root: string
 afterEach(() => {
@@ -26,14 +26,7 @@ function makeBook(): string {
 }
 
 describe('R41-6: 搜索 walk 的 .md 大小写不敏感（.MD 不漏）', () => {
-  it('同步版：正文区 .MD 文件可被搜出', () => {
-    const b = makeBook()
-    writeFileSync(join(b, '写作', '正文', '0001-夜行.MD'), '烛火摇曳', 'utf-8')
-    const r = searchBook(b, '烛火')
-    expect(r.results.map((h) => h.path)).toEqual(['写作/正文/0001-夜行.MD'])
-  })
-
-  it('异步版：同口径（walkMdAsync 不漂移）', async () => {
+  it('正文区 .MD 文件可被搜出', async () => {
     const b = makeBook()
     writeFileSync(join(b, '写作', '正文', '0002-晨光.MD'), '烛火熄了', 'utf-8')
     const r = await searchBookAsync(b, '烛火')
@@ -42,16 +35,7 @@ describe('R41-6: 搜索 walk 的 .md 大小写不敏感（.MD 不漏）', () => 
 })
 
 describe('R41-8: 搜索 walk 排除 spills/（全文快照不双出处）', () => {
-  it('同步版：工作区/spills 哈希副本不进结果，正本命中', () => {
-    const b = makeBook()
-    writeFileSync(join(b, '写作', '正文', '0001-正本.md'), '烛火摇曳', 'utf-8')
-    mkdirSync(join(b, '工作区', 'spills'), { recursive: true })
-    writeFileSync(join(b, '工作区', 'spills', '0123456789abcdef.md'), '烛火摇曳', 'utf-8')
-    const r = searchBook(b, '烛火')
-    expect(r.results.map((h) => h.path)).toEqual(['写作/正文/0001-正本.md'])
-  })
-
-  it('异步版：同口径', async () => {
+  it('工作区/spills 哈希副本不进结果，正本命中', async () => {
     const b = makeBook()
     writeFileSync(join(b, '写作', '正文', '0003-副本源.md'), '晨雾弥漫', 'utf-8')
     mkdirSync(join(b, '工作区', 'spills'), { recursive: true })

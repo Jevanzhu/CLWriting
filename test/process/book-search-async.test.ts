@@ -1,16 +1,15 @@
 /**
- * R35-7（三十五轮）回归：book-search 异步孪生 searchBookAsync。
+ * book-search 扫描行为回归（结果集/排序/截断/排除目录/scope 过滤）。
  *
- * HTTP 全书搜索端点 async 化（fs.promises 全链，扫描期间事件循环可响应其他请求），
- * 同步版保留给 AI book_search 工具。本文件锚定两版行为逐位同源：结果/排序/截断/
- * 排除目录/scope 过滤不漂移。
+ * 夹具见 makeTree：五个可搜目录各埋一组命中词，另有 导出/、node_modules/、.版本/
+ * 三个必须排除的面——断言逐例钉死命中的相对路径序列（正斜杠），漂移即红。
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { searchBook, searchBookAsync } from '../../src/process/book-search.js'
+import { searchBookAsync } from '../../src/process/book-search.js'
 
 let root = ''
 
@@ -45,27 +44,35 @@ afterEach(() => {
   root = ''
 })
 
-describe('R35-7 searchBookAsync 与同步版逐位同源', () => {
-  const cases: Array<[string, string | undefined]> = [
-    ['烛火', undefined],
-    ['林远', 'all'],
-    ['林远', '定稿'],
-    ['烛火', '正文'],
-    ['玉佩', '设定'],
-    ['远行', '大纲'],
-    ['草稿', '工作区'],
-    ['不存在的词', undefined],
+describe('扫描结果：目录序 + 目录内文件序', () => {
+  // dirs 序 = SEARCH_ALL_DIRS（写作/正文 → 设定 → 大纲 → 布线 → 工作区），
+  // 同一目录内按文件名排序（截断取前 50 条要确定性，顺序本身就是契约）
+  const cases: Array<[string, string | undefined, string[]]> = [
+    [
+      '烛火',
+      undefined,
+      ['写作/正文/0001-雨夜.md', '写作/正文/第一卷/0002-晨光.md', '设定/伏笔/玉佩.md', '工作区/草稿.md'],
+    ],
+    ['林远', 'all', ['写作/正文/0001-雨夜.md', '设定/人物.md', '大纲/主线.md']],
+    // 无清单 → 定稿集不可得 → 全文兜底（不误杀），dirs 收窄到 正文+设定
+    ['林远', '定稿', ['写作/正文/0001-雨夜.md', '设定/人物.md']],
+    ['烛火', '正文', ['写作/正文/0001-雨夜.md', '写作/正文/第一卷/0002-晨光.md']],
+    ['玉佩', '设定', ['设定/伏笔/玉佩.md']],
+    ['远行', '大纲', ['大纲/主线.md']],
+    ['草稿', '工作区', ['工作区/草稿.md']],
+    ['不存在的词', undefined, []],
   ]
 
-  for (const [q, scope] of cases) {
-    it(`结果一致：q=${q} scope=${scope ?? 'all'}`, async () => {
+  for (const [q, scope, expected] of cases) {
+    it(`q=${q} scope=${scope ?? 'all'} → 命中路径序列`, async () => {
       makeTree()
-      const sync = searchBook(root, q, scope)
-      const async = await searchBookAsync(root, q, scope)
-      expect(async).toEqual(sync)
+      const out = await searchBookAsync(root, q, scope)
+      expect(out.results.map((h) => h.path)).toEqual(expected)
     })
   }
+})
 
+describe('排除面与截断', () => {
   it('排除目录不越出（导出/node_modules/点前缀）', async () => {
     makeTree()
     expect((await searchBookAsync(root, '导出版')).results).toHaveLength(0)
@@ -79,16 +86,17 @@ describe('R35-7 searchBookAsync 与同步版逐位同源', () => {
     expect(r.results.map((h) => h.path)).toEqual(['写作/正文/第一卷/0002-晨光.md'])
   })
 
-  it('截断口径一致：>50 命中文件 truncated + 50 条上限', async () => {
+  it('>50 命中文件 → truncated + 50 条上限，且两次扫描逐位相同（截断序确定）', async () => {
     makeTree()
     for (let i = 1; i <= 55; i++) {
       writeFileSync(join(root, '工作区', `便签${String(i).padStart(4, '0')}.md`), `孤本词第${i}处。\n`, 'utf-8')
     }
-    const sync = searchBook(root, '孤本词')
-    const async = await searchBookAsync(root, '孤本词')
-    expect(sync.truncated).toBe(true)
-    expect(async).toEqual(sync)
-    expect(async.results).toHaveLength(50)
+    const first = await searchBookAsync(root, '孤本词')
+    const second = await searchBookAsync(root, '孤本词')
+    expect(first.truncated).toBe(true)
+    expect(first.results).toHaveLength(50)
+    expect(first.results[0]!.path).toBe('工作区/便签0001.md')
+    expect(second).toEqual(first)
   })
 
   it('空查询直返空结果（缓存前置同口径）', async () => {

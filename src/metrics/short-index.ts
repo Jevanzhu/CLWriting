@@ -1,12 +1,16 @@
 /**
- * 短篇集级索引与重复风险体检。
+ * 短篇集级索引与投稿视图分析。
  *
  * 目标：短篇主链已按单章闭环，本模块只做整集层面的轻量扫描。
  * 数据来自 `写作/正文/`（卷结构，递归）与 `大纲/章纲/<章号>-<标题>.md`——
- * 头注原宣称「已定稿」与实现不符
- * （scanShortCollection 读全量章节、不做定稿过滤——草稿同入索引），唯一调用方
+ * scanShortCollection 读全量章节、不做定稿过滤（草稿同入索引），唯一生产调用方
  * （export 投稿视图）按定稿清单自行二次过滤；新调用方须自带定稿过滤，勿信本层已滤。
- * 不写文件、不耗模型，用于 health --report 的短篇集节奏提示。
+ * 不写文件、不耗模型。
+ *
+ * 算力分档——导出链只走视图面：投稿视图消费画像标识/重点 + 策划分布
+ * （analyzeShortSubmission），故导出链的 scanShortCollection 传 `quality: false`
+ * 跳过逐章正文锚点扫描；风险族（重复风险）与画像缺口/健康备注无生产消费方，
+ * 只在库内/测试面按需算（collectShortCollectionRisks、analyzeShortCollection）。
  */
 
 import { existsSync } from 'node:fs'
@@ -31,7 +35,8 @@ interface ShortPieceIndexEntry {
   reversalType: string
   structureObjects: string[]
   endingFlavor: string
-  reversalQuality: ShortReversalQuality
+  /** 逐章正文锚点扫描的产物；scanShortCollection 传 `quality: false`（导出链视图面）时缺席 */
+  reversalQuality?: ShortReversalQuality
 }
 
 interface ShortReversalQuality {
@@ -59,7 +64,15 @@ interface ShortCollectionReport {
   platform: ShortPlatformProfileReport
   platformTargets: ShortPlatformTargets
   planning: ShortPlanningView
-  risks: ShortCollectionRisk[]
+}
+
+/** 投稿视图所需的最小分析面（导出链唯一消费）：画像标识/重点 + 策划分布。
+ *  风险族、画像缺口与健康备注不在本面产出——见 collectShortCollectionRisks
+ *  与 analyzeShortCollection（库内全量面）。 */
+export interface ShortSubmissionAnalysis {
+  profile: string
+  emphasis: string
+  planning: ShortPlanningView
 }
 
 interface ShortPlatformProfileReport {
@@ -169,10 +182,17 @@ export const SUBMISSION_TEMPLATES: Record<string, ShortSubmissionTemplate> = {
 /** 已注册平台清单（单一真相源；io.ts 校验复用，避免硬编码漂移）。 */
 export const SUBMISSION_PLATFORMS: readonly string[] = Object.keys(SUBMISSION_TEMPLATES)
 
+export interface ScanShortCollectionOpts {
+  /** false = 跳过逐章反转质量扫描（正文锚点 + 铺垫/回收链路校验），条目不带 reversalQuality。
+   *  导出链（投稿视图）不消费质量面，传 false；库内默认 true 保体检与测试全量语义。 */
+  quality?: boolean
+}
+
 /** 扫描短篇集索引。正文走 readChapterDir（递归卷结构），章纲定位走三口径单源
  *  （format/piece-list-locate.ts，与 check/runner 同源——原只认同名 basename，
  *  正文补零重命名/裸前缀章纲等书形下与机检口径分裂）。 */
-export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
+export function scanShortCollection(bookRoot: string, opts: ScanShortCollectionOpts = {}): ShortPieceIndexEntry[] {
+  const withQuality = opts.quality ?? true
   const bodyDir = join(bookRoot, '写作', '正文')
   if (!existsSync(bodyDir)) return []
 
@@ -213,12 +233,14 @@ export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
       reversalType: classifyReversal(coreReversal),
       structureObjects: collectStructureObjects(list),
       endingFlavor: endingFlavorOf(list),
-      reversalQuality: scoreReversalQuality(coreReversal, list, body),
+      ...(withQuality ? { reversalQuality: scoreReversalQuality(coreReversal, list, body) } : {}),
     })
   }
   return entries.sort((a, b) => a.num - b.num)
 }
 
+/** 库内全量分析面：画像（含缺口/备注/弱反转）+ 策划分布。
+ *  风险族不在此产出——投稿视图不消费、体检面暂无调用方，按需调 collectShortCollectionRisks。 */
 export function analyzeShortCollection(
   entries: ShortPieceIndexEntry[],
   shortConfig: BookConfig['short'] | undefined = undefined,
@@ -230,14 +252,28 @@ export function analyzeShortCollection(
     platform: analyzePlatformProfile(entries, config),
     platformTargets: platformTargetsOf(config),
     planning: analyzePlanningView(entries),
-    risks: [
-      ...recentRepeatRisks(entries, 'targetEmotion', '目标情绪'),
-      ...recentRepeatRisks(entries, 'reversalType', '反转类型'),
-      ...recentRepeatRisks(entries, 'endingFlavor', '结尾味道'),
-      ...collectionRepeatRisk(entries, 'coreReversal', '核心反转'),
-      ...objectRepeatRisks(entries),
-    ],
   }
+}
+
+/** 投稿视图分析面（导出链唯一消费）：只算视图渲染用到的字段，不触风险族与质量族。 */
+export function analyzeShortSubmission(
+  entries: ShortPieceIndexEntry[],
+  shortConfig: BookConfig['short'] | undefined = undefined,
+): ShortSubmissionAnalysis {
+  const profile = profileNameOf({ ...DEFAULT_SHORT_CONFIG, ...shortConfig })
+  return { profile, emphasis: profileEmphasis(profile), planning: analyzePlanningView(entries) }
+}
+
+/** 风险族（最近重复 / 全书重复）——库内计算面：生产链无消费方（导出链已摘除），
+ *  测试与将来的体检面按需直调。 */
+export function collectShortCollectionRisks(entries: ShortPieceIndexEntry[]): ShortCollectionRisk[] {
+  return [
+    ...recentRepeatRisks(entries, 'targetEmotion', '目标情绪'),
+    ...recentRepeatRisks(entries, 'reversalType', '反转类型'),
+    ...recentRepeatRisks(entries, 'endingFlavor', '结尾味道'),
+    ...collectionRepeatRisk(entries, 'coreReversal', '核心反转'),
+    ...objectRepeatRisks(entries),
+  ]
 }
 
 export function formatShortSubmissionView(
@@ -246,14 +282,14 @@ export function formatShortSubmissionView(
   title = '短篇集',
   platform: ShortSubmissionPlatform = 'generic',
 ): string {
-  const report = analyzeShortCollection(entries, shortConfig)
+  const view = analyzeShortSubmission(entries, shortConfig)
   const items = entries.map(toSubmissionItem)
   const template = SUBMISSION_TEMPLATES[platform] ?? SUBMISSION_TEMPLATES.generic!
   const lines: string[] = []
   lines.push(`# 投稿视图-${title}${platform === 'generic' ? '' : `-${template.label}`}`)
   lines.push('')
-  lines.push(`- 平台画像：${report.platform.profile}`)
-  lines.push(`- 画像重点：${report.platform.emphasis}`)
+  lines.push(`- 平台画像：${view.profile}`)
+  lines.push(`- 画像重点：${view.emphasis}`)
   lines.push(`- 平台模板：${template.label}`)
   lines.push(`- 标题风格：${template.titleStyle}`)
   lines.push(`- 简介长度：${template.introLength}`)
@@ -269,10 +305,10 @@ export function formatShortSubmissionView(
   }
   lines.push('')
   lines.push('## 策划分布')
-  lines.push(`- 情绪：${formatDistribution(report.planning.emotions)}`)
-  lines.push(`- 反转：${formatDistribution(report.planning.reversalTypes)}`)
-  lines.push(`- 结尾味道：${formatDistribution(report.planning.endingFlavors)}`)
-  lines.push(`- 结构物件：${formatDistribution(report.planning.structureObjects)}`)
+  lines.push(`- 情绪：${formatDistribution(view.planning.emotions)}`)
+  lines.push(`- 反转：${formatDistribution(view.planning.reversalTypes)}`)
+  lines.push(`- 结尾味道：${formatDistribution(view.planning.endingFlavors)}`)
+  lines.push(`- 结构物件：${formatDistribution(view.planning.structureObjects)}`)
   lines.push('')
   return lines.join('\n')
 }
@@ -420,12 +456,12 @@ function analyzePlatformProfile(
   entries: ShortPieceIndexEntry[],
   config: NonNullable<BookConfig['short']>,
 ): ShortPlatformProfileReport {
-  const profile = config.profile || '通用短篇'
+  const profile = profileNameOf(config)
   const notes: string[] = []
   const targets = platformTargetsOf(config)
   const planning = analyzePlanningView(entries)
   const avgWords = avg(entries.map((entry) => entry.wordCount))
-  const weakReversals = entries.filter((entry) => entry.reversalQuality.grade === '弱').length
+  const weakReversals = entries.filter((entry) => entry.reversalQuality?.grade === '弱').length
   if (entries.length > 0 && avgWords > (config.word_max ?? 20000))
     notes.push(`平均字数 ${avgWords.toFixed(0)} 超过画像上限，适合拆章或压缩铺陈。`)
   if (entries.length > 0 && avgWords < (config.word_min ?? 8000))
@@ -447,6 +483,11 @@ function analyzePlatformProfile(
     ],
     notes,
   }
+}
+
+/** 画像名兜底单源（全量面与视图面共用，免得两处各写一份默认值）。 */
+function profileNameOf(config: NonNullable<BookConfig['short']>): string {
+  return config.profile || '通用短篇'
 }
 
 function platformTargetsOf(config: NonNullable<BookConfig['short']>): ShortPlatformTargets {

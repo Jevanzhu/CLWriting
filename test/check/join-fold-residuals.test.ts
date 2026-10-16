@@ -18,7 +18,7 @@ import { join } from 'node:path'
 import { collectTreeIssues } from '../../src/check/run.js'
 import { learnFromBook } from '../../src/learn/index.js'
 import { scanChapters, scanChaptersAsync } from '../../src/metrics/style.js'
-import { searchBook, searchBookAsync } from '../../src/process/book-search.js'
+import { searchBookAsync } from '../../src/process/book-search.js'
 import { detectState, buildRecap, type DetectedState } from '../../src/state/state.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
@@ -248,10 +248,9 @@ test('R42-6/R42-33: book-search win32 钉平台——定稿 scope 下 case-varia
   pinPlatform('win32')
   const root = makeSearchBook()
   try {
-    const sync = searchBook(root, EVIDENCE, '定稿')
-    expect(sync.results.map((h) => h.path)).toEqual(['写作/正文/001-finale.md']) // 修复前：定稿章漏出结果（只剩草稿被滤后的空集）
-    const async = await searchBookAsync(root, EVIDENCE, '定稿')
-    expect(async.results.map((h) => h.path)).toEqual(['写作/正文/001-finale.md'])
+    const out = await searchBookAsync(root, EVIDENCE, '定稿')
+    // 折叠键口径：win32 平台下 case-variant 章（001-finale.MD）与清单登记的 001-finale.md 同键 → 认定稿
+    expect(out.results.map((h) => h.path)).toEqual(['写作/正文/001-finale.md'])
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -261,7 +260,6 @@ test('R42-6/R42-33: book-search posix 钉平台——不折叠：case-variant �
   pinPlatform('linux')
   const root = makeSearchBook()
   try {
-    expect(searchBook(root, EVIDENCE, '定稿').results).toEqual([])
     expect((await searchBookAsync(root, EVIDENCE, '定稿')).results).toEqual([])
   } finally {
     rmSync(root, { recursive: true, force: true })

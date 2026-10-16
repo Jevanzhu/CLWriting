@@ -12,7 +12,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   runUpdateCheckOnce,
   fetchLatestRelease,
-  fetchLatestStable,
   getUpdateCheckResult,
   getUpdateCheckState,
   resolveAppVersion,
@@ -225,13 +224,7 @@ describe('runUpdateCheckOnce 静默失败面（不抛、不置结果）', () => 
   })
 })
 
-describe('fetchLatestStable / fetchLatestRelease（薄包装面）', () => {
-  it('取到最大正式版原串 / 失败返 null', async () => {
-    expect(await fetchLatestStable(okFetch(RELEASES).fn)).toBe('v1.0.0')
-    expect(await fetchLatestStable(okFetch({}, { status: 403 }).fn)).toBeNull()
-    expect(await fetchLatestStable(okFetch([{ tag_name: 'nightly' }]).fn)).toBeNull()
-  })
-
+describe('fetchLatestRelease（薄包装面）', () => {
   it('fetchLatestRelease 同响应带 assets（下载链重新定位资产用）', async () => {
     const release = await fetchLatestRelease(okFetch(RELEASES).fn)
     expect(release?.tag).toBe('v1.0.0')

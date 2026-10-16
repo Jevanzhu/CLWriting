@@ -23,7 +23,7 @@ import { existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { makeDualTrackWorkdir } from '../studio/fixtures.js'
-import { rmTempDirRetry } from './tmp-cleanup.js'
+import { rmDirRetry } from '../helpers/rm-dir-retry.js'
 import { attachPageErrorBaseline, dismissStartupNotices } from './page-error-baseline.js'
 
 test.skip(!process.env['CLWRITING_E2E_RELEASE'], '发布 smoke：CLWRITING_E2E_RELEASE=1 才跑（需打包产物）')
@@ -61,9 +61,9 @@ test.afterAll(async () => {
       })
     }
   }
-  // 退出落定后再删临时目录（子进程收尾后句柄可能短暂未释放，rmTempDirRetry 重试口径）
-  if (smokeUserData) rmTempDirRetry(smokeUserData)
-  if (smokeWorkDir) rmTempDirRetry(smokeWorkDir)
+  // 退出落定后再删临时目录（子进程收尾后句柄可能短暂未释放，rmDirRetry 重试口径）
+  if (smokeUserData) rmDirRetry(smokeUserData)
+  if (smokeWorkDir) rmDirRetry(smokeWorkDir)
 })
 
 test('打包态应用：进书 → 设置「外观与主题」→ 界面中文字体下拉列出系统字体', async () => {

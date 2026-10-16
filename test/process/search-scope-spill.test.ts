@@ -11,7 +11,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { searchBook } from '../../src/process/book-search.js'
+import { searchBookAsync } from '../../src/process/book-search.js'
 import { spillIfLarge } from '../../src/process/spill.js'
 import { readManifest, writeManifest, upsertEntry, type Manifest } from '../../src/document/manifest.js'
 
@@ -47,20 +47,20 @@ describe('R73-42 / book-search 定稿 scope 按清单过滤', () => {
   })
   afterEach(() => rmSync(root, { recursive: true, force: true }))
 
-  it('scope=定稿：未定稿草稿不进结果，已定稿章命中', () => {
-    const r = searchBook(root, '烛火', '定稿')
+  it('scope=定稿：未定稿草稿不进结果，已定稿章命中', async () => {
+    const r = await searchBookAsync(root, '烛火', '定稿')
     expect(r.results).toHaveLength(1)
     expect(r.results[0]!.path).toBe('写作/正文/0001-雨夜.md')
   })
 
-  it('scope=正文/all：不过滤（草稿仍可搜）', () => {
-    expect(searchBook(root, '烛火', '正文').results).toHaveLength(2)
-    expect(searchBook(root, '烛火', 'all').results).toHaveLength(2)
+  it('scope=正文/all：不过滤（草稿仍可搜）', async () => {
+    expect((await searchBookAsync(root, '烛火', '正文')).results).toHaveLength(2)
+    expect((await searchBookAsync(root, '烛火', 'all')).results).toHaveLength(2)
   })
 
-  it('清单缺失 → 定稿 scope 保持全量兜底（无法判定不误杀）', () => {
+  it('清单缺失 → 定稿 scope 保持全量兜底（无法判定不误杀）', async () => {
     rmSync(join(root, '项目', '文档清单.jsonl'))
-    expect(searchBook(root, '烛火', '定稿').results).toHaveLength(2)
+    expect((await searchBookAsync(root, '烛火', '定稿')).results).toHaveLength(2)
   })
 })
 

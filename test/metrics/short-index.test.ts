@@ -6,6 +6,8 @@ import { writeChapter } from '../helpers/chapter.js'
 import { writePieceListFixture } from '../helpers/piece-list.js'
 import {
   analyzeShortCollection,
+  analyzeShortSubmission,
+  collectShortCollectionRisks,
   formatShortSubmissionView,
   scanShortCollection,
 } from '../../src/metrics/short-index.js'
@@ -84,7 +86,7 @@ test('scanShortCollection: 扫正文与清单生成短篇集索引', () => {
     })
     expect(entries[0]!.structureObjects).toContain('门外没有脚印')
     expect(entries[0]!.reversalQuality).toMatchObject({ grade: '强', setupCount: 3 })
-    expect(entries[0]!.reversalQuality.score).toBeGreaterThanOrEqual(90)
+    expect(entries[0]!.reversalQuality!.score).toBeGreaterThanOrEqual(90)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -121,7 +123,7 @@ test('scanShortCollection: 12 码点边界含代理对时不劈开（引号串�
   }
 })
 
-test('analyzeShortCollection: 最近重复与全书重复会出风险', () => {
+test('collectShortCollectionRisks: 最近重复与全书重复会出风险', () => {
   const root = mkdtempTracked(join(tmpdir(), 'short-index-'))
   try {
     for (let i = 1; i <= 3; i++) {
@@ -132,13 +134,43 @@ test('analyzeShortCollection: 最近重复与全书重复会出风险', () => {
         ending: '后怕',
       })
     }
-    const report = analyzeShortCollection(scanShortCollection(root))
-    const messages = report.risks.map((r) => r.message).join('\n')
+    const risks = collectShortCollectionRisks(scanShortCollection(root))
+    const messages = risks.map((r) => r.message).join('\n')
     expect(messages).toContain('最近 3 章目标情绪都为「惊悚」')
     expect(messages).toContain('最近 3 章反转类型都为「死者反转」')
     expect(messages).toContain('最近 3 章结尾味道都为「后怕」')
     expect(messages).toContain('核心反转重复')
     expect(messages).toContain('结构物件/伏笔「门外没有脚印」重复出现')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// 导出链停算：投稿视图只消费画像标识/重点 + 策划分布，风险族与逐章质量扫描都不该上这条链
+test('analyzeShortSubmission: 视图面不带风险族，scan quality:false 不产反转质量', () => {
+  const root = mkdtempTracked(join(tmpdir(), 'short-view-scope-'))
+  try {
+    for (let i = 1; i <= 3; i++) {
+      makePiece(root, i, `雪夜${i}`, {
+        emotion: '惊悚',
+        reversal: '来客就是死者',
+        object: '门外没有脚印',
+        ending: '后怕',
+      })
+    }
+    const view = analyzeShortSubmission(scanShortCollection(root, { quality: false }), {
+      profile: '悬疑反转',
+    })
+    expect(Object.keys(view).sort()).toEqual(['emphasis', 'planning', 'profile'])
+    expect(view.profile).toBe('悬疑反转')
+    expect(view.planning.emotions[0]).toMatchObject({ value: '惊悚', count: 3 })
+
+    // 全量面照旧（库内/测试用）：条目带质量分、报告带画像缺口
+    const full = analyzeShortCollection(scanShortCollection(root), { profile: '悬疑反转' })
+    expect(full.entries[0]!.reversalQuality).toBeDefined()
+    expect(full.platform.profile).toBe('悬疑反转')
+    // 质量族缺席时画像口径不虚报：视图面条目走同一分析面也只会得 0 弱反转
+    expect(analyzeShortCollection(scanShortCollection(root, { quality: false })).platform.weakReversals).toBe(0)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -180,7 +212,7 @@ test('analyzeShortCollection: 输出平台画像、策划分布与弱反转评�
     expect(report.platform.profile).toBe('悬疑反转')
     expect(report.platform.weakReversals).toBe(1)
     expect(report.planning.emotions[0]).toMatchObject({ value: '惊悚', count: 1, pieces: [1] })
-    expect(report.entries[0]!.reversalQuality.grade).toBe('弱')
+    expect(report.entries[0]!.reversalQuality!.grade).toBe('弱')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -202,8 +234,8 @@ test('analyzeShortCollection: 画像目标分布会提示缺口，清单质量�
       target_ending_flavors: ['后怕', '余寒'],
     })
     expect(report.platform.targetGaps).toEqual(['情绪 不安', '反转 真凶反转', '结尾 余寒'])
-    expect(report.entries[0]!.reversalQuality.payoffMatched).toBe(1)
-    expect(report.entries[0]!.reversalQuality.issues).toContain('正文缺少 ## 段落锚点，铺垫位置只能做弱校验')
+    expect(report.entries[0]!.reversalQuality!.payoffMatched).toBe(1)
+    expect(report.entries[0]!.reversalQuality!.issues).toContain('正文缺少 ## 段落锚点，铺垫位置只能做弱校验')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

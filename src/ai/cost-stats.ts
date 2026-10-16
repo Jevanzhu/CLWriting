@@ -72,7 +72,7 @@ export async function aggregateCost(userDataPath: string | null | undefined, boo
   // 2-：读侧走 llm-call-read 单源；skipMissingUsage: true 即原口径
   //（失败调用可携真实 usage 入账，失败且无 usage 才跳过——报表不系统性低于预算闸）
   // 流式逐行聚合——不再物化全量 entries；任何读失败丢弃部分结果返回空壳
-  //（与旧「readLlmCallRows 失败 → [] → 空壳」逐字段一致）
+  //（读失败 → 空壳：与「确无数据」两态经 degraded 区分，见 llm-call-read 注）
   const stats = emptyCostStats()
   const unpriced = new Set<string>()
   const pricedSeen = new Set<string>()

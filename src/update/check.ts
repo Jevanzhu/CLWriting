@@ -146,19 +146,6 @@ export async function fetchLatestRelease(
 }
 
 /**
- * 取最新**正式版** tag（原串，含前导 v；无正式版/失败 → null，不抛）。
- * @param fetchImpl 注入用（缺省全局 fetch；测试传桩）
- * @param timeoutMs 超时毫秒；<=0 关闭超时
- */
-export async function fetchLatestStable(
-  fetchImpl: typeof fetch = fetch,
-  timeoutMs: number = UPDATE_CHECK_TIMEOUT_MS,
-): Promise<string | null> {
-  const release = await fetchLatestRelease(fetchImpl, timeoutMs)
-  return release?.tag ?? null
-}
-
-/**
  * 跑一次检查（主进程侧起服后延迟调用一次；调用方 await 到落定后取结果下发子进程）。
  * 开关短路：`CLW_DISABLE_UPDATE_CHECK=1` 直接返回且**不置结果**（保持未完成态——
  * 关掉检查的环境里端点不会凭空给出「已查无新版」）。

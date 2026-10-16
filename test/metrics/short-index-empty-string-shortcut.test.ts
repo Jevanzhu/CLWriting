@@ -50,8 +50,8 @@ test('R71-33: 纯标点锚点标题不虚报 anchoredSetupCount（空串短路�
     })
     const entries = scanShortCollection(root)
     // 修复前：空串锚点对任意位置 includes('') 恒真 → anchoredSetupCount = 2（虚报）
-    expect(entries[0]!.reversalQuality.anchoredSetupCount).toBe(0)
-    expect(entries[0]!.reversalQuality.issues).toContain('铺垫正文锚点 0/2，位置回指不足')
+    expect(entries[0]!.reversalQuality!.anchoredSetupCount).toBe(0)
+    expect(entries[0]!.reversalQuality!.issues).toContain('铺垫正文锚点 0/2，位置回指不足')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -87,7 +87,7 @@ test('R71-33: 纯标点铺垫内容不虚报 payoffMatched（空串短路）', (
     })
     const entries = scanShortCollection(root)
     // 修复前：payoff 「脚印」对空串铺垫 includes('') 恒真 → payoffMatched = 1（虚报）
-    expect(entries[0]!.reversalQuality.payoffMatched).toBe(0)
+    expect(entries[0]!.reversalQuality!.payoffMatched).toBe(0)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

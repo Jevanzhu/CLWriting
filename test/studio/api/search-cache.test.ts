@@ -1,7 +1,7 @@
 /**
  * R35-7（三十五轮）回归：全书搜索端点缓存 + 在途去重（async 化不回退）。
  *
- * 此前 handler 同步调 searchBook——单书数千章查询期间冻结全进程（含 SSE 心跳）。
+ * 同步全书扫描在单书数千章查询期间冻结全进程（含 SSE 心跳）。
  * 修复后 handler 走 searchBookCached（目录 mtime 探针 + TTL 缓存 + 同参数并发去重 +
  * 底层 fs.promises 异步扫描）。本文件验证：
  * - 并发同参数只跑一次底层扫描；
