@@ -11,7 +11,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   runUpdateCheckOnce,
-  fetchLatestRelease,
+  resolveLatestRelease,
   getUpdateCheckResult,
   getUpdateCheckState,
   resolveAppVersion,
@@ -224,12 +224,27 @@ describe('runUpdateCheckOnce 静默失败面（不抛、不置结果）', () => 
   })
 })
 
-describe('fetchLatestRelease（薄包装面）', () => {
-  it('fetchLatestRelease 同响应带 assets（下载链重新定位资产用）', async () => {
-    const release = await fetchLatestRelease(okFetch(RELEASES).fn)
+describe('resolveLatestRelease（三态：下载链按 kind 分流文案）', () => {
+  it('有正式版 → release（同响应带 assets，下载链据此定位资产）', async () => {
+    const outcome = await resolveLatestRelease(okFetch(RELEASES).fn)
+    expect(outcome.kind).toBe('release')
+    const release = outcome.kind === 'release' ? outcome.release : null
     expect(release?.tag).toBe('v1.0.0')
     expect(pickPortableAsset(release?.assets, '1.0.0')?.url).toBe('https://dl.test/CLWriting-1.0.0-x64.zip')
-    expect(await fetchLatestRelease(okFetch({}, { status: 500 }).fn)).toBeNull()
+  })
+
+  it('发布集里全是 rc → none（网络正常，只是没有正式版；与 error 必须分开）', async () => {
+    const outcome = await resolveLatestRelease(okFetch([{ tag_name: 'v1.0.0-rc.4', draft: false }]).fn)
+    expect(outcome.kind).toBe('none')
+  })
+
+  it('取不到（非 2xx / 响应不是数组 / 抛错）→ error 带原因', async () => {
+    expect(await resolveLatestRelease(okFetch({}, { status: 500 }).fn)).toMatchObject({ kind: 'error' })
+    expect(await resolveLatestRelease(okFetch({ not: 'array' }).fn)).toMatchObject({ kind: 'error' })
+    const boom = (async () => {
+      throw new Error('econnreset')
+    }) as unknown as typeof fetch
+    expect(await resolveLatestRelease(boom)).toMatchObject({ kind: 'error' })
   })
 })
 

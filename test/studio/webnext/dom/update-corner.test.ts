@@ -279,3 +279,23 @@ describe('更新角标：上次更新未完成', () => {
     expect(popEl()!.textContent).toContain('还有其他书库的窗口在运行，本次未开始')
   })
 })
+
+describe('更新角标：弹层锚定', () => {
+  // 红锚（真机暴露）：原按角标**右缘**对齐，而角标恒在左栏最左——78 − 300 = −222 被
+  // 8px 视口下限夹死，弹层实际钉在窗口左角、与角标脱钩（真机实测 chip x52-78 而
+  // pop x8-308，右缘多伸 230px）。
+  it('左缘锚定角标左缘（不再被视口下限夹到窗口左角）', async () => {
+    installBridge()
+    mocks.getAppInfo.mockResolvedValue({ version: '1.0.0-rc.4', update: UPDATE_FULL, updateAttempt: null })
+    const wrapper = await mountCorner()
+    const chip = wrapper.find('.uc-chip').element as HTMLElement
+    // jsdom 无布局（rect 恒 0）：给角标一个真机矩形——左栏内缩 8px、32px 标题条里居中
+    chip.getBoundingClientRect = (() =>
+      ({ left: 52, right: 78, top: 2.5, bottom: 28.5, width: 26, height: 26 }) as unknown as DOMRect) as () => DOMRect
+    await wrapper.find('.uc-chip').trigger('click')
+    await flush()
+    const pop = popEl() as HTMLElement
+    expect(pop.style.left).toBe('52px')
+    expect(pop.style.top).toBe('34.5px')
+  })
+})

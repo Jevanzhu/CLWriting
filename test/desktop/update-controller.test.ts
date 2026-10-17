@@ -208,6 +208,15 @@ describe('startUpdateDownload（发布信息重取 + 流式下载 + 缓存复用
     expect(r.reason).toContain('取不到发布信息')
   })
 
+  it('发布集里没有正式版 → 报「无正式版」而非网络错（两因两话，别把排查引向代理）', async () => {
+    setPlatform('win32')
+    M.netFetchResponse = () => releasesResponse('1.0.0-rc.4', null)
+    const r = await startUpdateDownload({ version: '1.0.0-rc.4', onProgress: () => {} })
+    expect(r.ok).toBe(false)
+    expect(r.reason).toContain('正式版')
+    expect(r.reason).not.toContain('网络')
+  })
+
   it('校验不匹配 → 失败信封含「校验未通过」，且不置就绪态、盘上无残迹', async () => {
     setPlatform('win32')
     serveByUrl('1.0.0', 'f'.repeat(64))

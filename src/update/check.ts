@@ -89,10 +89,22 @@ export function resolveAppVersion(): string {
   return '0.0.0'
 }
 
-/** 本次检查的结局（区分「取到正式版」「没取到正式版」与「出错」，后者才留 info） */
-type FetchOutcome = { kind: 'release'; release: LatestRelease } | { kind: 'none' } | { kind: 'error'; reason: string }
+/** 定位正式版的结局三态（「取到正式版」/「发布集里没有正式版」/「取不到（出错）」）。
+ *  三态不可合成一个 null：检查链只对 `error` 留一行 info（另两态静默），而下载链的失败
+ *  文案必须分开——`none` 不是网络问题，报「网络不可达」会把排查引向代理。 */
+export type LatestReleaseOutcome =
+  { kind: 'release'; release: LatestRelease } | { kind: 'none' } | { kind: 'error'; reason: string }
 
-async function fetchOutcome(fetchImpl: typeof fetch, timeoutMs: number): Promise<FetchOutcome> {
+/**
+ * 定位最新**正式版**发布（tag + 原始 assets；三态见 `LatestReleaseOutcome`，不抛）。
+ * 检查链与下载链共用本面：检查链取结论，下载链在用户点「下载并更新」时重新定位资产。
+ * @param fetchImpl 注入用（主进程传 `net.fetch`；测试传桩）
+ * @param timeoutMs 超时毫秒；<=0 关闭超时
+ */
+export async function resolveLatestRelease(
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs: number = UPDATE_CHECK_TIMEOUT_MS,
+): Promise<LatestReleaseOutcome> {
   const controller = timeoutMs > 0 ? new AbortController() : null
   const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null
   try {
@@ -131,21 +143,6 @@ async function fetchOutcome(fetchImpl: typeof fetch, timeoutMs: number): Promise
 }
 
 /**
- * 取最新**正式版**发布（tag + 原始 assets；无正式版/失败 → null，不抛）。
- * 下载链在用户点「下载并更新」时调本函数重新定位资产——不复用启动时的检查结果
- * （进程可能已开很久，期间可能发了新版本；重新解析保证下载的正是当下最新正式版）。
- * @param fetchImpl 注入用（缺省全局 fetch；测试传桩）
- * @param timeoutMs 超时毫秒；<=0 关闭超时
- */
-export async function fetchLatestRelease(
-  fetchImpl: typeof fetch = fetch,
-  timeoutMs: number = UPDATE_CHECK_TIMEOUT_MS,
-): Promise<LatestRelease | null> {
-  const outcome = await fetchOutcome(fetchImpl, timeoutMs)
-  return outcome.kind === 'release' ? outcome.release : null
-}
-
-/**
  * 跑一次检查（主进程侧起服后延迟调用一次；调用方 await 到落定后取结果下发子进程）。
  * 开关短路：`CLW_DISABLE_UPDATE_CHECK=1` 直接返回且**不置结果**（保持未完成态——
  * 关掉检查的环境里端点不会凭空给出「已查无新版」）。
@@ -159,7 +156,7 @@ export async function runUpdateCheckOnce(opts?: {
   if (process.env[UPDATE_CHECK_DISABLE_ENV] === '1') return
 
   const current = opts?.currentVersion ?? resolveAppVersion()
-  const outcome = await fetchOutcome(opts?.fetchImpl ?? fetch, opts?.timeoutMs ?? UPDATE_CHECK_TIMEOUT_MS)
+  const outcome = await resolveLatestRelease(opts?.fetchImpl ?? fetch, opts?.timeoutMs ?? UPDATE_CHECK_TIMEOUT_MS)
   setCheckState('done')
   if (outcome.kind === 'error') {
     // 静默口径（§3.3）：只留一行 info（非 warn）——详见文件头与 embed.ts 的差异说明

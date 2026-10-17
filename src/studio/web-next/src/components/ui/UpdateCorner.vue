@@ -16,7 +16,7 @@ import UpdateActions from './UpdateActions.vue'
 
 const u = useUpdateStore()
 
-/** 弹层定宽（右对齐锚定用；与 .uc-pop 的 width 一致） */
+/** 弹层定宽（视口夹取用；与 .uc-pop 的 width 一致） */
 const POP_W = 300
 /** 进度环几何（SVG 16×16，r=6.5） */
 const RING_R = 6.5
@@ -73,7 +73,9 @@ function syncPopPos(): void {
   const el = chipRef.value
   if (!el || !popOpen.value) return
   const r = el.getBoundingClientRect()
-  popX.value = Math.max(8, Math.min(r.right - POP_W, window.innerWidth - POP_W - 8))
+  // 左缘锚定角标左缘（弹层向右展开）：角标恒在左栏最左，按右缘对齐会让弹层整体落在
+  // 视口左侧之外、被 8px 下限夹成「钉窗口左角」，与角标脱钩。
+  popX.value = Math.max(8, Math.min(r.left, window.innerWidth - POP_W - 8))
   popY.value = r.bottom + 6
 }
 
@@ -112,8 +114,8 @@ function onDocKeydown(e: KeyboardEvent): void {
   }
 }
 
-/** 角标隐去（忽略/清掉结果条）时弹层不悬空；形态变化（26px 图标 ⟷ 就绪胶囊
- *  改宽）改变右缘锚点，弹层开着时须按新几何重锚（否则锚在旧右缘上）。 */
+/** 角标隐去（忽略/清掉结果条）时弹层不悬空；形态变化改角标矩形（就绪胶囊 22px 高
+ *  ⟷ 图标 26px 高，底边差 2px），弹层开着时须按新几何重锚（否则顶边锚在旧底边上）。 */
 watch(chipMode, (m) => {
   if (!m) popOpen.value = false
   else if (popOpen.value) void nextTick(syncPopPos)
@@ -253,7 +255,7 @@ onBeforeUnmount(() => {
   stroke: var(--text-accent);
   stroke-linecap: round;
 }
-/* 弹层（Teleport 到 body，右对齐锚定角标下方；z 与 TabBar 新建下拉同档） */
+/* 弹层（Teleport 到 body，左缘锚定角标左缘、贴其下方；z 与 TabBar 新建下拉同档） */
 .uc-pop {
   position: fixed;
   z-index: 1000;

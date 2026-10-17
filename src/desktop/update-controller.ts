@@ -26,12 +26,13 @@ import { errMsg, log } from '../log/index.js'
 import { appDataHomeDir, instanceKeyForDir } from '../fs/user-data-path.js'
 import { compareSemver } from '../update/semver.js'
 import {
-  fetchLatestRelease,
   getUpdateCheckResult,
   getUpdateCheckState,
+  resolveLatestRelease,
   runUpdateCheckOnce,
   UPDATE_CHECK_DELAY_MS,
   UPDATE_RESULT_MESSAGE_TYPE,
+  type LatestReleaseOutcome,
 } from '../update/check.js'
 import { pickChecksumsUrl, pickPortableAsset, type UpdateAsset } from '../update/asset.js'
 import { downloadUpdateZip, sha256OfFile } from '../update/download.js'
@@ -116,6 +117,14 @@ function failureMessage(reason: 'network' | 'checksum' | 'disk' | 'canceled', de
   }
 }
 
+/** 定位正式版失败的两因两话：`none` = 发布集里没有正式版（**不是**网络问题——报网络
+ *  会把排查引向代理）；`error` = 真取不到（网络 / 限速 / 响应异常）。 */
+function releaseFetchFailure(outcome: Exclude<LatestReleaseOutcome, { kind: 'release' }>): string {
+  return outcome.kind === 'none'
+    ? '发布页暂无可用的正式版，请稍后重试或改用「去下载」'
+    : '取不到发布信息（网络不可达或限速），请稍后重试或改用「去下载」'
+}
+
 /**
  * 下载便携包到共享根缓存并置就绪态。
  * 缓存复用：正式名文件存在 ⟺ 它上一轮已过校验——此时实测 sha256 与发布方给的值
@@ -131,13 +140,12 @@ export async function startUpdateDownload(opts: {
   if (activeDownload) return { ok: false, reason: '已有一次下载正在进行中' }
 
   const home = appDataHomeDir()
-  let release: Awaited<ReturnType<typeof fetchLatestRelease>> = null
-  try {
-    release = await fetchLatestRelease(netFetch, RELEASE_FETCH_TIMEOUT_MS)
-  } catch (e) {
+  const outcome = await resolveLatestRelease(netFetch, RELEASE_FETCH_TIMEOUT_MS).catch((e: unknown) => {
     log.warn('update', `发布信息拉取异常：${errMsg(e)}`)
-  }
-  if (!release) return { ok: false, reason: '取不到发布信息（网络不可达或限速），请稍后重试或改用「去下载」' }
+    return { kind: 'error' as const, reason: errMsg(e) }
+  })
+  if (outcome.kind !== 'release') return { ok: false, reason: releaseFetchFailure(outcome) }
+  const release = outcome.release
   const version = release.tag.replace(/^v/, '')
   if (version !== opts.version.replace(/^v/, '')) {
     return { ok: false, reason: '发布页版本已变化，请重新检查更新' }
