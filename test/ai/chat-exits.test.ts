@@ -34,6 +34,12 @@ let fake: FakeProvider
 const dirs: string[] = []
 let bookRoot: string
 
+/** ① 档（deadline 落在确认闸等待期）的注入窗：deadline 必须晚于工具到达确认闸、
+ *  早于确认闸自身超时。CI 满载下到达确认闸可超 2s——CI 放到 15s/60s，本地维持 2s/8s
+ *  （「deadline 先赢」形态与断言口径不变；15s 文案换算仍为 0 分钟）。 */
+const CONFIRM_DEADLINE_MS = process.env.CI ? 15_000 : 2_000
+const CONFIRM_WINDOW_MS = process.env.CI ? 60_000 : 8_000
+
 beforeAll(async () => {
   fake = await createFakeProvider()
 })
@@ -136,13 +142,13 @@ describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
 
   it(
     '① timeout：deadline 在确认闸等待期间触发（轮首中止 + timedOut）→ 同 timeout 口径',
-    { timeout: 10_000 },
+    { timeout: process.env.CI ? 30_000 : 10_000 },
     async () => {
       // 2026-09-17 CI 复验批裕量放宽（原 deadlineMs: 120）：deadline 必须在工具调用挂上
       // 确认闸**之后**触发，工具才有 tool/result 可归因「确认超时」——CI win runner 上
-      // 120ms 在确认闸挂起前到期 → 轮首中止时工具未执行、tool/result 缺失（实测
-      // undefined 红）。2s ≪ confirmTimeoutMs 8000 维持「deadline 先赢」形态，慢机到达
-      // 确认闸的实测裕量 ~4×；文案换算 Math.round(2000/60000)=0 分钟不变
+      // 到期早于确认闸挂起时，轮首中止时工具未执行、tool/result 缺失（实测 undefined 红）。
+      // 注入窗见 CONFIRM_DEADLINE_MS / CONFIRM_WINDOW_MS：deadline 恒小于确认闸窗，
+      // 维持「deadline 先赢」形态；文案换算 Math.round(deadline/60000)=0 分钟不变。
       fake.setScript([{ type: 'tool', name: 'move_chapter', input: { chapter: 1, to: 2 } }])
       const ud = setup()
       const events: DriverEvent[] = []
@@ -153,11 +159,11 @@ describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
         bookRoot,
         bookName: 'exit-timeout-confirm',
         message: '出口走查',
-        confirmTimeoutMs: 8000,
-        deadlineMs: 2000,
+        confirmTimeoutMs: CONFIRM_WINDOW_MS,
+        deadlineMs: CONFIRM_DEADLINE_MS,
       })
       const err = events.find((e) => e.type === 'chat_error') as { error: string } | undefined
-      // R1010b-AI-P3-3：文案按实际生效 deadline 换算（本测注入 deadlineMs: 2000 → 0 分钟）
+      // R1010b-AI-P3-3：文案按实际生效 deadline 换算（本测注入窗 ≤15s → 0 分钟）
       expect(err?.error).toBe('对话超时（超过 0 分钟），已停止')
       const store = openSessionStore(ud, bookRoot)!
       try {
