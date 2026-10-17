@@ -52,6 +52,8 @@ async function req(method: string, path: string, body?: unknown): Promise<{ stat
   return { status: r.status, json }
 }
 
+// 60s 帽：CI 慢机重负载下 beforeAll（三书建具 + 起服 + boot 取 token）可超
+// vitest 缺省 10s hookTimeout；建具纯 IO/网络监听无断言语义，放宽不弱化守卫。
 beforeAll(async () => {
   workDir = mkdtempSync(join(tmpdir(), 'clwriting-export-worker-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
@@ -103,7 +105,7 @@ beforeAll(async () => {
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const r = await fetch(`${baseUrl}/api/boot`)
   token = ((await r.json()) as { token: string }).token
-})
+}, 60_000)
 
 afterAll(async () => {
   if (server) await new Promise<void>((r) => server!.close(() => r()))

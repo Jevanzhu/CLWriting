@@ -16,6 +16,8 @@ import { acquireCrossProcessLockAsync } from '../../../src/fs/cross-process-lock
 const BOOK = '测试书'
 let studio: StudioHarness
 
+// 60s 帽：CI 慢机重负载下 beforeAll（bootStudio 起服 + 建具 + 取 token）可超
+// vitest 缺省 10s hookTimeout；启动型钩子无断言语义，放宽不弱化守卫。
 beforeAll(async () => {
   studio = await bootStudio({
     book: BOOK,
@@ -30,7 +32,7 @@ beforeAll(async () => {
       { rel: '写作/正文/0001-初入宗门.md', content: '---\n章号: 1\n标题: 初入宗门\n---\n\n林远踏入宗门。' },
     ],
   })
-})
+}, 60_000)
 
 afterAll(() => studio.close())
 
