@@ -77,7 +77,11 @@ const server = startServer({ port: PORT, workDir, userDataPath })
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`  ❌  端口 ${PORT} 已被占用（EADDRINUSE）——可能已有一个 dev-api 在跑。`)
-    console.error(`     请先停掉占用进程（lsof -i :${PORT}），或设 CLW_DEV_API_PORT=<其他端口> 后重试；`)
+    const probe =
+      process.platform === 'win32'
+        ? `netstat -ano | findstr :${PORT} 查占用 PID 后 taskkill /PID <pid> /F`
+        : `lsof -i :${PORT} 查占用进程并 kill`
+    console.error(`     请先停掉占用进程（${probe}），或设 CLW_DEV_API_PORT=<其他端口> 后重试；`)
     console.error(
       `     注意：Vite /api 代理目标取自跨包单源缺省（src/shared/contract/studio.ts 的 DEV_API_DEFAULT_PORT），`,
     )

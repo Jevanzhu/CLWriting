@@ -1,31 +1,9 @@
 import { apiJson } from './client'
 import { bookUrl } from './url'
 
-// 机检报告类型（镜像后端 src/check/types.ts 精简；web-next 独立构建不跨包 import）。
-export type CheckLevel = 'red' | 'yellow'
-export interface CheckItem {
-  checkId: string
-  level: CheckLevel
-  message: string
-  leadId?: string
-  chapter?: number
-}
-interface CheckSection {
-  name: string
-  items: CheckItem[]
-}
-export interface CheckReport {
-  sections: CheckSection[]
-  byproducts?: Record<string, unknown>
-}
-interface CheckResult {
-  ok: true
-  report: CheckReport
-  hasRed: boolean
-  /** 本次按作者误报标记跳过的命中条数（结果由服务端过滤；旧服务端缺此字段，
-   *  消费侧按 0 兜底——0 与缺省同义，都是「本次没有跳过任何命中」）。 */
-  suppressedCount?: number
-}
+// 机检报告类型单源 = src/shared/contract/check.ts（服务端端点同类型注解）。
+import type { CheckResult } from '../../../../shared/contract/check'
+export type { CheckItem, CheckLevel, CheckReport, CheckResult } from '../../../../shared/contract/check'
 
 // POST /documents/:docId/check —— 本地机检（无 AI、断网可用；M12 块3 B3.1）。
 // 即算即显，不落信封；返回 CheckReport + hasRed 汇总。

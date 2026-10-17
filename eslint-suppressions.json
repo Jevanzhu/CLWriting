@@ -69,16 +69,10 @@
   "src/ai/provider/openai-adapter.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
-    },
-    "@typescript-eslint/only-throw-error": {
-      "count": 1
     }
   },
   "src/ai/provider/responses-adapter.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
-    "@typescript-eslint/only-throw-error": {
       "count": 1
     },
     "complexity": {

@@ -47,13 +47,14 @@ import { forgetRagBuildTask } from './rag.js'
 import { forgetSseCount } from './stream.js'
 import { log } from '../../../log/index.js'
 import {
-  forgetBookKeyedCaches,
+  forgetBookKeyedCachesForAliases,
   busyGate,
   awaitOrchestrationsSettled,
   drainAndRecheckBookMutation,
   recordPendingEventMigration,
   clearPendingEventMigration,
 } from './books-lifecycle.js'
+import { bookRootAliases } from '../cache-registry.js'
 import type { BookCtx } from './books.js'
 
 export let initialBook: string | undefined
@@ -201,6 +202,9 @@ export function registerBookRenameRoutes(ctx: BookCtx): void {
       if (!resolveWithinRoot(ctx.workDir, entry.path)) {
         return replyError(res, 400, 'BAD_PATH', '书路径非法（越出书库）')
       }
+      // 搬目录前取旧书根别名：realpath 解析需旧路径仍在（搬后只清词法键会漏掉
+      // 书架扫描落的 realpath 键，见 cache-registry 同注）。
+      const oldRootsToForget = bookRootAliases(oldRoot)
       // 纯大小写改名走「同目录原位」——不 renameSync（目标即源目录本身），直接
       // 进下方注册面同步（事件库按 bookHash(oldRoot)→bookHash(newRoot) 搬库、books.jsonl
       // 登记/active 指针/book.yaml title/各缓存清理全量照走；盘上目录名保留原大小写，
@@ -248,8 +252,8 @@ export function registerBookRenameRoutes(ctx: BookCtx): void {
       // 顶到 429（计数只在 req close 时递减，改名后旧名再无归零通路）。
       forgetSseCount(oldName)
       // 书键 TTL 结果缓存清旧键（新键惰性重建——新 root 尚无请求）
-      forgetBookKeyedCaches(oldRoot)
-      invalidateTreeIndex(oldRoot, true)
+      forgetBookKeyedCachesForAliases(oldRootsToForget)
+      for (const root of oldRootsToForget) invalidateTreeIndex(root, true)
       invalidateBookSummary(oldRoot)
       // 内存闸（审计）：旧路径前缀的章节元数据缓存一并清（新路径键惰性重建）
       clearChapterDirCacheForBook(oldRoot)

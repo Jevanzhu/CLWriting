@@ -23,6 +23,7 @@ import {
   type ForeshadowEntry,
   type ForeshadowTrail,
 } from '../../../document/foreshadow.js'
+import type { Foreshadow } from '../../../shared/contract/foreshadows.js'
 
 interface ForeshadowCtx {
   workDir: string | null
@@ -144,11 +145,8 @@ export function registerForeshadowRoutes(ctx: ForeshadowCtx): void {
         return
       }
       const { entries, trails } = snapshot
-      reply(
-        res,
-        200,
-        entries.map((e) => ({ ...e, 足迹: trails.get(e.标题) ?? null })),
-      )
+      const payload: Foreshadow[] = entries.map((e) => ({ ...e, 足迹: trails.get(e.标题) ?? null }))
+      reply(res, 200, payload)
     },
   })
 }

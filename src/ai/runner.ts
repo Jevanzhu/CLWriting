@@ -43,6 +43,7 @@ import {
   llmRetryEvent,
 } from '../events/chain-bridge.js'
 import type { StepEndReason } from '../events/types.js'
+import type { NewEvent } from '../events/store.js'
 import { DEFAULT_RETRY_POLICY, backoffDelayMs, shouldRetryError } from './retry-policy.js'
 // 失败出口日志留痕需带「动作名」——直接取决策表现值（failure.ts 唯一事实源），
 // 不在 runner 侧维护第二份 code→action 映射（单口径化纪律）
@@ -110,8 +111,8 @@ export interface TaskOk<T> {
   /**
    * 全部 attempt 的用量累计（重试/中断 attempt 的可得 usage
    * 一并计入；单 attempt 成功时与 usage 相等）。done 事件消费方（self-heal）取本字段
-   * 与 ai-calls.json 按次入账口径对齐——修复前 done 只含末次成功 attempt，前端成本
-   * 显示偏低。含任一估计入账（estimated）attempt 时整体带 estimated 标记。
+   * 与 ai-calls.json 按次入账口径对齐——只含末次成功 attempt 时前端成本显示偏低。
+   * 含任一估计入账（estimated）attempt 时整体带 estimated 标记。
    */
   attemptsUsage?: TokenUsage | null
   /** 本次调用的唯一标识（贯穿 trace/SSE/记账三路） */
@@ -485,6 +486,9 @@ interface RunTaskOpts<T> {
   /** prompt 引用的材料文件（相对书根）——进 promptMeta.files，
    *  备料注入（章摘要等）「模型可见 ⟺ 已记录」的登记通道 */
   promptFiles?: string[]
+  /** 可见性血缘登记事件（调用方组装的 scope+digest 快照）——与 step/start 同批入链，
+   *  供调用方随后抽样校验；不参与 promptMeta 摘要。 */
+  lineageEvents?: NewEvent[]
   /** 模型可见工具名清单（run 内挂 tools 的调用传，如 chat 的 chatTools）——
    *  进 promptMeta.tools（去重排序摘要），工具 schema 面的重放口径登记；
    *  不传则无此键（向后兼容） */
@@ -654,7 +658,12 @@ async function prepareRun<T>(opts: RunTaskOpts<T>): Promise<RunPrep<T>> {
   // step/start 先落库（mock 快路 / resolveProvider 失败路径在其后各自收尾）
   // mkChain 转异步（开库锁等待不阻塞服务事件循环）
   ctx.chain = await mkChain(opts.userDataPath, bookRoot, task)
-  if (ctx.chain) ctx.chain.add(stepStartEvent(task!, layerForTask(task!)))
+  if (ctx.chain) {
+    ctx.chain.add(stepStartEvent(task!, layerForTask(task!)))
+    // 可见性血缘登记与 step/start 同批入链——事件先于生成落库，
+    // 诊断抽样（调用方在 runTask 返回后跑）读到的是本批已登记凭据
+    for (const ev of opts.lineageEvents ?? []) ctx.chain.add(ev)
+  }
 
   /** mock 快路收尾：step/end + 释放 chain（防 finally 双 close；补记链路事件） */
   const finishMock = (): void => {

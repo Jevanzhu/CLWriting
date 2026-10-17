@@ -71,6 +71,12 @@ test('A2: mock 快路走 runSpec 统一通道——链路事件（step/llm）落
       const call = evs.find((e) => e.type === 'llm/call') as { data?: { model?: string } } | undefined
       expect(call).toBeDefined()
       expect(call!.data!.model).toBe('mock')
+      // C3：可见注入登记面扩到 self-heal 链——首稿 prompt 指纹以
+      // settings/snapshot（scope='prompt'）落 workspace 会话，抽样校验有凭据可对
+      const snap = evs.find((e) => e.type === 'settings/snapshot') as
+        { data?: { scope?: string; digest?: string } } | undefined
+      expect(snap?.data?.scope).toBe('prompt')
+      expect(snap?.data?.digest).toMatch(/^[0-9a-f]{16}$/)
     } finally {
       store.close()
     }

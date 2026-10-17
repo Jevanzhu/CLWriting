@@ -34,6 +34,7 @@ import { createTtlProbeCache } from '../ttl-cache.js' // TTL+探针+FIFO 缓存�
 import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
 import { sigStatFor } from './rhythm.js' // （SRV 域）：size:mtimeMs 签名单源（原本地同构副本收敛）
 import { redactSecret } from '../../../ai/provider/redact.js' // API 错误脱敏
+import type { OverviewResult } from '../../../shared/contract/overview.js'
 
 interface OverviewCtx {
   workDir: string | null
@@ -196,7 +197,7 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
           const { chapters: bodyChapters } = readChapterDir(join(root, '写作', '正文'))
           const timeline = await computeTimeline(root, bodyChapters)
           const shortProfile = kind === 'short' ? extractShortProfile(config) : undefined
-          const payload: Record<string, unknown> = {
+          const payload = {
             identity: {
               name: entry.name,
               kind: entry.kind,
@@ -204,7 +205,7 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
               ...(entry.created_at ? { created_at: entry.created_at } : {}),
               title: config.book.title,
               genre: config.book.genre,
-              host: entry.host ?? 'cc',
+              host: typeof entry.host === 'string' ? entry.host : 'cc',
             },
             progress: withTarget(await computeProgressAsync(root, bodyChapters), config.book.target_words),
             state,
@@ -213,7 +214,7 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
             recentDoc: getRecentDoc(root, bodyChapters),
             streak: computeStreak(timeline),
             ...(shortProfile ? { shortProfile } : {}),
-          }
+          } satisfies OverviewResult
           return { payload, stateOk }
         },
         ctx.overviewTtlMs ?? undefined,

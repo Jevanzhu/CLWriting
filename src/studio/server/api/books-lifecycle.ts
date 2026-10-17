@@ -29,7 +29,12 @@ import { join, basename, dirname } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js' // TTL+FIFO 缓存壳单源
-import { registerBookKeyedCache, forgetBookKeyedCaches as forgetRegisteredBookKeyedCaches } from '../cache-registry.js' // 书键缓存登记表（登记制单源；见下方聚合入口段）
+import {
+  registerBookKeyedCache,
+  forgetBookKeyedCaches as forgetRegisteredBookKeyedCaches,
+  forgetBookKeyedCachesForRoots,
+  bookRootAliases,
+} from '../cache-registry.js' // 书键缓存登记表（登记制单源；见下方聚合入口段）
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import { removeBookEntryAsync } from '../../../install/books.js'
 import { resolveBookOrReply } from '../book-context.js'
@@ -100,6 +105,11 @@ registerBookKeyedCache('ai-calls-migrated-roots', forgetMigratedRoots)
  *  模块自登记处与各 forget 头注。 */
 export function forgetBookKeyedCaches(bookRoot: string): void {
   forgetRegisteredBookKeyedCaches(bookRoot)
+}
+
+/** 广播的别名面：删/改名在 FS 操作前取别名，成功后按别名组广播（见 cache-registry 同注）。 */
+export function forgetBookKeyedCachesForAliases(roots: readonly string[]): void {
+  forgetBookKeyedCachesForRoots(roots)
 }
 
 // ── 书架守卫/配置 TTL 缓存 ──────────────────
@@ -521,6 +531,9 @@ export function registerBookLifecycleRoutes(ctx: BookCtx): void {
       }
       // 删书目录：整目录原子改名入墓地（含 git 历史）；物理清理移交后台
       const bookAbs = join(ctx.workDir, entry.path)
+      // 删前取书根别名：realpath 解析需目录仍在（删后旧路径已解析不出 realpath，
+      // 只清词法键会漏掉书架扫描落的 realpath 键，见 cache-registry 同注）。
+      const bookRootsToForget = bookRootAliases(bookAbs)
       // symlink/越出校验：防 entry.path 中间组件是符号链接或 .. → rmSync 删到书库外。
       // 统一：resolveWithinRoot（防穿越 + symlink 双侧 realpath；书路径 = workDir 自身
       // 时 rel='' 同判非法）。realpath 失败（不存在/权限）→ null → 拒绝删除
@@ -575,11 +588,11 @@ export function registerBookLifecycleRoutes(ctx: BookCtx): void {
       // per-book SSE 计数一并清——残留计数会让同名重建书被顶到 429 上限
       forgetSseCount(name)
       // 书键 TTL 结果缓存一并清（见顶部 forgetBookKeyedCaches 注释）
-      forgetBookKeyedCaches(bookAbs)
+      forgetBookKeyedCachesForAliases(bookRootsToForget)
       // 书架摘要缓存一并清——rename 分支（444）有 invalidateBookSummary，
       // delete 分支漏配：删后 5s TTL 窗口内同名重建书，书架卡会读到旧章数/字数/最近编辑
       invalidateBookSummary(bookAbs)
-      invalidateTreeIndex(bookAbs, true)
+      for (const root of bookRootsToForget) invalidateTreeIndex(root, true)
       // 内存闸（审计）：章节元数据缓存按书前缀一并清——删书后目录已不在，
       // 每章元数据条目成死重（bookAbs 即各调用方 readChapterDir 键的 join 前缀）
       clearChapterDirCacheForBook(bookAbs)

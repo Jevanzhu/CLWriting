@@ -12,6 +12,10 @@ import { runTask } from '../runner.js'
 import { generate, generateTool, GenError } from '../gen.js'
 import { rulesPromptParts } from '../rules/index.js'
 import { resolveBuiltinSystemPromptSourced } from '../prompts/resource.js'
+import { settingsSnapshotEvent } from '../../events/chain-bridge.js'
+import { verifyVisibleSampled } from '../../events/lineage-sampling.js'
+import type { VisibleInjection } from '../../events/lineage.js'
+import type { NewEvent } from '../../events/store.js'
 
 /** 任务生成模式 */
 type GenMode = 'text' | 'tool'
@@ -75,6 +79,10 @@ export interface SpecOpts {
   /** prompt 引用的材料文件（相对书根）——随 llm/call 事件 promptMeta.files
    *  登记，满足「模型可见 ⟺ 已记录」（备料注入的章摘要等可回溯到源文件） */
   promptFiles?: string[]
+  /** 模型可见注入清单（scope+digest，调用方按实际注入内容算出）——runSpec 落同源
+   *  登记事件（settings/snapshot 形状），并在调用返回后经 CLW_VERIFY_VISIBLE=1
+   *  抽样校验；不传即不登记不抽样（链路按需加入抽样面）。 */
+  visible?: VisibleInjection[]
 }
 
 /** runSpec 产出（统一形状，调用方按需取字段） */
@@ -86,13 +94,13 @@ export interface SpecOutput {
   /** 停止原因 */
   stopReason: string
   /** token 用量（必须回传——runner 据此记 trace/任务账/前端计数；
-   *  此前丢失导致真实链路 usage 全程为 0，只有 mock 路径有值） */
+   *  丢失即真实链路 usage 全程为 0，只有 mock 路径有值） */
   usage?: TokenUsage
   /** 适配器 resolve 后上线输出上限——runner 提取落 llm/call（铁律②重放口径） */
   resolvedMaxTokens?: number
   /** 成功建流用的是降级参数面（GenResult.degraded 透传）——runner
-   * extractDegraded 落 llm/call。只修了适配器→gen 半段，三处 run 回调此前不带
-   *  该字段，降级面成功的事件记录与真实参数面静默分叉（铁律②重放口径） */
+   *  extractDegraded 落 llm/call。三处 run 回调均须透传该字段，缺则降级面成功的事件
+   *  记录与真实参数面静默分叉（铁律②重放口径） */
   degraded?: boolean
 }
 
@@ -128,8 +136,8 @@ export async function runSpec(spec: TaskSpec, opts: SpecOpts): Promise<TaskResul
     opts.userDataPath ?? undefined,
   )
   const base = resolvedPrompt.text ?? ''
-  // 注入文本与登记清单同一次读盘派生（rulesPromptParts 单源）——此前
-  // rulesToPrompt 与 rulesPromptFiles 各自独立读盘，微观窗口注入与登记可撕裂
+  // 注入文本与登记清单同一次读盘派生（rulesPromptParts 单源）——两处各自独立读盘时
+  // 微观窗口的注入与登记可撕裂
   const parts = rulesPromptParts(spec.name, opts.bookRoot)
   // 动态注入段(如三审视角技法)拼在内置/overlay 与 rules 之后——不参与哈希匹配
   const suffix = opts.systemPromptSuffix ? '\n\n' + opts.systemPromptSuffix : ''
@@ -150,19 +158,24 @@ export async function runSpec(spec: TaskSpec, opts: SpecOpts): Promise<TaskResul
   // （低级）：桥接监听随调用收尾摘除——正常完成的调用不再把 listener
   // 留在 chat/self-heal 的长寿命 signal 上逐次累积
   const bridge = !opts.ctrl && opts.signal ? ctrlFromSignal(opts.signal) : null
+  // 可见注入的登记事件：每条 {scope,digest} 折成 settings/snapshot（校验器按
+  // data.scope+data.digest 归一化消费，形状与 chat 血缘登记同源）——登记与抽样同一次
+  // 组装派生，两侧不再各自镜像
+  const visible = opts.visible ?? []
+  const lineageEvents: NewEvent[] = visible.map((v) => settingsSnapshotEvent({ scope: v.scope, digest: v.digest }))
   try {
-    return await runTask<SpecOutput>({
+    const result = await runTask<SpecOutput>({
       userDataPath: opts.userDataPath,
       tierKind: spec.tierKind,
       task: spec.name,
       bookRoot: opts.bookRoot,
       chapter: opts.chapter,
-      // 动态 system（内置解析 + rules 拼接终值）落 trace——promptMeta
-      // 哈希此前只有 userPrompt（铁律②重放口径：resolve 出的最终 system 不进哈希 = 不可
-      // 精确重建）；chat 轮（turns.ts）与 checkpoint（finish.ts）已传，此处漏
+      // 动态 system（内置解析 + rules 拼接终值）落 trace——promptMeta 哈希纳入
+      // system，同 user prompt 不同规则状态不致 hash 冲突
       systemPrompt,
       promptText: opts.userPrompt,
       promptFiles,
+      ...(lineageEvents.length > 0 ? { lineageEvents } : {}),
       // tool 型 spec 经 generateTool 挂载单工具 schema（模型可见）
       // ——工具名进 promptMeta.tools（铁律②「模型可见 ⟺ 已记录」工具面登记）；文本型
       // 不挂 tools，无此键
@@ -194,11 +207,11 @@ export async function runSpec(spec: TaskSpec, opts: SpecOpts): Promise<TaskResul
         // 文本型
         const r = await generate(provider, { systemPrompt, messages, effort: tier.effort }, signal, opts.onText)
         if (r.stopReason === 'max_tokens') {
-          // 截断时网关已返回的 usage 随 GenError 载荷上抛——runner 终态
-          // 失败路径按可得值入账（此前 recordUsageSafe(null) 记 0，成本口径低估）
-          // 补 code:'MAX_TOKENS'——errCode 口径与 gen.ts 两处
-          // MAX_TOKENS 出口对齐（runner 终态失败按 GenError.code 落 trace errCode，
-          // 缺码时笼统记 GEN_FAIL，失败归类统计分不出截断）
+          // 截断时网关已返回的 usage 随 GenError 载荷上抛——runner 终态失败路径按可得值
+          // 入账（不带 usage 则按 0 记，成本口径低估）
+          // 补 code:'MAX_TOKENS'——errCode 口径与 gen.ts 两处 MAX_TOKENS 出口对齐
+          // （runner 终态失败按 GenError.code 落 trace errCode，缺码时笼统记 GEN_FAIL，
+          // 失败归类统计分不出截断）
           throw new GenError('AI 产出达到长度上限被截断，请精简输入提示或稍后重试。', false, {
             code: 'MAX_TOKENS',
             usage: r.usage,
@@ -214,6 +227,10 @@ export async function runSpec(spec: TaskSpec, opts: SpecOpts): Promise<TaskResul
         }
       },
     })
+    // 抽样校验在返回前跑：登记事件已入链（runTask 内部 flush 前在缓冲，但同一批
+    // 对象即校验输入）——违约只 warn，不影响返回
+    if (visible.length > 0) verifyVisibleSampled(spec.name, visible, lineageEvents)
+    return result
   } finally {
     bridge?.detach()
   }

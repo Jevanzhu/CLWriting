@@ -84,7 +84,7 @@ function seedTree(): void {
 }
 
 function issue(over: Partial<ReviewIssueFE>): ReviewIssueFE {
-  return { lens: 'reader', severity: 'S1', category: 'c', location: '', evidence: [], issue: '', fix: '', ...over }
+  return { lens: 'reader', severity: 'S1', category: 'logic', location: '', evidence: [], issue: '', fix: '', ...over }
 }
 
 function collected(over: Partial<CollectedReviewFE> = {}): CollectedReviewFE {
@@ -94,7 +94,17 @@ function collected(over: Partial<CollectedReviewFE> = {}): CollectedReviewFE {
     missing_lenses: [],
     raw_issues: [],
     normalized: { blockers: [], warnings: [], invalid_issues: [], passed: true },
-    tier: 't',
+    bad_entries: [],
+    meta: {
+      requested_tier: 'full',
+      effective_tier: 'full',
+      fallback: '',
+      lenses_run: [],
+      ledger_check: '已跑',
+    },
+    tier: 'full',
+    requested_tier: 'full',
+    fallback: '',
     chapter: 1,
     lenses_run: [],
     ...over,

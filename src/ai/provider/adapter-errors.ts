@@ -6,7 +6,7 @@
  *   / openai）的 APIError 家族同构但类挂在各自命名空间下、无公共基类——工厂以构造函数
  *   签名传参（instanceof 判定用），不 import 具体 SDK，适配器只贴 label。
  * - 400 降级链：buildDegradeAttempts（attempts 构造）+ isMidChain400（continue 语义）+
- *   markStructuredDegrade（降级记忆写入）。三适配器的降级链此前是三份逐字节同构的拷贝。
+ *   markStructuredDegrade（降级记忆写入）+ runDegradeAttempts（attempt 循环骨架）。
  *
  * status → code 的决策表在 failure.ts（httpStatusToCode / headerErrorFields），
  * 本模块是适配器侧的组合层，不重复决策逻辑。
@@ -41,13 +41,11 @@ type SdkErrorCtor = abstract new (...args: never[]) => SdkApiError
  * （status undefined），必须在通用 APIError 分支前判定，否则用户中断被误报
  * 「<label> undefined: Request was aborted」、连接失败被归 UNKNOWN。
  *
- * 第二参 usage 可选透传——此前
- * 「usage 随错上抛」只覆盖适配器**主动 yield** 的 error 事件（截断/refusal/
- * content_filter 均带），流消费中 SDK 直接 throw（如 mid-stream 连接重置）走本工厂时
- * 无载荷通道：message_start 已实测的 input/cache、latestUsage 闭包值全部丢弃，runner
- * 终态失败路径按 0 入账（真实消耗漏记）。三适配器 catch 分支现把「异常时点可得的最小
- * 估计」折算后传入；字段形态与既有截断 error 事件逐字段一致（estimated 标记估计口径），
- * runner 的入账逻辑零改动。缺省 undefined 时输出与改前逐字节一致。
+ * 第二参 usage 可选透传——「usage 随错上抛」若不覆盖本工厂，流消费中 SDK 直接 throw
+ * （如 mid-stream 连接重置）就无载荷通道：message_start 已实测的 input/cache、latestUsage
+ * 闭包值全部丢弃，runner 终态失败路径按 0 入账（真实消耗漏记）。三适配器 catch 分支把
+ * 「异常时点可得的最小估计」折算后传入；字段形态与截断 error 事件逐字段一致（estimated
+ * 标记估计口径），runner 的入账逻辑零改动。缺省 undefined 时不挂 usage 载荷。
  */
 export function makeToErrorEvent(ctors: {
   APIError: SdkErrorCtor
@@ -65,9 +63,8 @@ export function makeToErrorEvent(ctors: {
       return { type: 'error', message: '已中断', retryable: false, code: 'ABORTED' }
     }
     // 连接层失败（含 APIConnectionTimeoutError）单列——status undefined 的 APIError
-    // retryable 布尔与 failure.ts 决策表对齐（NETWORK → 'retry'）——
-    // 此前 false 全靠 code 决策表兜住实际重试，若落到布尔兜底分支（mode:'always'）
-    // 连接类错误的可重试性会静默翻转
+    // retryable 布尔与 failure.ts 决策表对齐（NETWORK → 'retry'）；布尔置 false 时
+    // 若落到布尔兜底分支（mode:'always'），连接类错误的可重试性会静默翻转
     if (e instanceof APIConnectionError) {
       return withUsage({ type: 'error', message: redactSecret(e.message), retryable: true, code: 'NETWORK' })
     }
@@ -122,9 +119,7 @@ export interface DegradePlan {
  *
  * 连接期异常（建流 create 抛出、尚未消费任何 chunk）可安全换参数面重试；
  * 流中异常（已开始消费）不重跑——半截产出泄入下一 attempt 会污染拼装 / 重复增量。
- * 结构保证双轨：anthropic 消费循环在 attempts 循环外（天然不重跑）；
- * openai / responses 消费循环在 attempt 内，由适配器 catch 的 consumedAny 守卫
- * （收到首个 chunk 后 isMidChain400 不再放行续跑）。
+ * 判据由 runDegradeAttempts 的 per-attempt consumed 标记统一持有（三线同构）。
  */
 export function buildDegradeAttempts(
   req: GenRequest,
@@ -191,4 +186,49 @@ export function markStructuredDegrade(plan: DegradePlan, attempt: GenRequest, st
     if (store) store.modelCaps[plan.degradedKey] = { structured: false }
     persistDegraded(plan.degradedKey, plan.userDataPath)
   }
+}
+
+/** 单次 attempt 的消费标记（400 续跑闸输入） */
+export interface DegradeAttemptCtx {
+  /** 收到首个 chunk/事件时调用——此后本 attempt 的 400 不再续跑 */
+  consumed: () => void
+}
+
+/**
+ * 400 降级链的 attempt 循环（三适配器共用）——每轮调 attemptStream 产出事件流：
+ * - 正常结束 → 返回；
+ * - 抛错且本 attempt 未开始消费、且是链中 400 → 换下一参数面续跑；
+ * - 其余（含已消费后的任何错误、末位 400）→ 原样抛出。
+ *
+ * 「已消费不重跑」判据由本循环统一持（consumedAny 每 attempt 重置），
+ * 各适配器不再自持一份；末位 400 由 isMidChain400 挡下（不续跑），故循环走完时
+ * lastErr 必为链中最后一个 400，兜底文案不可达。
+ */
+export async function* runDegradeAttempts<E>(
+  plan: DegradePlan,
+  APIError: SdkErrorCtor,
+  attemptStream: (attempt: GenRequest, ctx: DegradeAttemptCtx) => AsyncGenerator<E>,
+  emptyError: string,
+): AsyncGenerator<E> {
+  let lastErr: unknown = null
+  for (const attempt of plan.attempts) {
+    let consumed = false
+    try {
+      yield* attemptStream(attempt, {
+        consumed: () => {
+          consumed = true
+        },
+      })
+      return
+    } catch (e) {
+      if (!consumed && isMidChain400(e, APIError, attempt, plan)) {
+        lastErr = e
+        continue
+      }
+      throw e
+    }
+  }
+  // lastErr 恒为链中最后一个 400（SDK APIError 实例）；非 Error 形态（不可达）走兜底文案
+  if (lastErr instanceof Error) throw lastErr
+  throw new Error(emptyError)
 }

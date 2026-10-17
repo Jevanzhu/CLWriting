@@ -18,9 +18,9 @@ export type ReviewLens =
   | 'emotion_peak'
   | 'payoff'
 
-type ReviewSeverity = 'S1' | 'S2' | 'S3' | 'S4'
+export type ReviewSeverity = 'S1' | 'S2' | 'S3' | 'S4'
 
-type ReviewCategory =
+export type ReviewCategory =
   | 'high_point'
   | 'reader_pull'
   | 'pacing'

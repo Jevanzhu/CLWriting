@@ -35,6 +35,7 @@ import { runCheckForDocumentAsync, checkOutcomeStatus, forgetTreeIssuesCache } f
 import { buildReviewPacket, collectReviewIssues, COMBINED_ISSUES_FILE } from '../../../review/run.js'
 import type { ReviewLensPacket } from '../../../review/run.js'
 import type { ReviewTier } from '../../../review/contract.js'
+import type { ReviewResult } from '../../../shared/contract/review.js'
 import { writeAnalysisAsync, readAnalysis, sourceHashOf } from '../../../document/analysis.js'
 import { encodeDocDirName } from '../../../document/version.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
@@ -290,7 +291,12 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
               payload: { collected, lenses: loopResult.lenses, ...(collected.ok ? {} : { incomplete: true }) },
             })
 
-            reply(res, 200, { ok: true, lenses: loopResult.lenses, collected, knowledge: loopResult.knowledge })
+            reply(res, 200, {
+              ok: true,
+              lenses: loopResult.lenses,
+              collected,
+              knowledge: loopResult.knowledge,
+            } satisfies ReviewResult)
           } finally {
             // -①：settle（成功/失败/中断）统一注销——isRunning 归 false（cc 口径）
             driver.unregisterCtrl(mainSession, ctrl)

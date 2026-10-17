@@ -1,83 +1,29 @@
 import { apiJson } from './client'
 import { bookUrl } from './url'
 
-// 文风系统 API（文风系统重整）：镜像后端 api/style.ts + health/style 契约。
+// 文风系统 API：类型单源 = src/shared/contract/style.ts（服务端同源注解）。
 // 条目库/候选箱/收割/定标全零 AI；AI 语义分析走 api/analysis.ts
 //（源3 由后端 analyze-style 完成时自动落候选，前端无需另调）。
 
-export type EntryKindFE = '样章' | '手法' | '反例' | '禁词'
-type EntrySourceFE = '作者标注' | '改稿行为' | '收割' | '题材范文' | '导入'
-
-/** 条目（镜像 format/style-entry.ts StyleEntry；_path 为书内相对路径） */
-export interface StyleEntryFE {
-  类型: EntryKindFE
-  场景: string
-  来源: EntrySourceFE
-  说明?: string
-  出处?: string
-  标签?: string[]
-  正文: string
-  _path: string
-}
-
-/** 候选（镜像 format/style-candidate.ts StyleCandidate；状态经服务端 30 天过期呈现） */
-export interface StyleCandidateFE {
-  类型: EntryKindFE
-  场景: string
-  来源: EntrySourceFE
-  说明?: string
-  标签?: string[]
-  正文: string
-  状态: '待确认' | '已忽略'
-  创建: string
-  章号?: number
-  相似度?: number
-  频次?: number
-  AI版?: string
-  _path: string
-}
-
-/** 首读自动迁移结果（迁移发生时非 null，供 toast） */
-export interface StyleMigrationFE {
-  migrated: number
-  details: string[]
-}
-
-/** 铁律机检阈值（镜像 check/count.ts IronRules，禁词不在此——在条目库） */
-interface StyleRulesFE {
-  maxSentenceLen?: number
-  maxAdjStack?: number
-  maxDialogueTagRatio?: number
-  maxParallelStreak?: number
-  avoidSummaryEnding?: boolean
-}
-
-interface StyleBaselineSummaryFE {
-  frozenAt: string
-  frozenFrom: string
-  scenes: string[]
-}
-
-/** 定标数据（GET /style/config） */
-export interface StyleConfigFE {
-  rules: StyleRulesFE
-  baseline: StyleBaselineSummaryFE | null
-  injection: 'light' | 'heavy'
-}
-
-/** 机检趋势（镜像 metrics/style.ts StyleTrend，取 UI 展示字段） */
-export interface StyleTrendFE {
-  kind: 'long' | 'short'
-  count: number
-  dialogueTagSeries: number[]
-  varianceSeries: number[]
-  repeatSeries: number[]
-  overlongChapters: number[]
-  adjStackChapters: number[]
-  summaryEndingChapters: number[]
-  drifts: { metric: string; message: string }[]
-  baseline: { frozenAt: string } | null
-}
+import type {
+  EntryKind,
+  EntrySource,
+  StyleBaselineSummary,
+  StyleCandidate,
+  StyleConfig,
+  StyleEntry,
+  StyleMigration,
+  StyleTrend,
+} from '../../../../shared/contract/style'
+export type EntryKindFE = EntryKind
+export type EntrySourceFE = EntrySource
+export type StyleEntryFE = StyleEntry & { _path: string }
+export type StyleCandidateFE = StyleCandidate & { _path: string }
+export type StyleMigrationFE = StyleMigration
+export type StyleBaselineSummaryFE = StyleBaselineSummary
+export type StyleConfigFE = StyleConfig
+export type StyleTrendFE = StyleTrend
+export type { StyleCandidatesResult, StyleEntriesResult } from '../../../../shared/contract/style'
 
 function base(name: string): string {
   return bookUrl(name, 'style')

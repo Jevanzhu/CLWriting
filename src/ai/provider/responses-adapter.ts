@@ -32,7 +32,7 @@ import { modelConfOf } from './store.js'
 import { responsesQuirksFor } from './model-quirks.js'
 import { normalizeBaseUrl } from './models.js' // baseUrl 归单单源——本线传 'openai-responses'（只去尾斜杠，不剥 /v1）
 import { resolveToolChoiceIntent } from './tool-choice.js' // tool_choice 分档决策单源
-import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
+import { makeToErrorEvent, buildDegradeAttempts, runDegradeAttempts, markStructuredDegrade } from './adapter-errors.js'
 import { createStreamFinalizer } from './stream-finalize.js'
 // 流事件的语义单元（增量/工具累积/终态判决/流尾）——本文件只留骨架
 //（建流 → 逐事件交判定 → 逐条 yield → 400 降级链），单事件语义与顺序不变量见该件头注
@@ -278,23 +278,21 @@ export function createOpenAIResponsesProvider(
       })
       // 事件判定的外部依赖——本线骨架只做「建流 → 逐事件交判定 → 逐条 yield」，
       // 单事件语义（增量/累积/终态）在 responses-stream。req 恒传**首发请求**：usage 估计的
-      // input 折算基准，降级 attempt 的请求不参与折算（口径与原实现一致）
+      // input 折算基准，降级 attempt 的请求不参与折算
       const ctx: StreamEventCtx = { fin, req, model: conf.model ?? undefined }
 
       // 400 降级链（缺口 14）：structured → tools 两级剥除；attempts 构造 / 400 续跑闸 /
       // 记忆写入走 adapter-errors 公共实现（「连接期可安全重试、流中不重跑」约定见其注释）。
       // 判据 q.structuredMode 是 responsesQuirksFor 的 responsesWire 覆盖值（与 text.format
-      // 发射同源）；mode='json_object' 时 text.format 不发但链仍保留（同原实现口径）。
+      // 发射同源）；mode='json_object' 时 text.format 不发但链仍保留。
       // 携来源 userDataPath——降级记忆读/写按显式 path 分发
       const plan = buildDegradeAttempts(req, q.structuredMode, conf, store, userDataPath)
 
       try {
-        let lastErr: unknown = null
-        for (const attempt of plan.attempts) {
-          // ii-1：本 attempt 是否已开始消费流。降级续跑只对「建连期 400」安全——
-          // 已收到事件后换参数面重跑会让消费者收到重复增量，一律转终态错误。
-          let consumedAny = false
-          try {
+        yield* runDegradeAttempts(
+          plan,
+          OpenAI.APIError,
+          async function* (attempt, actx) {
             const stream = await c.responses.create(asSdkParams(toParams(conf, attempt)), { signal })
             markStructuredDegrade(plan, attempt, store)
             // 成功建流用的是非首发（降级）参数面 → done 事件带 degraded
@@ -313,7 +311,7 @@ export function createOpenAIResponsesProvider(
             // 单事件语义（含网关偏差挂点，缺口 18）见 responses-stream；本循环只保证
             // 「逐事件判定 → 按序 yield → stop 即 return」三步顺序不变。
             for await (const event of stream) {
-              consumedAny = true
+              actx.consumed()
               streamConsumedAny = true // 跨 attempt 置位不复位
               const step = applyResponsesStreamEvent(accum, event, ctx)
               for (const ev of step.events) yield ev
@@ -331,20 +329,13 @@ export function createOpenAIResponsesProvider(
               )
             }
             for (const ev of tail.events) yield ev
-            return
-          } catch (e) {
-            if (!consumedAny && isMidChain400(e, OpenAI.APIError, attempt, plan)) {
-              lastErr = e
-              continue // 建连期 400 → 尝试下一个降级参数面（流已开始消费则不重跑，见 consumedAny 注释）
-            }
-            throw e
-          }
-        }
-        throw lastErr ?? new Error('openai-responses stream: 无可用参数面')
+          },
+          'openai-responses stream: 无可用参数面',
+        )
       } catch (e) {
-        // 流中 SDK 直接 throw（mid-stream
-        // 连接重置等）此前恒裸传——消费中累计的产出随异常蒸发，runner 终态失败按 0 入账。
-        // 已消费过流才折算估计上抛（未消费 = 建连期异常无消耗不虚报；与 ii-1 同源判据）。
+        // 流中 SDK 直接 throw（mid-stream 连接重置等）——估计用量随错上抛，
+        // 否则消费中累计的产出随异常蒸发，runner 终态失败按 0 入账。
+        // 已消费过流才折算（未消费 = 建连期异常无消耗不虚报；与续跑判据同源）。
         yield toErrorEvent(e, streamConsumedAny ? errorUsageOf?.() : undefined)
       }
     },

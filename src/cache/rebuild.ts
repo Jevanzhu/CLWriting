@@ -29,6 +29,7 @@ import { isMdFileName } from '../format/filename.js' // .md 判定大小写不�
 import type { ParseError } from '../format/types.js'
 import { walkMdEach } from '../fs/walk-md.js'
 import { platformCaseFold } from '../fs/safe-path.js'
+import { isCoarseMtimeNs } from '../fs/mtime-precision.js'
 import { registerBookKeyedCache } from '../studio/server/cache-registry.js' // 书键缓存登记表（登记制单源）
 import { log, errMsg } from '../log/index.js'
 // -（全量代码）：基础两类单源自 install/data.ts（该模块仅
@@ -50,6 +51,9 @@ import { BASE_LEAD_TYPES } from '../install/data.js'
 //   同尺寸原位替换」——新文件新 inode，三者全符才命中（口径对齐 search.ts
 //   dirSignature 的「mtime 探针换免整书重扫」手法，粒度细化到单章；
 //   win 下 ino 恒 0 时退化为 mtimeNs+size 双条件，精度仍够）。
+// - 低精度 mtime 卷（FAT/exFAT/SMB）降级不缓存：mtimeNs 整毫秒对齐时同尺寸改写可落在
+//   粒度窗内，三元组指纹不可信 → 该次直读（isCoarseMtimeNs 单源，口径同
+//   document/manifest、document/trash 与 format/chapters 的章节元数据缓存）。
 // - parsed 结果对象跨 rebuild 复用：syncChapter 只读不写 chapter（sync.ts 已核），
 //   复用安全；错误分支同样缓存（坏文件未变时健康报告逐次等价）。
 // - 容量 2048 条（按「≥500 章大书」的 4 倍余量），超限逐出最旧（Map 插入序 FIFO：
@@ -74,6 +78,11 @@ function readChapterCached(fp: string): ChapterParseResult {
   // stat 失败（readdir 与读之间被删的竞态）→ 绕过缓存直读，走 readChapter 既有错误契约
   const st = statSync(fp, { bigint: true, throwIfNoEntry: false })
   if (!st) return readChapter(fp)
+  // 低精度卷：指纹（mtimeNs/size/ino）在粒度窗内可全同 → 不读不写缓存，逐轮真读
+  if (isCoarseMtimeNs(st.mtimeNs)) {
+    chapterCacheStats.misses++
+    return readChapter(fp)
+  }
   const hit = chapterCache.get(fp)
   if (hit && hit.mtimeNs === st.mtimeNs && hit.size === st.size && hit.ino === st.ino) {
     chapterCacheStats.hits++

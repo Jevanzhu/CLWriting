@@ -33,7 +33,7 @@ import { modelConfOf } from './store.js'
 import { quirksFor, type FamilyQuirks } from './model-quirks.js'
 import { normalizeBaseUrl } from './models.js' // baseUrl 归单单源——本线传 'openai'（只去尾斜杠，不剥 /v1）
 import { resolveToolChoiceIntent } from './tool-choice.js' // tool_choice 按表 toolChoiceMode 翻译（表驱动重构 §6.1）：分档决策单源见
-import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
+import { makeToErrorEvent, buildDegradeAttempts, runDegradeAttempts, markStructuredDegrade } from './adapter-errors.js'
 import { createStreamFinalizer, normalizeStopReason, type StreamFinalizer } from './stream-finalize.js'
 
 /** SDK 异常 → GenEvent.error：公共工厂实现（adapter-errors），此处只贴本线错误类与 label */
@@ -66,8 +66,8 @@ function createClient(conf: ProviderConf): OpenAI {
  *
  * echoReasoning 档位消费——历史 assistant 的 reasoning 块是否回写
  * reasoning_content 由家族表决定（true=DeepSeek/Kimi/GLM 思考模型多轮硬要求；
- * false=多数族端点无此字段、严格校验入参的会 400）。此前无条件回写：会话中途从
- * true 族端点切到 false 族（OpenAI 官方等），历史回显携带非法字段 → 每次请求持久
+ * false=多数族端点无此字段、严格校验入参的会 400）。无条件回写会让会话中途从
+ * true 族端点切到 false 族（OpenAI 官方等）后携带非法字段 → 每次请求持久
  * 400 会话死锁。与 responses 线 responsesWire.echoReasoning（strip/encrypted/none）
  * 对称，本线为布尔两态。reasoning 块本体在 ChatMsg 内保留（AI 链路守则：模型可见
  * ⟺ 已记录），此处只管 wire 序列化形态。
@@ -262,12 +262,11 @@ interface WireUsage {
 }
 
 /**
- * 空 usage 对象（{} 或缺两主字段）不算真实计量。
- * 此前逐 truthy 判定：网关下发 `usage:{}` 空对象时 latestUsage 落 `{}`，流末
- * toUsage({}) 按 0/0 入账，绕过估计兜底（预算闸 tokens/cost 对该类端点
- * 再次失效、成本报表系统性偏低）。此处把空对象等价于「无 usage」——与
- * responses/anthropic 线口径一致（无终止事件时的估计兜底照常生效，estimated 标记
- * 区分估计口径）；末见 wins 语义也顺带防住「真实 usage 后再来空对象」的覆盖。
+ * 空 usage 对象（{} 或缺两主字段）不算真实计量——逐 truthy 判定会让网关下发的
+ * `usage:{}` 落进 latestUsage，流末 toUsage({}) 按 0/0 入账，绕过估计兜底
+ * （预算闸 tokens/cost 对该类端点失效、成本报表系统性偏低）。此处把空对象等价于
+ * 「无 usage」——与 responses/anthropic 线口径一致（无终止事件时的估计兜底照常生效，
+ * estimated 标记区分估计口径）；末见 wins 语义也顺带防住「真实 usage 后再来空对象」的覆盖。
  */
 function isRealUsage(u: WireUsage | null | undefined): u is WireUsage {
   return u !== null && u !== undefined && (u.prompt_tokens !== undefined || u.completion_tokens !== undefined)
@@ -555,12 +554,10 @@ export function createOpenAIProviderChat(
       const plan = buildDegradeAttempts(req, q.structuredMode, conf, store, userDataPath)
 
       try {
-        let lastErr: unknown = null
-        for (const attempt of plan.attempts) {
-          // ii-1：本 attempt 是否已开始消费流。降级续跑只对「建连期 400」安全——
-          // 已收到 chunk 后换参数面重跑会让消费者收到重复增量，一律转终态错误。
-          let consumedAny = false
-          try {
+        yield* runDegradeAttempts(
+          plan,
+          OpenAI.APIError,
+          async function* (attempt, actx) {
             const stream = await c.chat.completions.create(toParams(conf, attempt), { signal })
             markStructuredDegrade(plan, attempt, store)
             // 成功建流用的是非首发（降级）参数面 → done 事件带 degraded
@@ -572,7 +569,7 @@ export function createOpenAIProviderChat(
             const acc = createStreamAcc()
             errorUsageOf = () => attemptUsageNow(acc, fin, req, conf.model ?? undefined)
             for await (const chunk of stream) {
-              consumedAny = true
+              actx.consumed()
               streamConsumedAny = true // 跨 attempt 置位不复位
               // 消费流（usage 落账 / text / reasoning / tool_calls 增量）；终止值在捕获点即
               // 归一（'length'→'max_tokens'、'tool_calls'→'tool_use'；非标拼写归 'unknown'
@@ -586,21 +583,14 @@ export function createOpenAIProviderChat(
             // 流末统一收尾（done 取最后可见 usage，末见 wins；过滤判错 / 缺 usage 估计 /
             // 无终止事件的传输截断三分支与判据口径见 settleStream 头注）
             yield* settleStream(acc, fin, req, conf.model ?? undefined, pendingStopReason, sawFinishReason)
-            return
-          } catch (e) {
-            if (!consumedAny && isMidChain400(e, OpenAI.APIError, attempt, plan)) {
-              lastErr = e
-              continue // 建连期 400 → 尝试下一个降级参数面（流已开始消费则不重跑，见 consumedAny 注释）
-            }
-            throw e
-          }
-        }
-        throw lastErr ?? new Error('openai stream: 无可用参数面')
+          },
+          'openai stream: 无可用参数面',
+        )
       } catch (e) {
-        // 流中 SDK 直接 throw（mid-stream
-        // 连接重置等）此前恒裸传——消费中已见的 usage chunk 与累计产出随异常蒸发，runner
-        // 终态失败按 0 入账（真实计费漏记）。已消费过流才上抛估计（未消费 = 建连期异常，
-        // 无消耗不虚报；与 ii-1「消费后不重跑」同源判据）。
+        // 流中 SDK 直接 throw（mid-stream 连接重置等）——估计用量随错上抛，
+        // 否则消费中已见的 usage chunk 与累计产出随异常蒸发，runner 终态失败按 0 入账
+        // （真实计费漏记）。已消费过流才上抛估计（未消费 = 建连期异常，无消耗不虚报；
+        // 与「消费后不重跑」同源判据）。
         yield toErrorEvent(e, streamConsumedAny ? errorUsageOf?.() : undefined)
       }
     },

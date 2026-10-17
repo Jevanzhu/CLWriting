@@ -31,7 +31,7 @@ import { modelConfOf } from './store.js'
 import { quirksFor, detectFamily, CLAUDE_SAFE_MAX_OUTPUT_TOKENS } from './model-quirks.js'
 import { resolveToolChoiceIntent } from './tool-choice.js' // tool_choice 分档决策单源
 import { anthropicClientOpts, normalizeBaseUrl } from './models.js'
-import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
+import { makeToErrorEvent, buildDegradeAttempts, runDegradeAttempts, markStructuredDegrade } from './adapter-errors.js'
 import {
   createStreamFinalizer,
   normalizeStopReason,
@@ -92,9 +92,9 @@ function toAnthropicMessage(m: ChatMsg): Anthropic.MessageParam | null {
   // block 数组 → Anthropic content block
   const blocks: Anthropic.ContentBlockParam[] = m.content.flatMap(
     (b: ClwContentBlock): Anthropic.ContentBlockParam[] => {
-      // 空串 text 块跳过——Anthropic API 对空 text 块 400，此前原样
-      // 透传，正确性隐式依赖上游 sanitizeHistory 防线（记档的耦合）；防御内置后
-      // 该耦合解除。跳过后整消息无块 → 走下方空数组 → null 的剔除路径兜住
+      // 空串 text 块跳过——Anthropic API 对空 text 块 400，原样透传会让
+      // 正确性隐式依赖上游 sanitizeHistory 防线；防御内置后该耦合解除。
+      // 跳过后整消息无块 → 走下方空数组 → null 的剔除路径兜住
       if (b.type === 'text') return b.text === '' ? [] : [{ type: 'text', text: b.text }]
       // reasoning 块（chat 侧 DeepSeek/Kimi 回传产物）→ 原生端点无此字段，静默丢弃（方案 §4.2）。
       // 记档：正确性曾依赖上游 sanitizeHistory 先剥离——若未来上游
@@ -458,45 +458,6 @@ function* settleStream(
   yield fin.truncatedError(fin.estimateUsage(lateSourcesOf(conf, req, acc)))
 }
 
-/**
- * 400 降级链建流（方案 §6.5）：attempts 构造 / 400 续跑闸 / 记忆写入走 adapter-errors 公共
- * 实现，「连接期异常可安全换参数面重试、流中异常不重跑」的约定见其注释；本线的消费循环在
- * attempts 循环之外，天然不重跑（半截产出不会泄入下一 attempt）。携来源 userDataPath——
- * 降级记忆读/写按显式 path 分发。
- * 返回值 degraded 只在「建流成功」这一支有意义：建的流吃的是非首发（降级）参数面时置位，
- * done 事件据此透出（重放按事件重建会再 400 的口径缺口闭合）。
- */
-async function openStreamWithDegrade(
-  req: GenRequest,
-  conf: ProviderConf,
-  client: Anthropic,
-  signal: AbortSignal,
-  store: ProviderStore | undefined,
-  userDataPath: string | undefined,
-): Promise<{ stream: AsyncIterable<Anthropic.RawMessageStreamEvent>; degraded: boolean }> {
-  const q = quirksFor(conf.model ?? '')
-  const plan = buildDegradeAttempts(req, q.structuredMode, conf, store, userDataPath)
-  let lastErr: unknown = null
-  for (const attempt of plan.attempts) {
-    try {
-      const stream = await client.messages.create(toParams(conf, attempt), { signal })
-      markStructuredDegrade(plan, attempt, store)
-      // 成功建流用的是非首发（降级）参数面 → done 事件带 degraded。判据基准是
-      // plan.original——记忆命中时 attempts[0] 已是剥除版，拿它当基准对首发恒 false，
-      // 记忆命中路径（常态）会漏标 degraded
-      return { stream, degraded: attempt !== plan.original }
-    } catch (e) {
-      if (isMidChain400(e, Anthropic.APIError, attempt, plan)) {
-        lastErr = e
-        continue
-      }
-      throw e
-    }
-  }
-  // 全部 attempt 都是非末位 400 才走到此（末位 400 由 isMidChain400 挡下并抛出）
-  throw lastErr
-}
-
 export function createAnthropicProvider(
   conf: ProviderConf,
   client?: Anthropic,
@@ -533,21 +494,39 @@ export function createAnthropicProvider(
       const errorUsage = (): TokenUsage => acc.latestUsage ?? fin.estimateUsage(lateSourcesOf(conf, req, acc))
 
       try {
-        const opened = await openStreamWithDegrade(req, conf, c, signal, store, userDataPath)
-        degraded = opened.degraded
+        // 400 降级链（方案 §6.5）：attempts 构造 / 400 续跑闸 / 记忆写入 / attempt 循环
+        // 骨架走 adapter-errors 公共实现——「连接期异常可安全换参数面重试、流中异常不重跑」
+        // 的约定见其注释（消费标记随 attempt 重置）。携来源 userDataPath——降级记忆读/写
+        // 按显式 path 分发。degraded 只在建流成功这一支有意义：建的流吃的是非首发（降级）
+        // 参数面时置位，done 事件据此透出（重放按事件重建会再 400 的口径缺口闭合）。
+        const q = quirksFor(conf.model ?? '')
+        const plan = buildDegradeAttempts(req, q.structuredMode, conf, store, userDataPath)
+        yield* runDegradeAttempts(
+          plan,
+          Anthropic.APIError,
+          async function* (attempt, actx) {
+            const stream = await c.messages.create(toParams(conf, attempt), { signal })
+            markStructuredDegrade(plan, attempt, store)
+            // 判据基准是 plan.original——记忆命中时 attempts[0] 已是剥除版，
+            // 拿它当基准对首发恒 false，记忆命中路径（常态）会漏标 degraded
+            degraded = attempt !== plan.original
 
-        for await (const event of opened.stream) {
-          consumedAny = true // 进流即算已消费（catch 侧 usage 上抛门）
-          yield* consumeStreamEvent(event, acc)
-        }
+            for await (const event of stream) {
+              actx.consumed() // 进流即算已消费（catch 侧 usage 上抛门）
+              consumedAny = true
+              yield* consumeStreamEvent(event, acc)
+            }
 
-        // 流末兜底的三情形分流（实测 usage / 估计兜底 / 传输截断）见 settleStream 头注
-        if (!fin.doneEmitted()) yield* settleStream(acc, fin, req, conf)
+            // 流末兜底的三情形分流（实测 usage / 估计兜底 / 传输截断）见 settleStream 头注
+            if (!fin.doneEmitted()) yield* settleStream(acc, fin, req, conf)
+          },
+          'anthropic stream: 无可用参数面',
+        )
       } catch (e) {
-        // 流中 SDK 直接 throw（mid-stream 连接重置等）此前恒裸传——message_start 已实测的
-        // input/cache 与流内产出随异常蒸发，runner 终态失败按 0 入账。已消费过流才折算估计
-        // 用量随错上抛（未消费 = 建连期异常，无消耗，不得虚报；与 400 降级续跑只在未消费流时
-        // 安全的判据同源）。
+        // 流中 SDK 直接 throw（mid-stream 连接重置等）——估计用量随错上抛，
+        // 否则 message_start 已实测的 input/cache 与流内产出随异常蒸发，runner 终态失败
+        // 按 0 入账。已消费过流才折算（未消费 = 建连期异常，无消耗，不得虚报；与 400 降级
+        // 续跑只在未消费流时安全的判据同源）。
         yield toErrorEvent(e, consumedAny ? errorUsage() : undefined)
       }
     },

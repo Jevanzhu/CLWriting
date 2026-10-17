@@ -91,6 +91,30 @@ test('R37-16: 未改章第二次 rebuild 命中指纹缓存，改章新内容生
   expect(secondCounts.get(2)).toBe(firstCounts.get(2))
 })
 
+test('低精度卷（mtime 整毫秒对齐）不读不写章读缓存', () => {
+  __testHooks.clearChapterCache()
+  const root = makeTwoChapterBook()
+  const dir = join(root, '写作', '正文')
+  // 整秒 mtime = 低精度卷判据（isCoarseMtimeNs：mtimeNs % 1e6 === 0）
+  const exact = new Date(1_700_000_000_000)
+  for (const f of ['1-初雪.md', '2-旧约.md']) utimesSync(join(dir, f), exact, exact)
+
+  const cachePath = join(root, '.cache', 'index.db')
+  rebuild(root, cachePath)
+  let stats = __testHooks.chapterCacheStats()
+  expect(stats.misses).toBe(2)
+  expect(stats.hits).toBe(0)
+  expect(stats.entries).toBe(0) // 粗粒度卷降级：一律不落缓存
+
+  // 源树变化（新增章改 count）逼第二轮全量——粗粒度章仍全 miss
+  writeChapter(dir, 3, '新章', '新的一章。')
+  utimesSync(join(dir, '3-新章.md'), exact, exact)
+  rebuild(root, cachePath)
+  stats = __testHooks.chapterCacheStats()
+  expect(stats.hits).toBe(0)
+  expect(stats.entries).toBe(0)
+})
+
 test('R37-16: 容量上限逐出最旧（注入 max=1，两章后 entries ≤ 1）', () => {
   __testHooks.clearChapterCache()
   __testHooks.setChapterCacheMaxForTest(1)

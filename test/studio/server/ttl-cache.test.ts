@@ -9,11 +9,12 @@
  *（漏登记 / 登记死项 / 僵尸豁免均红）——登记完整性不靠人记；详见文末 describe 头注。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createTtlProbeCache } from '../../../src/studio/server/ttl-cache.js'
-import { listBookKeyedCaches } from '../../../src/studio/server/cache-registry.js'
+import { bookRootAliases, listBookKeyedCaches } from '../../../src/studio/server/cache-registry.js'
 import '../../../src/studio/server/api/books-lifecycle.js' // 聚合入口（side-effect：触发全部书键缓存自登记）
 
 let now = 1_000_000
@@ -335,8 +336,16 @@ const EXEMPT_CACHE_INVALIDATORS: ReadonlyArray<{ key: string; why: string }> = [
     why: '广播本体（登记表遍历）——失效编排入口，非缓存失效项',
   },
   {
+    key: 'src/studio/server/cache-registry.ts::forgetBookKeyedCachesForRoots',
+    why: '广播本体按别名组遍历——删/改名在 FS 操作前取 bookRoot 别名后调用，非缓存失效项',
+  },
+  {
     key: 'src/studio/server/api/books-lifecycle.ts::forgetBookKeyedCaches',
     why: '广播本体的调用面转发壳（历史导出位；books.ts / books-rename.ts 经此 import）',
+  },
+  {
+    key: 'src/studio/server/api/books-lifecycle.ts::forgetBookKeyedCachesForAliases',
+    why: '广播别名组的调用面转发壳（books-rename.ts 经此 import）',
   },
   {
     key: 'src/document/foreshadow.ts::forgetChapterTextCacheForBook',
@@ -429,6 +438,38 @@ const EXEMPT_CACHE_INVALIDATORS: ReadonlyArray<{ key: string; why: string }> = [
     why: 'web-next 前端树（浏览器侧 store 误报标记，按书名 + 文档 id）——非进程内书键结果缓存',
   },
 ]
+
+describe('bookRootAliases（bookRoot 拼写别名）', () => {
+  it('返回原样 + resolve；路径存在时并入 realpath，且去重', () => {
+    const base = mkdtempSync(join(tmpdir(), 'clw-root-alias-'))
+    try {
+      const book = join(base, '书')
+      mkdirSync(book)
+      const aliases = bookRootAliases(book)
+      expect(aliases).toContain(book)
+      expect(aliases).toContain(resolve(book))
+      expect(aliases).toContain(realpathSync(book))
+      expect(new Set(aliases).size).toBe(aliases.length)
+    } finally {
+      rmSync(base, { recursive: true, force: true })
+    }
+  })
+
+  it.skipIf(process.platform === 'win32')('symlink 书根：词法与 realpath 两种拼写都在别名组内', () => {
+    const base = mkdtempSync(join(tmpdir(), 'clw-root-alias-'))
+    try {
+      const target = join(base, '真书')
+      const link = join(base, '书链接')
+      mkdirSync(target)
+      symlinkSync(target, link, 'dir')
+      const aliases = bookRootAliases(link)
+      expect(aliases).toContain(link)
+      expect(aliases).toContain(realpathSync(link))
+    } finally {
+      rmSync(base, { recursive: true, force: true })
+    }
+  })
+})
 
 describe('书键缓存登记制对账（机器门）', () => {
   const scanned = scanInvalidatorExports()

@@ -21,6 +21,7 @@ import { resolveModelPricing, computeCallCost } from '../pricing.js'
 import { markEstimated } from '../calls.js'
 import { preserveStructureFmForChapter } from '../../format/chapter-lookup.js'
 import { errMsg } from '../../log/index.js'
+import type { VisibleInjection } from '../../events/lineage.js'
 import type { DriverEvent } from '../../driver/index.js'
 import type { TokenUsage } from '../provider/types.js'
 import type { SelfHealOpts } from './self-heal.js'
@@ -39,6 +40,7 @@ export async function runGenerate(
   userPrompt: string,
   chapter = opts.chapter, // 批量时传当前章（单章缺省 = opts.chapter 不变）
   promptFiles: string[] = [], // prompt 引用材料 → promptMeta.files 登记
+  visible: VisibleInjection[] = [], // 可见注入清单 → 登记事件 + CLW_VERIFY_VISIBLE 抽样
 ): Promise<SpawnResult> {
   if (state.ctrl.signal.aborted) return { status: 'aborted' }
 
@@ -69,6 +71,7 @@ export async function runGenerate(
     chapter,
     userPrompt,
     promptFiles,
+    ...(visible.length > 0 ? { visible } : {}),
     ctrl: state.ctrl,
     // 登记 ctrl → driver（/auto-write 路径传入）——生成期 isRunning() 真值（SSE
     // sync 快照不再假空闲），/interrupt 的 driver.interrupt 也能直接 abort 在途请求
@@ -113,9 +116,9 @@ export async function runGenerate(
 
   if (!out.ok) {
     // abort/终态失败 attempt 的真实消耗已由 runner recordUsageSafe 按次入账
-    // ai-calls；收口：TaskErr 封套已携 attemptsUsage/model，失败前
-    // 已消耗的 token/成本随 done 事件并入（此前纯展示面与账本口径分叉——封套取不到
-    // 失败调用的用量，预算/成本统计漏记），并入写法与下方成功路径同源（起字面同源）
+    // ai-calls；收口：TaskErr 封套已携 attemptsUsage/model，失败前已消耗的 token/成本
+    // 随 done 事件并入（不并入则展示面与账本口径分叉，预算/成本统计漏记），
+    // 并入写法与下方成功路径同源
     accountUsage(out.attemptsUsage ?? null, out.model ?? null)
     if (out.code === 'ABORTED' || state.ctrl.signal.aborted) return { status: 'aborted' }
     return { status: 'error', error: out.error }
@@ -125,11 +128,10 @@ export async function runGenerate(
   // 真实消耗入账（done 事件不再恒 0；runSpec 已带回 usage）。
   // 金额按次现算累计（同 stream.ts /spawn：写稿模型查价格表四档分计，未配价省略——
   // done 事件不再恒发 cost:0，前端成本口径与 spawn 路径一致）。
-  // done 用量改取全 attempt 累计（attemptsUsage——重试/中断
-  // attempt 的可得 usage 一并计入），与 ai-calls.json 按次入账口径一致；修复前只取
-  // 末次成功 attempt，重试链的前置消耗在前端成本显示中缺失。runTask 未带该字段
-  // （旧调用方/单测桩）时回退 out.usage（原口径）。含估计入账 attempt时
-  // estimated 随之置位（单源闭包内）。
+  // done 用量取全 attempt 累计（attemptsUsage——重试/中断 attempt 的可得 usage 一并计入），
+  // 与 ai-calls.json 按次入账口径一致；只取末次成功 attempt 时重试链的前置消耗在
+  // 前端成本显示中缺失。runTask 未带该字段（旧调用方/单测桩）时回退 out.usage。
+  // 含估计入账 attempt 时 estimated 随之置位（单源闭包内）。
   accountUsage(out.attemptsUsage ?? out.usage, out.model)
 
   // 记账已下沉到 runTask（chapter + task 块自动记，避免双记）

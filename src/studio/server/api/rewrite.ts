@@ -23,6 +23,8 @@ import { readDraft } from '../../../format/draft.js'
 import { recordAiVersionAsync } from '../../../git/ai-track.js'
 import { buildRewritePrompt, buildAppendPrompt, appendRewritten, lineDiff } from '../../../process/rewrite-prompt.js'
 import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // 长任务门控包装 + 生成失败状态映射单源（走 ctx.gate 实例）
+import type { AiVersionResult, RewriteResult } from '../../../shared/contract/rewrite.js'
+import { digest16, type VisibleInjection } from '../../../events/lineage.js'
 
 // re-export（下沉兼容：既有 import 方零感知）
 export {
@@ -47,20 +49,22 @@ async function runRewriter(
   chapter?: number,
   promptFiles?: string[],
   ctrl?: AbortController,
+  visible?: VisibleInjection[],
 ): Promise<{ ok: true; produced: string } | { ok: false; code: string; error: string }> {
-  // 正文注入源登记（铁律①——chat 侧 tools/rewrite.ts 已修，端点侧漏网）
+  // 正文注入源登记（铁律①——chat 侧 tools/rewrite.ts 与端点侧两链同须登记）
   // chapter 透传 runSpec → runTask chapter 记账块——编辑器侧整章改写
-  // 与 chat 侧同受章预算三口径熔断（口径，此前端点侧绕过）
+  // 与 chat 侧同受章预算三口径熔断
   const out = await runSpec(REWRITE_SPEC, {
     userDataPath,
     bookRoot,
     userPrompt: prompt,
     ...(chapter !== undefined ? { chapter } : {}),
     promptFiles,
+    ...(visible && visible.length > 0 ? { visible } : {}),
     ctrl,
   })
-  // code 透传（不再坍缩 'GEN_FAIL'）——NO_PROVIDER/NO_MODEL 等
-  // 配置缺失族此前被 500 GEN_FAIL 掩蔽成因，路由按 code 映射状态码
+  // code 透传（不坍缩 'GEN_FAIL'）——NO_PROVIDER/NO_MODEL 等配置缺失族须按成因映射状态码，
+  // 否则被 500 GEN_FAIL 掩蔽
   if (!out.ok) return { ok: false, code: out.code, error: out.error }
   const { input, text } = out.data
   // tool_use 产出 → input.正文
@@ -144,7 +148,9 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
           const prompt = append
             ? buildAppendPrompt(original, instruction)
             : buildRewritePrompt('local', original, selection, instruction, [], draft.chapter.章号, readKind(bookRoot))
-          const result = await runRewriter(ctx.userDataPath, prompt, bookRoot, draft.chapter.章号, [m.path], ctrl)
+          const result = await runRewriter(ctx.userDataPath, prompt, bookRoot, draft.chapter.章号, [m.path], ctrl, [
+            { scope: 'prompt', digest: digest16(prompt) },
+          ])
           // 按透传 code 映射状态——NO_* 族（NO_USERDATA/NO_PROVIDER/
           // NO_MODEL，配置缺失）是客户端可处置的 400；ABORTED（用户中断）回 499（请求被
           // 取消语义；api/ 无既有先例，错误信封 {code,error} 形状不变）；其余（GEN_FAIL/
@@ -164,7 +170,13 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
             // 5xx 会走前端「内部错误」通用路径，改 422 语义（客户端可处理的业务态）
             return replyError(res, 422, 'NO_CHANGE', '改写产出与原文相同（未发生变化）')
           }
-          reply(res, 200, { ok: true, mode, original, rewritten, diff: lineDiff(original, rewritten) })
+          reply(res, 200, {
+            ok: true,
+            mode,
+            original,
+            rewritten,
+            diff: lineDiff(original, rewritten),
+          } satisfies RewriteResult)
         },
       )
     },
@@ -199,7 +211,7 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
       // 事件循环上可冻 15s×2（git 无响应）；异步版失败 resolve null，语义不变（轨迹
       // 是旁路证据，失败静默，不阻断「接受改写」）
       const ref = await recordAiVersionAsync(r.bookRoot, params['docId'] ?? '', input.content)
-      reply(res, 200, { ok: true, recorded: ref !== null })
+      reply(res, 200, { ok: true, recorded: ref !== null } satisfies AiVersionResult)
     },
   })
 }

@@ -39,6 +39,12 @@ import { readKind, bookMovedFailure, resolveBookOrReply } from '../book-context.
 import { redactSecret } from '../../../ai/provider/redact.js' // API 错误脱敏
 import { localDayKey, log, errMsg } from '../../../log/index.js'
 import type { EntryKind, EntrySource, StyleEntry } from '../../../format/types.js'
+import type {
+  StyleBaselineResult,
+  StyleCandidatesResult,
+  StyleConfigResult,
+  StyleEntriesResult,
+} from '../../../shared/contract/style.js'
 
 interface StyleCtx extends TaskGateInjected {
   workDir: string | null
@@ -116,7 +122,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
         entries: entries.map((e) => ({ ...e, _path: relPath(bookRoot, e._path) })),
         errors,
         migration: migration.migrated > 0 ? migration : null,
-      })
+      } satisfies StyleEntriesResult)
     },
   })
 
@@ -216,7 +222,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
           _path: relPath(bookRoot, c._path),
         })),
         errors,
-      })
+      } satisfies StyleCandidatesResult)
     },
   })
 
@@ -329,7 +335,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
           ? { frozenAt: baseline.frozenAt, frozenFrom: baseline.frozenFrom, scenes: Object.keys(baseline.byScene) }
           : null,
         injection,
-      })
+      } satisfies StyleConfigResult)
     },
   })
 
@@ -345,7 +351,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
         reply(res, 200, {
           ok: true,
           baseline: { frozenAt: b.frozenAt, frozenFrom: b.frozenFrom, scenes: Object.keys(b.byScene) },
-        })
+        } satisfies StyleBaselineResult)
       } catch (e) {
         // API 错误脱敏
         replyError(res, 400, 'NO_SAMPLES', redactSecret(errMsg(e)))

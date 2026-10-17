@@ -20,7 +20,7 @@
  * 只锚意图不锚字面排版。
  */
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -47,13 +47,21 @@ describe('R40 静态锚：document/export', () => {
     expect(src).toContain("code: 'PATH_ESCAPE'")
   })
 
-  it('R40-21：export/index.ts warnings 路径一律走 relPosix 家族（无裸 relative 插值）', () => {
-    const src = read('export', 'index.ts')
-    // R0916-7-P3-2：导出拆六阶段后 helper 带 bookRoot 参数改名 relPosixIn，
-    // 语义锚（warnings 里出现路径即走该 helper）不变——正断言改锚 helper 定义件 + 插值点
-    expect(src).not.toMatch(/warnings\.push\(`\$\{relative\(/)
-    expect(src).toContain('function relPosixIn(')
-    expect(src).toMatch(/warnings\.push\(`\$\{relPosixIn\(/)
+  it('R40-21：导出域 warnings 路径一律走 relPosix 家族（无裸 relative 插值）', () => {
+    // R0916-7-P3-2：导出拆六阶段后 helper 带 bookRoot 参数改名 relPosixIn，语义锚
+    // （warnings 里出现路径即走该 helper）不变；导出域再拆单域多档后本锚扫全目录，
+    // 正断言挂 helper 定义件 + 插值点
+    const dir = join(srcRoot, 'export')
+    const files = readdirSync(dir).filter((f) => f.endsWith('.ts'))
+    expect(files.length).toBeGreaterThan(1)
+    let interpolationPoints = 0
+    for (const f of files) {
+      const src = readFileSync(join(dir, f), 'utf-8')
+      expect(src, `${f} 出现裸 relative 插值`).not.toMatch(/warnings\.push\(`\$\{relative\(/)
+      interpolationPoints += (src.match(/warnings\.push\(`\$\{relPosixIn\(/g) ?? []).length
+    }
+    expect(interpolationPoints).toBeGreaterThan(0)
+    expect(readFileSync(join(dir, 'naming.ts'), 'utf-8')).toContain('export function relPosixIn(')
   })
 })
 

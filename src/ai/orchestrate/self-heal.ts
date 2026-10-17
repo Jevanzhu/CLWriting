@@ -38,6 +38,7 @@ import type { DriverEvent, Session, StudioDriver } from '../../driver/index.js'
 // 以下纯逻辑函数（checkWithDb/buildDraftPrompt/saveDraft/buildRewritePrompt/draftFileName/readKind）
 // 物理上位于 api/（与端点同文件），本身不依赖 HTTP 语境；待后续下沉治理。
 import { readKind } from '../../format/kind.js'
+import { digest16 } from '../../events/lineage.js'
 import { checkWithDbCore, openCheckDbAsync, type CheckOutcome } from '../../check/run.js'
 import { closeTreeIssuesDb } from '../../check/tree-issues-cache.js'
 import { driveToEndAsync } from '../../async.js'
@@ -99,8 +100,7 @@ export interface SelfHealOpts {
   /** 最大重写次数（默认 3） */
   maxAttempts?: number
   /** 编排进度回调：每个进度事件（emit 出口）调一次，/auto-write 的静默挂死 watchdog
-   *  据此复位计时。此前靠端点包装 driver 拦 emit 转发，包装漏方法即丢中断能力
-   *  （质量评审）；改回调后 driver 原样直通，漏委托面从结构上消失。 */
+   *  据此复位计时。回调化让 driver 原样直通——包装 driver 拦 emit 转发会因漏方法丢中断能力。 */
   onActivity?: () => void
   /** 机检注入（单测替身）。同步或异步均可：生产默认实现走异步机检，注入替身保持同步返回。 */
   check?: (draftPath: string) => CheckOutcome | Promise<CheckOutcome>
@@ -137,7 +137,7 @@ export type SelfHealOutcome =
  * 跑完整自愈闭环。端点 fire-and-forget 调用（不 await），进度全程经主 session SSE 回流。
  */
 
-/** fire-and-forget 的账本推进草稿失败留痕（此前静默，作者不知道草稿没生成） */
+/** fire-and-forget 的账本推进草稿失败留痕（失败必留痕，作者可见草稿没生成） */
 async function logLeadDraftFailure(
   p: Promise<{ ok: true; count: number } | { ok: false; code: string; error: string }>,
 ): Promise<void> {
@@ -166,11 +166,10 @@ async function runSelfHealInner(opts: SelfHealOpts): Promise<SelfHealOutcome> {
     usage: { outputTokens: 0, cost: 0 },
     ...(opts.embedded ? { embedded: true } : {}),
   }
-  // 并发不变量固化——running.set 此前无条件覆盖，若调用方绕过
-  // isSelfHealRunning 闸并发调起，旧运行 ctrl 被静默顶掉失去中断通道（abortSelfHeal
-  // 只能中止新运行，settling 表项被覆盖）。当前全部生产调用方「先查后调」且检查与
-  // 调用间无 await（单线程无 TOCTOU），此守卫正常不可达——命中即守卫失效，fail-fast
-  // 暴露而不是静默顶掉（runChatInner 同款）。
+  // 并发不变量——running.set 无条件覆盖会让绕过 isSelfHealRunning 闸的并发调用静默顶掉
+  // 旧运行的 ctrl（abortSelfHeal 只能中止新运行，settling 表项被覆盖）。当前全部生产
+  // 调用方「先查后调」且检查与调用间无 await（单线程无 TOCTOU），此守卫正常不可达——
+  // 命中即守卫失效，fail-fast 暴露而不是静默顶掉（runChatInner 同款）。
   if (running.has(opts.bookName)) {
     throw new Error(`self-heal 并发守卫失效：${opts.bookName} 已有一轮在跑（isSelfHealRunning 闸被绕过）`)
   }
@@ -224,9 +223,8 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
       })
     }
 
-    // book.yaml 批头解析一次——批量连写每章共用（此前 runChapter 每章各读一次，
-    // 写 8 章重复解析 8 次同一文件）；起批量循环内章边界重读
-    //（见 orchestrateBatch），批头这份是首章前的初值。
+    // book.yaml 批头解析一次——批量连写每章共用（避免每章重复解析同一文件）；
+    // 批量循环内章边界重读（见 orchestrateBatch），批头这份是首章前的初值。
     // 全局托底：orchestrate 内自读 config 喂 budget 检查——统一过 applyGlobalDefaults
     // （书级未设 calls_per_chapter 等回落 global.json → 硬编码，喂 checkAiCallBudget 的
     // 是有效值而非 undefined）
@@ -442,8 +440,8 @@ async function orchestrateBatch(
  * config 用 ctx 合并值（已过 applyGlobalDefaults 解析一次）；leadIds 按本章细纲声明。
  * 返回本次 prompt 引用的材料文件（材料文件 + 注入的章摘要）。
  * 调用方与 buildDraftPrompt 的注入源清单（细纲/章纲/设定层/样章）
- * 合并去重后经 runSpec promptFiles → llm/call promptMeta.files 登记——此前只登记备料
- * 两类，「可见⟺已记录」在设定/样章段断裂。
+ * 合并去重后经 runSpec promptFiles → llm/call promptMeta.files 登记——只登记备料两类时
+ * 「可见⟺已记录」在设定/样章段断裂，两源须取并集。
  */
 async function prepareChapterMaterials(
   opts: SelfHealOpts,
@@ -452,8 +450,8 @@ async function prepareChapterMaterials(
   signal?: AbortSignal,
 ): Promise<string[]> {
   if (!ctx.db) return []
-  // promptFiles 只登记备料成功后真实注入的文件——此前无条件含
-  // 工作区/本章写作材料.md，备料失败时（buildDraftPrompt 读不到材料 = prompt 无备料段）
+  // promptFiles 只登记备料成功后真实注入的文件——无条件含
+  // 工作区/本章写作材料.md 会在备料失败时（buildDraftPrompt 读不到材料 = prompt 无备料段）
   // 登记却还在 = 溯源虚报。铁律：模型可见 ⟺ 已记录。
   let promptFiles: string[] = []
   try {
@@ -462,23 +460,22 @@ async function prepareChapterMaterials(
       workDir: opts.cwd,
       userDataPath: opts.userDataPath,
       chapterLeadIds: readOutlineLeads(ctx.bookRoot, chapter),
-      // kk-备料场景与 draft 链同源（readChapterScenes 三级回退）——
-      // 此前不传 → 备料恒按「战斗」选样章，与本章实际场景脱节
+      // 备料场景与 draft 链同源（readChapterScenes 三级回退）——
+      // 不传则备料恒按「战斗」选样章，与本章实际场景脱节
       chapter,
-      // 编排级中断透传——备料补漏的近章/卷摘要在途 LLM 调用
-      // 此前不受中断传播（修了 rewrite/lead_update 独漏此面），批量连写点中断
-      // 时分钟级白烧 token、running 迟迟不释放。
+      // 编排级中断透传——备料补漏的近章/卷摘要在途 LLM 调用须随中断中止，
+      // 否则批量连写点中断时分钟级白烧 token、running 迟迟不释放。
       ...(signal ? { signal } : {}),
     })
     atomicWriteFile(join(ctx.bookRoot, '工作区', '本章写作材料.md'), canonicalizeText(r.text), { fsync: true })
     promptFiles = ['工作区/本章写作材料.md', ...r.injectedSummaryFiles]
   } catch (e) {
-    // 备料失败静默降级——写稿主线不被备料拖死（RAG 召回失败已在 materials 内部降级留痕）。
-    // 但降级不再零留痕：此前 catch 空吞，备料整体抛错（磁盘/权限/
-    // providers.json 损坏等）时本章 prompt 无备料段却无任何记录，工具面亦无感知面。
+    // 备料失败静默降级——写稿主线不被备料拖死（RAG 召回失败已在 materials 内部降级留痕），
+    // 但必须留痕：catch 空吞会让备料整体抛错（磁盘/权限/providers.json 损坏等）时
+    // 本章 prompt 无备料段却无任何记录，工具面亦无感知面。
     log.warn('self-heal', `备料失败，本章无写作材料段（降级继续写稿）：${errMsg(e)}`)
-    // 清掉旧章残留材料（best-effort）——此前静默沿用旧材料文件，
-    // buildDraftPrompt 会把上一章的材料注入本章 prompt（模型可见却无本次出处）。
+    // 清掉旧章残留材料（best-effort）——沿用旧材料文件会让
+    // buildDraftPrompt 把上一章的材料注入本章 prompt（模型可见却无本次出处）。
     // 读不到材料文件 = prompt 无备料段，是设计内降级。
     try {
       rmSync(join(ctx.bookRoot, '工作区', '本章写作材料.md'), { force: true })
@@ -590,7 +587,11 @@ async function draftFirstChapter(
   // 清单合并去重（注入序）进 promptMeta.files，铁律①文件级溯源闭合
   const draft = buildDraftPrompt(ctx.bookRoot, chapter, ctx.kind, ctx.config)
   const promptFiles = [...new Set([...materialFiles, ...draft.files])]
-  const first = await runGenerate(opts, state, ctx.kind, draft.prompt, chapter, promptFiles)
+  // 可见注入登记：首稿 prompt 全文指纹（promptFiles 已做文件级溯源，此处补内容级——
+  // 抽样校验据此断言「模型实际看见的 prompt」有登记凭据）
+  const first = await runGenerate(opts, state, ctx.kind, draft.prompt, chapter, promptFiles, [
+    { scope: 'prompt', digest: digest16(draft.prompt) },
+  ])
   if (first.status === 'aborted') return { status: 'aborted' }
   if (first.status !== 'ok') return { status: 'error', error: first.error }
   // save 抛错（磁盘满/EACCES 等）——原样上抛会穿出 runChapter/
@@ -687,10 +688,17 @@ async function rewriteOnce(
     ctx.config.book.chapter_target_words,
   )
   // 整章重写注入 loop.current（= 首稿/上轮重写正文，来自 loop.draftPath
-  // 的章文件）——补登记该正文文件路径，铁律「模型可见 ⟺ 已记录」在 rewrite 链闭合
-  const again = await runGenerate(opts, state, ctx.kind, prompt, loop.chapter, [
-    relative(ctx.bookRoot, loop.draftPath).split(sep).join('/'),
-  ])
+  // 的章文件）——补登记该正文文件路径，铁律「模型可见 ⟺ 已记录」在 rewrite 链闭合；
+  // 可见注入另登记重写 prompt 全文指纹（内容级凭据，供 CLW_VERIFY_VISIBLE 抽样）
+  const again = await runGenerate(
+    opts,
+    state,
+    ctx.kind,
+    prompt,
+    loop.chapter,
+    [relative(ctx.bookRoot, loop.draftPath).split(sep).join('/')],
+    [{ scope: 'prompt', digest: digest16(prompt) }],
+  )
   if (again.status === 'aborted') return { status: 'aborted' }
   if (again.status !== 'ok') return { status: 'error', error: again.error }
   loop.current = again.text
@@ -700,10 +708,10 @@ async function rewriteOnce(
   // 已落盘稿），goal 落 block 附原因、批量按 escalate 落暂停，终态收口闭合。
   try {
     const saved = await ctx.save(ctx.bookRoot, loop.chapter, loop.current, { snapshotOrigin: 'self-heal' })
-    // 以 saveDraft 返回的真实 relPath 刷新 loop.draftPath
-    // ——此前 loop.draftPath 仅首稿设定、重写落盘后不回写：tool_use 未命中降级自由文本
-    // 且 AI 自带异章号 front matter 时，resolveDraftPath（只读接口）按章号失配新建孤儿
-    // 文件，而机检恒打首稿路径（runChapter 章循环内的 ctx.check(loop.draftPath)，红项永不收敛）。刷新后
+    // 以 saveDraft 返回的真实 relPath 刷新 loop.draftPath——仅首稿设定而不回写时，
+    // tool_use 未命中降级自由文本且 AI 自带异章号 front matter 时，resolveDraftPath
+    // （只读接口）按章号失配新建孤儿文件，而机检恒打首稿路径
+    //（runChapter 章循环内的 ctx.check(loop.draftPath)，红项永不收敛）。刷新后
     // 机检/后续重写始终以最新落盘稿为准（首稿路径本就取自 save 返回值，口径对齐）。
     loop.draftPath = join(ctx.bookRoot, saved.relPath)
     // 防线：重写稿 front matter 章号 ≠ 编排章号时 warn 留痕（不阻断，保持现行
@@ -764,15 +772,14 @@ async function exitPass(
   const pf = await persistFinalGuarded(term, loop)
   if (!pf.ok) return pf.failed
   const final = pf.final
-  // 批量连写 pass 后同样生成账本推进草稿（与单章口径对称；此前批量整链旁路）。
+  // 批量连写 pass 后同样生成账本推进草稿（与单章口径对称——批量整链不得旁路）。
   // 上一章未定稿确认的草稿由 generateLeadUpdateDraft 内部按章归档，finalize 按章号回收。
   // signal 透传——fire-and-forget 也随编排级中断中止（runSelfHeal 返回不等于其结束）；
   // 登记进 per-book 后台表——waitSelfHealSettled 只等 runSelfHeal 本体收尾，
-  // 此前该任务逃逸出删书/改名/退出的 settle 等待，落盘窗口撞上目录搬移会重建孤儿目录
-  // 后台任务改持**独立登记的 ctrl**——此前传编排级
-  // state.ctrl.signal，但编排收尾后 running Map 已删（runSelfHealInner finally）、ctrl
-  // 已在 stream.ts unregister，/interrupt 既找不到编排闸也无在册 ctrl，本 AI 调用只能
-  // 跑到 10min 总超时。现于后台任务启动处新建 ctrl 并登记 driver（owner
+  // 不登记则该任务逃逸出删书/改名/退出的 settle 等待，落盘窗口撞上目录搬移会重建孤儿目录。
+  // 后台任务持**独立登记的 ctrl**——传编排级 state.ctrl.signal 时，编排收尾后
+  // running Map 已删（runSelfHealInner finally）、ctrl 已在 stream.ts unregister，
+  // /interrupt 既找不到编排闸也无在册 ctrl，本 AI 调用只能跑到 10min 总超时。现于后台任务启动处新建 ctrl 并登记 driver（owner
   // 'bg-lead-draft:<bookName>'，与 'self-heal' 槽位互不抢占），settle（成功/失败/中断）
   // finally 注销；中断沿 signal 即时收口，失败/中断按 logLeadDraftFailure 既有口径
   // 落日志，不 crash。

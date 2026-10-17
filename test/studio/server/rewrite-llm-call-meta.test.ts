@@ -119,6 +119,11 @@ describe('Z-1/Z-4: /rewrite 端点登记与章预算', () => {
     expect(call).toBeDefined()
     expect(call!.data.promptMeta!.files).toContain('写作/正文/0001-开篇.md') // Z-1
     expect(call!.data.chapter).toBe(1) // Z-4
+    // C3：可见注入登记面扩到 rewrite 链——改写 prompt 指纹落同批血缘快照
+    const snap = evs.find((e) => e.type === 'settings/snapshot') as
+      { data: { scope?: string; digest?: string } } | undefined
+    expect(snap?.data.scope).toBe('prompt')
+    expect(snap?.data.digest).toMatch(/^[0-9a-f]{16}$/)
   }, 30_000)
 })
 

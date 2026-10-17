@@ -28,6 +28,7 @@ import { hasRed, type CheckReport } from '../../../check/types.js'
 import { checkFalsePositiveEvent } from '../../../events/chain-bridge.js'
 import { log, errMsg } from '../../../log/index.js'
 import { runCheckForDocumentAsync, collectTreeIssuesAsync, checkOutcomeStatus } from '../../../check/run.js'
+import type { CheckResult } from '../../../shared/contract/check.js'
 
 // re-export（下沉兼容：既有 import 方零感知）
 export {
@@ -196,7 +197,7 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
         // hasRed 随剔除后的报告重算（response 自洽：作者标掉的红项不再点亮红标/红点冒泡）
         hasRed: hasRed(report),
         suppressedCount: count,
-      })
+      } satisfies CheckResult)
     },
   })
 

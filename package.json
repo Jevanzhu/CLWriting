@@ -34,6 +34,7 @@
     "check:counts": "node scripts/check-counts.mjs",
     "check:docs": "node scripts/check-docs.mjs",
     "check:comments": "node scripts/check-comments.mjs",
+    "check:suppressions": "node scripts/check-suppressions.mjs",
     "check:harness": "node scripts/harness/run-gates.ts text --stream",
     "check:harness-copy": "node scripts/check-harness-copy.mjs",
     "check:notes": "node scripts/harness/run-gates.ts agent-notes --stream",

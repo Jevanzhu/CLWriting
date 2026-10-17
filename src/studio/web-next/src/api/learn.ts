@@ -1,59 +1,26 @@
 import { apiJson } from './client'
 import { bookUrl } from './url'
 
-// 文风收割 API（M12 后置 · learn 候选制）：镜像后端 learn/index.ts + knowledge.ts 契约。
+// 文风收割 API：类型单源 = src/shared/contract/learn.ts（服务端同源注解）。
 // learn 是规则打分（借 #10 机检），**不涉大模型**——无 AI 可达性问题，始终可用。
 
-/** 样章候选（镜像 learn/index.ts SampleCandidate） */
-export interface SampleCandidateFE {
-  /** 拟定场景（作者审核时确认/改归） */
-  场景: string
-  /** 正文片段 */
-  正文: string
-  /** 出处：《书名》第 N 章 */
-  出处: string
-  /** 章号 */
-  章号: number
-  /** 打分（0-100，借 #10 机检） */
-  打分: number
-  /** 技法指令（可空） */
-  技法指令?: string
-}
-
-/** 金句候选（镜像 learn/index.ts QuoteCandidate） */
-export interface QuoteCandidateFE {
-  场景: string
-  正文: string
-  出处: string
-  章号: number
-}
-
-/** 收割结果（POST /learn 响应） */
-interface LearnResultFE {
-  samples: SampleCandidateFE[]
-  quotes: QuoteCandidateFE[]
-}
-
-/** 入库结果（POST /learn-commit 响应） */
-interface LearnCommitResultFE {
-  ok: true
-  sampleFiles: string[]
-  quoteFiles: string[]
-}
+import type { LearnCommitResult, LearnResult, QuoteCandidate, SampleCandidate } from '../../../../shared/contract/learn'
+export type SampleCandidateFE = SampleCandidate
+export type QuoteCandidateFE = QuoteCandidate
 
 /** 收割候选（扫定稿正文 → 段落分块 + #10 打分 + 场景预归类 → 候选） */
-export async function runLearn(name: string): Promise<LearnResultFE> {
+export async function runLearn(name: string): Promise<LearnResult> {
   // 扫全部定稿章打分，大书可能 10-30s；无超时则 loading 永转
-  return apiJson<LearnResultFE>(bookUrl(name, 'learn'), { method: 'POST' }, 60_000)
+  return apiJson<LearnResult>(bookUrl(name, 'learn'), { method: 'POST' }, 60_000)
 }
 
 /** 入库勾选候选（作者勾选才入库；品味归人，不自动入库） */
 export async function runLearnCommit(
   name: string,
   body: { samples: SampleCandidateFE[]; quotes: QuoteCandidateFE[] },
-): Promise<LearnCommitResultFE> {
+): Promise<LearnCommitResult> {
   // 入库为纯文件写（候选已在内存），但兜底超时仍须与收割同档
   // 60s——无超时的请求挂死时调用方 loading 永转（大书候选 payload 大，弱机慢盘同受
   // 10-30s 量级影响，与 runLearn 同口径）
-  return apiJson<LearnCommitResultFE>(bookUrl(name, 'learn-commit'), { method: 'POST', json: body }, 60_000)
+  return apiJson<LearnCommitResult>(bookUrl(name, 'learn-commit'), { method: 'POST', json: body }, 60_000)
 }

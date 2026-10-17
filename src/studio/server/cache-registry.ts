@@ -24,6 +24,9 @@
  * 由聚合入口代登记——登记语义与其余相同，机器门照常对账。
  */
 
+import { realpathSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 /** 书键缓存失效函数：语义 = 删/改名时按 bookRoot 清理本缓存（逐位对齐历史挂点）。 */
 export type BookKeyedCacheForget = (bookRoot: string) => void
 
@@ -45,9 +48,35 @@ export function registerBookKeyedCache(name: string, forget: BookKeyedCacheForge
   entries.push({ name, forget })
 }
 
+/**
+ * bookRoot 拼写别名：同一本书可能以词法路径与 realpath 两种拼写进入缓存键——
+ * 读路径（书架扫描经 resolveWithinRoot）落 realpath 键，写出口（resolveBook）拿词法键；
+ * macOS `/var`→`/private/var` 等根链路 symlink 下二者不同，只清一种拼写会漏另一份。
+ * 返回「原样 / resolve 后 / 存在则 realpath」去重集合。
+ *
+ * 调用时机约束：realpath 解析要求路径仍存在。删/改名要在文件系统操作**前**取别名，
+ * 操作成功后用 forgetBookKeyedCachesForRoots 广播（删除后旧路径已解析不出 realpath）。
+ */
+export function bookRootAliases(bookRoot: string): readonly string[] {
+  const aliases = new Set<string>([bookRoot, resolve(bookRoot)])
+  try {
+    aliases.add(realpathSync(bookRoot))
+  } catch {
+    /* 路径不存在/不可解析：保留词法别名（调用方对账口径） */
+  }
+  return [...aliases]
+}
+
+/** 按一组 bookRoot 别名广播（删/改名在 FS 操作前取好别名，操作成功后调用）。 */
+export function forgetBookKeyedCachesForRoots(roots: readonly string[]): void {
+  for (const root of roots) {
+    for (const e of entries) e.forget(root)
+  }
+}
+
 /** 一次广播：按登记序遍历全部已登记项（调用面/语义 = 历史 forgetBookKeyedCaches）。 */
 export function forgetBookKeyedCaches(bookRoot: string): void {
-  for (const e of entries) e.forget(bookRoot)
+  forgetBookKeyedCachesForRoots(bookRootAliases(bookRoot))
 }
 
 /** 登记项只读快照（机器门对账/诊断用；生产零调用——纯观测读取不改缓存行为）。 */

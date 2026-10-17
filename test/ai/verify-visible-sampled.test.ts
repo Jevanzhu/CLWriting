@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { verifyVisibleSampled } from '../../src/ai/orchestrate/chat/turns.js'
+import { verifyVisibleSampled as verifyChannelSampled } from '../../src/events/lineage-sampling.js'
 
 const D = { settings: 'dg-settings-01', revision: 'dg-revision-01', skills: 'dg-skills-01' }
 const recorded = [
@@ -57,6 +58,28 @@ describe('verifyVisibleSampled（R65-15）', () => {
     verifyVisibleSampled({ settings: D.settings }, [
       { type: 'settings/snapshot', data: { scope: 'settings', digest: D.settings } },
     ] as Parameters<typeof verifyVisibleSampled>[1])
+    expect(warn).not.toHaveBeenCalled()
+  })
+})
+
+// ── C3（1.0 收口）：通道无关抽样面 ────────────────────────────────
+// chat 之外（self-heal / rewrite）的链路经 events/lineage-sampling 直接调用，
+// 日志 tag 随通道定位；缺失判据与 chat 侧同一实现。
+describe('verifyVisibleSampled（通道无关，C3）', () => {
+  it('flag 开 + 缺失 → warn 带通道 tag 与缺失清单', () => {
+    process.env['CLW_VERIFY_VISIBLE'] = '1'
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    verifyChannelSampled('self-heal', [{ scope: 'prompt', digest: 'deadbeefdeadbeef' }], [])
+    expect(warn).toHaveBeenCalledTimes(1)
+    const msg = String(warn.mock.calls[0]?.[0])
+    expect(msg).toContain('[self-heal]')
+    expect(msg).toContain('[CLW_VERIFY_VISIBLE]')
+    expect(msg).toContain('prompt:deadbeefdeadbeef')
+  })
+
+  it('flag 关 → 不 warn（零开销）', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    verifyChannelSampled('rewrite', [{ scope: 'prompt', digest: 'deadbeefdeadbeef' }], [])
     expect(warn).not.toHaveBeenCalled()
   })
 })

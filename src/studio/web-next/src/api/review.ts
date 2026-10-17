@@ -1,56 +1,16 @@
 import { apiJson, ApiError } from './client'
 import { bookUrl } from './url'
 
-// 三审结果类型（镜像后端 src/review/run.ts CollectedReview + normalized 精简）。
-export interface ReviewIssueFE {
-  lens: string
-  severity: string
-  category: string
-  location: string
-  evidence: string[]
-  issue: string
-  fix: string
-  blocking?: boolean
-}
-export interface CollectedReviewFE {
-  ok: boolean
-  collected_lenses: string[]
-  missing_lenses: string[]
-  /** 采集失败明细（stale/坏条目）——passed 判定须查 ok/bad_entries，
-   *  修复前旧信封无此字段（optional 兼容），后端同名字段随 collected 原样透传 */
-  bad_entries?: { path: string; reason: string }[]
-  raw_issues: ReviewIssueFE[]
-  normalized: {
-    blockers: ReviewIssueFE[]
-    warnings: ReviewIssueFE[]
-    invalid_issues: ReviewIssueFE[]
-    passed: boolean
-  }
-  tier: string
-  chapter: number
-  lenses_run: string[]
-}
-export interface ReviewResult {
-  ok: true
-  lenses: string[]
-  collected: CollectedReviewFE
-}
-export interface ReviewVerdict {
-  approved: boolean
-  at: string
-}
-export interface ReviewEnvelope {
-  generatedAt: string
-  model: string
-  sourceHash: string
-  /** 采集失败（ok:false）信封打 incomplete 标记——旧信封无此字段 */
-  payload: { collected: CollectedReviewFE; lenses: string[]; verdict?: ReviewVerdict; incomplete?: true }
-}
-interface EnvelopeGet {
-  ok: true
-  envelope: ReviewEnvelope
-  stale: boolean
-}
+// 三审结果类型单源 = src/shared/contract/review.ts（服务端同源注解）。
+import type { CollectedReview, ReviewEnvelope, ReviewIssue, ReviewResult } from '../../../../shared/contract/review'
+export type ReviewIssueFE = ReviewIssue
+export type CollectedReviewFE = CollectedReview
+export type {
+  ReviewEnvelope,
+  ReviewResult,
+  ReviewVerdict,
+} from '../../../../shared/contract/review'
+type EnvelopeGet = { ok: true; envelope: ReviewEnvelope; stale: boolean }
 
 // POST /documents/:docId/review —— 三审直读（M12 B0.2，需 AI 可达）。
 export async function runReview(name: string, docId: string): Promise<ReviewResult> {

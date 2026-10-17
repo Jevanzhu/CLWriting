@@ -14,6 +14,7 @@ import { applyGlobalDefaults } from '../../format/global-defaults.js'
 import { writeSpillFile, readSpillFile, readSpillMeta } from '../../process/spill.js'
 import { chapterInput } from './shared.js'
 import { createHash } from 'node:crypto'
+import { digest16 } from '../../events/lineage.js'
 import { saveDraft } from '../../process/draft-pipeline.js'
 import { resolveDraftPath } from '../../document/draft-path.js'
 // 预览/字数码点口径单源；直引 shared/text.js（原经 process/summary
@@ -54,6 +55,8 @@ async function runRewriter(
     chapter,
     userPrompt: prompt,
     promptFiles,
+    // 可见注入登记（内容级）：改写 prompt 全文指纹——CLW_VERIFY_VISIBLE 抽样据此断言
+    visible: [{ scope: 'prompt', digest: digest16(prompt) }],
     signal: ctx.signal,
   })
   if (!out.ok) return { ok: false, error: out.error }
@@ -195,8 +198,8 @@ export async function rewriteChapter(ctx: ToolContext, input: Record<string, unk
   const preview =
     clipByCodePoints(r.produced, 600) +
     (codePointLength(r.produced) > 600 ? '\n……（全文共 ' + codePointLength(r.produced) + ' 字）' : '')
-  // 全文落 spill（工作区/spills/<内容哈希>.md，幂等）——此前全文不落盘不 spill，
-  // 「确认满意后再说一声，我再落盘」物理不可兑现（预览外内容已丢失）；落盘后按路径可取回全文。
+  // 全文落 spill（工作区/spills/<内容哈希>.md，幂等）——不落 spill 则「确认满意后再说
+  // 一声，我再落盘」物理不可兑现（预览外内容已丢失）；落盘后按路径可取回全文。
   // meta 记章号 + 基线正文指纹，apply_spill 侧做归属/新鲜度校验
   const locator = writeSpillFile(ctx.bookRoot, r.produced, rewriteMeta(chapter, body))
   return {

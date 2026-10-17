@@ -80,7 +80,7 @@ import { useReviewStore } from '../../../../src/studio/web-next/src/stores/revie
 import { useWorkspaceStore } from '../../../../src/studio/web-next/src/stores/workspace'
 import { useTreeStore } from '../../../../src/studio/web-next/src/stores/tree'
 import type { CheckItem } from '../../../../src/studio/web-next/src/api/check'
-import type { ReviewIssueFE } from '../../../../src/studio/web-next/src/api/review'
+import type { CollectedReviewFE, ReviewIssueFE } from '../../../../src/studio/web-next/src/api/review'
 import type { Foreshadow } from '../../../../src/studio/web-next/src/api/foreshadows'
 
 enableAutoUnmount(afterEach)
@@ -158,7 +158,7 @@ function reviewIssue(i: number): ReviewIssueFE {
   return {
     lens: 'reader',
     severity: 'S1',
-    category: 'c',
+    category: 'logic',
     location: '',
     evidence: [],
     issue: `问题${i}`,
@@ -174,7 +174,7 @@ describe('R1010c-FE1-P3-2: ReviewPanel 阻断/警告渲染上限', () => {
     return mount(ReviewPanel, { props: { bookName: 'test-book' } })
   }
 
-  function collectedWithBlockers(n: number) {
+  function collectedWithBlockers(n: number): CollectedReviewFE {
     return {
       ok: true,
       collected_lenses: [],
@@ -186,7 +186,17 @@ describe('R1010c-FE1-P3-2: ReviewPanel 阻断/警告渲染上限', () => {
         invalid_issues: [],
         passed: false,
       },
-      tier: 't',
+      bad_entries: [],
+      meta: {
+        requested_tier: 'full',
+        effective_tier: 'full',
+        fallback: '',
+        lenses_run: [],
+        ledger_check: '已跑',
+      },
+      tier: 'full',
+      requested_tier: 'full',
+      fallback: '',
       chapter: 1,
       lenses_run: [],
     }

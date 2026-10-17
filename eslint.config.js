@@ -93,6 +93,7 @@ export default [
       'playwright-report/**',
       'Dev/**',
       'tmp/**', // 本地脚本临时产物（gates-*.sh/log 等），防未来 .js 入 lint
+      '.zcode/**', // 本地 agent 工作态（plans / workflow-runs 等，gitignore 内），非本仓代码面
       'src/studio/web-next/node_modules/**',
       'src/studio/web-next/test-results/**',
       'src/studio/web-next/dist/**',

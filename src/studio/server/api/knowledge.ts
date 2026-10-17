@@ -16,6 +16,7 @@ import { bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import { learnFromBook } from '../../../learn/index.js'
 import { commitSamples, commitQuotes, defaultCommitYield, type CommitYield } from '../../../learn/commit.js'
 import type { LearnResult, SampleCandidate, QuoteCandidate } from '../../../learn/index.js'
+import type { LearnCommitResult, LearnResult as LearnResponse } from '../../../shared/contract/learn.js'
 import type { TaskGateInjected } from './task-gate.js' // 长任务并发闸（闸实例经组装根注入）
 // token 死字段删除——写闸（index.ts isWrite
 // safeTokenCompare）在路由分派前已拦一切 POST 删 handler 内冗余复核后本 ctx
@@ -116,7 +117,7 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
         // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
         const result = await learnCache.get(r.bookRoot, undefined, ctx.learnTtlMs ?? undefined)
         if (!result.ok) return replyError(res, 400, 'BAD_INPUT', result.error ?? '学习产出候选失败')
-        reply(res, 200, { samples: result.samples ?? [], quotes: result.quotes ?? [] })
+        reply(res, 200, { samples: result.samples ?? [], quotes: result.quotes ?? [] } satisfies LearnResponse)
       } finally {
         release()
       }
@@ -166,7 +167,7 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
       try {
         const sampleFiles = samples.length ? await commitSamples(bookRoot, samples, commitYield) : []
         const quoteFiles = quotes.length ? await commitQuotes(bookRoot, quotes, commitYield) : []
-        reply(res, 200, { ok: true, sampleFiles, quoteFiles })
+        reply(res, 200, { ok: true, sampleFiles, quoteFiles } satisfies LearnCommitResult)
       } catch (e) {
         if (e instanceof BookMovedSignal) return replyError(res, 409, 'BOOK_MOVED', e.message)
         throw e
