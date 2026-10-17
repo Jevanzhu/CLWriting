@@ -4,7 +4,7 @@
 
 ## 恒常纪律
 
-- 子 agent 派发上限：单波 ≤4（在途 ≤4），超量拆多波顺序派发。
+- 子 agent 派发上限：单波 ≤5（在途 ≤5），超量拆多波顺序派发。
 - 纪律条落点：作者一次性纪律指令只落本正本；文档操作链与操作规程细则落 `05-规范/` 现行规范档，本正本只留指针；常规批记档照旧。
 - 判据展开：本正本写纪律条目，展开与理由住 skill 副本 `.agents/skills/`（随上游版本整体替换；采用面与升级见规范第十节）——工程流程、门禁、注释卫生、测试可靠性、评审、派活判据 = `project-harness/references/`（`agent-work.md` / `comment-hygiene.md` / `test-reliability.md` / `doc-governance.md` / `doc-lifecycle.md` / `gates.md` / `pre-push.md`），决策记录的格式与归档 = `agent-notes/`；所装副本版本见 `scripts/harness/version.json`。
 - **工作语言**：中文；**指令面永不配对**——本正本、`CLAUDE.md`、`docs/AGENTS.md` 与决策记录的机制说明各一份，需要双语的知识住 `docs/` 与 `.agents/notes/` 的对照面（判据 = `project-harness/references/language-policy.md`）；换语言 = 整棵树的显式迁移，非逐文件漂移。
