@@ -85,7 +85,9 @@ describe('R36-9 建书异步锁：成功路径', () => {
 describe('R36-9 互斥不阻塞（队列语义）', () => {
   it('锁被持有：appendBookAsync 轮询等待不冻结事件循环（定时器照跑），超时降级；释放后重试成功', async () => {
     const wd = mkdtempTracked(join(tmpdir(), 'clwriting-r36-9-block-'))
-    __setBooksLockTimeoutForTest(80)
+    // 注入 300ms（原 80ms）：10ms 定时器须在等待窗内可靠先跑，满载裕量按 ≥30x 取
+    //（等待窗是文件 IO 级，放长不改变异步语义；原 8x 裕量在 CI 满载下曾判 wheel=false）。
+    __setBooksLockTimeoutForTest(300)
 
     // 同进程持锁模拟「另一进程正在改写 books.jsonl」（tryBooksLock 的 pid 存活判定
     // 对本进程返回 held——与跨进程争用窗口同型）
@@ -115,7 +117,8 @@ describe('R36-9 互斥不阻塞（队列语义）', () => {
 
   it('GUI 路径：锁被持有 + 注入短超时 → doInitAsync 登记段异步等待超时降级 {ok:false}，事件循环不冻结', async () => {
     const wd = mkdtempTracked(join(tmpdir(), 'clwriting-r36-9-block-init-'))
-    __setBooksLockTimeoutForTest(60)
+    // 同首例：注入 300ms 给 10ms 定时器留足满载裕量（等待窗放长不改变异步语义）。
+    __setBooksLockTimeoutForTest(300)
 
     const release = tryBooksLock(wd)
     expect(release).not.toBeNull()

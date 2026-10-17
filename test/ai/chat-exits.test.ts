@@ -396,7 +396,7 @@ describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
 
   it(
     'R42-26：档位超时（out.code=TIMEOUT_TOTAL）→ timeout 出口（mask aborted）+ 超时文案',
-    { timeout: 10_000 },
+    { timeout: process.env.CI ? 30_000 : 10_000 },
     async () => {
       // chat 档位带 60ms 总超时——runTask 档位超时返回 TIMEOUT_TOTAL（非 chat deadline 的
       // timedOut 路径），finishTurn 按 out.code 分流到 'timeout'

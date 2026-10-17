@@ -614,6 +614,8 @@ describe('事件库保留策略（观测类裁剪）', () => {
 })
 
 describe('事件库空间回收', () => {
+  // 120s 帽：CI 满载下 300×6KB 灌库 + 整库 VACUUM 曾超全局 30s 兜底；空间回收无断言语义，
+  // 放宽不弱化守卫。
   it('存量库（auto_vacuum=0）空闲页充裕 → 整库重写转增量档，mode=vacuum', async () => {
     const ud = tmpRoot()
     mkdirSync(join(ud, 'session'), { recursive: true })
@@ -651,7 +653,7 @@ describe('事件库空间回收', () => {
     } finally {
       after.close()
     }
-  })
+  }, 120_000)
 
   it('强制档：空闲页未到阈仍回收（清库路径要空间回落）；机会档同现场则不动', async () => {
     const ud = tmpRoot()

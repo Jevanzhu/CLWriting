@@ -56,6 +56,10 @@ const SHARED = {
   execArgv: ['--expose-gc'],
   setupFiles: ['test/helpers/studio-token-setup.ts', 'test/helpers/disable-update-check-setup.ts'],
   testTimeout: 30000,
+  // CI 满载下起服/建具型 beforeAll 可超 vitest 缺省 10s hookTimeout（server 档多例实录）；
+  // 仓内既有逐档 60s 帽同口径。CI 统一 60s、本地维持缺省 10s——启动型钩子无断言语义，
+  // 60s 仍是硬上限，不掩盖挂死。
+  hookTimeout: process.env.CI ? 60_000 : 10_000,
 }
 
 export default defineConfig({
