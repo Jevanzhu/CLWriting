@@ -3,18 +3,18 @@
  * - B1 误报端点：事件落库形状（checkId/chapter/excerpt 服务端切 ±50）、无命中 409、
  *   幂等（重复标记 append、查询侧最近一条口径）
  * - B4 信息差三级供给：显式入参 > book.yaml > 账本派生 > 空（未声明静默）
- * - B2 自举脚本（execSync 集成）：幸存者判定两路 + 候选 md 产出 + 误报率统计
+ * - B2 自举脚本（子进程集成）：幸存者判定两路 + 候选 md 产出 + 误报率统计
  * - B2 corpus:commit：勾选行入库 round-trip（去重合并）
  */
 import { describe, it, expect } from 'vitest'
-import { execSync, spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import type { AddressInfo } from 'node:net'
-import { rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { rmSync, cpSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// R62-58：仓库根按 import.meta.url 解析（此前 execSync 用 cwd 相对脚本路径，非根目录跑即 ENOENT）
+// 仓库根按 import.meta.url 解析：脚本路径不随 cwd 走，非根目录跑也定位得到
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url))
 import { startServerSafe } from '../helpers/safe-port.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
@@ -27,6 +27,16 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 function tmpDir(prefix: string): string {
   return mkdtempTracked(join(tmpdir(), prefix))
+}
+
+/** 起 `scripts/<script>` 的 argv：process.execPath + tsx loader 直跑（不经 shell / npx shim 解析）。 */
+function scriptArgv(script: string, ...args: string[]): string[] {
+  return ['--import', 'tsx', join(REPO_ROOT, 'scripts', script), ...args]
+}
+
+/** 跑脚本到结束（期望成功）：退出码非零即抛，参数走 argv 数组不过 shell。 */
+function runScript(script: string, ...args: string[]): void {
+  execFileSync(process.execPath, scriptArgv(script, ...args))
 }
 
 /** 造书：N 章正文 + 布线（含账本 leak_keywords 可选）+ 清单登记 */
@@ -125,7 +135,7 @@ describe('B1 误报标记端点', () => {
     const bookRoot = makeBook(1)
     // workDir 下建同名书目录链接式布局：直接把书放进 workDir
     rmSync(join(workDir, '语料测试书'), { recursive: true, force: true })
-    execSync(`cp -R "${bookRoot}" "${join(workDir, '语料测试书')}"`)
+    cpSync(bookRoot, join(workDir, '语料测试书'), { recursive: true })
     const targetRoot = join(workDir, '语料测试书')
     const ud = tmpDir('clw-fp-ud-')
 
@@ -183,7 +193,7 @@ describe('B1 误报标记端点', () => {
   })
 })
 
-// ── B2 自举脚本 + corpus:commit（execSync 集成）──────────────────────
+// ── B2 自举脚本 + corpus:commit（子进程集成）──────────────────────────
 
 describe('B2 自举脚本（幸存者判定）与 corpus:commit', () => {
   it('幸存（误报候选）/ 被改掉（命中候选）两路 + 误报率统计 + 勾选入库 round-trip', () => {
@@ -228,7 +238,7 @@ describe('B2 自举脚本（幸存者判定）与 corpus:commit', () => {
       '---\n章号: 3\n标题: 第3章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n屋里的气氛沉了下来，他先开了口。\n',
     )
 
-    execSync(`npx tsx "${join(REPO_ROOT, 'scripts', 'harvest-corpus.ts')}" "${root}"`, { stdio: 'pipe' })
+    runScript('harvest-corpus.ts', root)
     const fp = join(root, '工作区', '语料候选', '误报候选.md')
     const hit = join(root, '工作区', '语料候选', '命中候选.md')
     expect(existsSync(fp)).toBe(true)
@@ -255,14 +265,14 @@ describe('B2 自举脚本（幸存者判定）与 corpus:commit', () => {
     writeFileSync(fp, fpChecked)
     const hitChecked = hitText.replace(/- \[ \] 章号 1/g, '- [x] 章号 1')
     writeFileSync(hit, hitChecked)
-    execSync(`npx tsx "${join(REPO_ROOT, 'scripts', 'corpus-commit.ts')}" "${root}" "${outDir}"`, { stdio: 'pipe' })
+    runScript('corpus-commit.ts', root, outDir)
     const jsonPath = join(outDir, 'body-parts.json')
     expect(existsSync(jsonPath)).toBe(true)
     const entries = JSON.parse(readFileSync(jsonPath, 'utf8')) as Array<{ excerpt: string; expect: string }>
     expect(entries.some((e) => e.expect === 'silent' && e.excerpt.includes('眼睛'))).toBe(true)
     expect(entries.some((e) => e.expect === 'fire' && e.excerpt.includes('眼睛'))).toBe(true)
     // 重跑合并去重（不翻倍）
-    execSync(`npx tsx "${join(REPO_ROOT, 'scripts', 'corpus-commit.ts')}" "${root}" "${outDir}"`, { stdio: 'pipe' })
+    runScript('corpus-commit.ts', root, outDir)
     const entries2 = JSON.parse(readFileSync(jsonPath, 'utf8')) as unknown[]
     expect(entries2.length).toBe(entries.length)
   })
@@ -283,7 +293,7 @@ describe('B2 自举脚本（幸存者判定）与 corpus:commit', () => {
       join(root, '写作', '正文', '001-第1章.md'),
       '---\n章号: 1\n标题: 第1章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n她望了他一眼，火光在眼底一闪而过。\n',
     )
-    execSync(`npx tsx "${join(REPO_ROOT, 'scripts', 'harvest-corpus.ts')}" "${root}"`, { stdio: 'pipe' })
+    runScript('harvest-corpus.ts', root)
     const fpText = readFileSync(join(root, '工作区', '语料候选', '误报候选.md'), 'utf8')
     expect(fpText).toContain('判定：幸存')
     const hitText = readFileSync(join(root, '工作区', '语料候选', '命中候选.md'), 'utf8')
@@ -303,13 +313,7 @@ describe('R63-13/R63-11：corpus:commit checkId 消毒与存量保护', () => {
   }
 
   function runCommit(root: string, outDir: string) {
-    // R70-9 同款（J0 win 实测）：spawnSync('npx') 在 win 上只找 npx.exe（实为 npx.cmd）
-    // → ENOENT；改 process.execPath 直跑 + tsx loader，跨平台一致
-    return spawnSync(
-      process.execPath,
-      ['--import', 'tsx', join(REPO_ROOT, 'scripts', 'corpus-commit.ts'), root, outDir],
-      { encoding: 'utf8' },
-    )
+    return spawnSync(process.execPath, scriptArgv('corpus-commit.ts', root, outDir), { encoding: 'utf8' })
   }
 
   it('R63-13：checkId 含 ../、/、\\ → 拒绝入库（不逃出 corpusDir），合法 checkId 照常入库', () => {

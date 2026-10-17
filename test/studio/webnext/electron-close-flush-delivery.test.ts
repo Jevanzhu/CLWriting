@@ -107,9 +107,13 @@ app.whenReady().then(() => {
 
       let child: ChildProcess | undefined
       try {
+        // 此用例要的是真 GUI 引擎：被继承的 ELECTRON_RUN_AS_NODE 会把 electron 降级成普通
+        // Node 进程（fixture 当场失败），故子进程环境显式清掉该位，不靠调用方 shell 干净。
+        const childEnv = { ...process.env, ELECTRON_RUN_AS_NODE: undefined }
         child = spawn(electronBinary(), [fixture, `http://127.0.0.1:${port}`], {
           stdio: 'ignore',
           windowsHide: true,
+          env: childEnv,
         })
         const exitCode = await new Promise<number | null>((resolve) => {
           child!.once('exit', (code) => resolve(code))
