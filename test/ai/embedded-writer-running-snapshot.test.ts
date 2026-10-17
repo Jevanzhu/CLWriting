@@ -39,6 +39,9 @@ const dirs: string[] = []
 let ccSession: Session
 let opts: ChatOpts
 
+/** stub 首答等待窗：CI 满载下可超 waitFor 缺省 3s；只影响慢路径，正常路径零等待。 */
+const REQUEST_WAIT_MS = 15_000
+
 /** submit_chapter 工具入参（assembleChapter 结构化产出；字数红 → 触顶 escalate，链路仍闭合） */
 const CHAPTER_INPUT = {
   标题: '第五夜',
@@ -110,7 +113,7 @@ describe('四轮-A402: chat 内嵌写章期间 sync 快照写手腿在途', () =
       const ctrl = new AbortController()
       const tool = executeChatTool({ id: 'c1', name: 'write_chapter', input: { chapter: 5 } }, opts, ctrl.signal)
       // 生成请求已到 stub（runTask 先 register 后发请求）→ 写手腿在册（修复前全程假空闲）
-      await waitFor(() => fake.requestCount() >= 1)
+      await waitFor(() => fake.requestCount() >= 1, REQUEST_WAIT_MS)
       expect(ccDriver.isWriterRunning!(ccSession)).toBe(true)
       expect(isSelfHealRunning(SHORT_BOOK)).toBe(true)
 
@@ -138,7 +141,7 @@ describe('四轮-A402: chat 内嵌写章期间 sync 快照写手腿在途', () =
 
       const ctrl = new AbortController()
       const tool = executeChatTool({ id: 'c2', name: 'write_chapter', input: { chapter: 6 } }, opts, ctrl.signal)
-      await waitFor(() => fake.requestCount() >= 1)
+      await waitFor(() => fake.requestCount() >= 1, REQUEST_WAIT_MS)
       expect(ccDriver.isWriterRunning!(ccSession)).toBe(true)
 
       // /interrupt → cc interrupt → abortAllCtrls + 全槽注销

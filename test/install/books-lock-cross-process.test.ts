@@ -38,10 +38,13 @@ const booksPath = fileURLToPath(new URL('../../src/install/books.ts', import.met
 const booksImportSpecifier = pathToFileURL(booksPath).href
 
 /** 起一个子进程并发建书 N 次（登记名 前缀+序号），任一 append 失败即非零退出
- *  （R32-37：看门狗兜底防孤儿进程） */
+ *  （R32-37：看门狗兜底防孤儿进程）。
+ *  子进程注入 30s 锁等待：本档判据是跨进程互斥（零丢登记），生产 5s 超时的降级面由
+ *  下方第二例专测；CI 满载下 5s 会被杀软/索引器拖破，把「按设计未建书」误判为丢登记。 */
 function spawnWorker(workDir: string, tag: string, n: number): Promise<number> {
   const script = `
-import { appendBook } from ${JSON.stringify(booksImportSpecifier)}
+import { appendBook, __setBooksLockTimeoutForTest } from ${JSON.stringify(booksImportSpecifier)}
+__setBooksLockTimeoutForTest(30_000)
 for (let i = 0; i < ${n}; i++) {
   const name = ${JSON.stringify(tag)} + i
   const r = appendBook(${JSON.stringify(workDir)}, { name, path: name, kind: 'long' })
