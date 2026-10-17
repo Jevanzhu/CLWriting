@@ -58,35 +58,35 @@
     "lint:prune": "eslint . --prune-suppressions"
   },
   "devDependencies": {
-    "@playwright/test": "^1.63.0",
-    "@types/node": "^24.13.6",
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^24.19.2",
     "@types/yauzl": "3.4.0",
-    "@vitejs/plugin-vue": "^6.0.9",
-    "@vitest/coverage-v8": "^5.0.1",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "@vitest/coverage-v8": "^5.0.5",
     "@vue/test-utils": "^2.5.1",
     "cross-env": "^10.1.0",
-    "electron": "^44.4.5",
-    "electron-builder": "^26.16.1",
-    "eslint": "^10.11.0",
+    "electron": "^44.9.0",
+    "electron-builder": "^26.17.0",
+    "eslint": "^10.13.0",
     "eslint-plugin-vue": "^10.11.1",
-    "happy-dom": "^20.14.5",
-    "pinia": "^4.0.3",
-    "prettier": "^3.9.9",
+    "happy-dom": "^20.14.6",
+    "pinia": "^4.1.0",
+    "prettier": "^3.9.10",
     "tsup": "^8.0.0",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.70.1",
-    "vitest": "^5.0.1",
-    "vue": "^3.5.43"
+    "typescript-eslint": "^8.71.2",
+    "vitest": "^5.0.5",
+    "vue": "^3.5.44"
   },
   "//overrides": "esbuild 钉版：旧版 dev server 有跨站读取泄漏面（GHSA-67mh-4wv8-2f99，修复线 0.25.0），钉死强制全部消费链越过受影响版本。覆盖范围＝tsup / tsx 与根 devDependencies 的 vite 7 链（供 vitest/@vitejs/plugin-vue，仍带 esbuild 依赖）；前端子包 web-next 的 vite 8 已改 rolldown 构建、无 esbuild 依赖，不在射程内。放开钉版前需回归 electron 构建链（tsup 构建 + dev:app + build:desktop 出包）。",
   "overrides": {
     "esbuild": "^0.28.1"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.128.0",
+    "@anthropic-ai/sdk": "^0.135.0",
     "font-list": "^2.1.0",
-    "openai": "^7.23.0",
+    "openai": "^7.36.0",
     "yauzl": "3.4.0"
   }
 }

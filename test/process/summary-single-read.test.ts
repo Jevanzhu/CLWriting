@@ -17,7 +17,7 @@ vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
   return {
     ...actual,
-    readFileSync: ((p, ...rest) => {
+    readFileSync: ((p: Parameters<typeof readFileSync>[0], ...rest: any[]) => {
       if (typeof p === 'string' && p === READS.path) READS.count++
       return (actual.readFileSync as typeof readFileSync)(p, ...rest)
     }) as typeof readFileSync,

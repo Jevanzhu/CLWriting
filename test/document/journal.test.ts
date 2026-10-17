@@ -19,7 +19,7 @@ vi.mock('node:fs', async (importOriginal) => {
   return {
     ...actual,
     // 注入点：compact 主读（scanUnsettled 的 readFileSync）返回「追加前」内容之后
-    readFileSync: ((p, ...rest) => {
+    readFileSync: ((p: Parameters<typeof readFileSync>[0], ...rest: any[]) => {
       if (READFAIL.inject && typeof p === 'string' && p === READFAIL.journalPath) {
         READFAIL.inject = false // 只注入一次（findUnsettled / compact 内 scanUnsettled 单次读）
         throw Object.assign(new Error(`EACCES: permission denied, open '${p}'`), { code: 'EACCES' })

@@ -35,7 +35,7 @@ vi.mock('node:fs', async (importOriginal) => {
     rmSync: vi.fn(actual.rmSync),
     // 重评-0912-4 P2-2：strict 命中读撞瞬态锁占（EBUSY）——mock 注入形态同
     // test/state/save-pending-reconcile.test.ts 顶部先例
-    readFileSync: ((p, ...rest) => {
+    readFileSync: ((p: Parameters<typeof readFileSync>[0], ...rest: any[]) => {
       if (actualFs.failManifestRead && typeof p === 'string' && p.endsWith('文档清单.jsonl')) {
         throw Object.assign(new Error('mock EBUSY：清单瞬态锁占'), { code: 'EBUSY' })
       }
@@ -48,8 +48,8 @@ vi.mock('node:fs', async (importOriginal) => {
     // appendFileSync（不经本包装），章纲清单写内容为章纲 path 不含标记，均不误伤。
     // 闸门（armOnBodyManifestWrite）仅 P2-2 用例前置 true——本文件各用例都改名到同一
     // 新正文名，无闸则内容标记会武装到既有用例的同步读点（其期望同步成功）。
-    writeFileSync: ((p, ...rest) => {
-      const r = (actual.writeFileSync as typeof writeFileSync)(p, ...rest)
+    writeFileSync: ((p: Parameters<typeof writeFileSync>[0], ...rest: any[]) => {
+      const r = (actual.writeFileSync as (...args: any[]) => void)(p, ...rest)
       const data = rest[0]
       if (actualFs.armOnBodyManifestWrite && typeof data === 'string' && data.includes('写作/正文/001-新标题.md')) {
         actualFs.failManifestRead = true

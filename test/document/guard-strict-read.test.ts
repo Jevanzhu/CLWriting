@@ -21,7 +21,7 @@ vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
   return {
     ...actual,
-    readFileSync: ((p, ...rest) => {
+    readFileSync: ((p: Parameters<typeof readFileSync>[0], ...rest: any[]) => {
       if (FAIL.manifestRead && typeof p === 'string' && p.endsWith('文档清单.jsonl')) {
         throw Object.assign(new Error('EBUSY: 瞬时占用（模拟同步盘扫描锁）'), { code: 'EBUSY' })
       }
