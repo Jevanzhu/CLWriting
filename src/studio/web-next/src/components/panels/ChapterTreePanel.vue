@@ -306,7 +306,8 @@ watch(
   flex: 1;
   min-height: 0;
 }
-/* 色点图例（钉在文件树底部，单行） */
+/* 色点图例（钉在文件树底部，单行）：字号与色取 xs + muted 档——xxs（10px）配
+   text-faint 时中文细笔画在 ClearType 下糊成一团，而本行是常驻读数面，按正文可读下限落 */
 .tree-legend {
   display: flex;
   align-items: center;
@@ -314,9 +315,9 @@ watch(
   flex-wrap: nowrap;
   gap: 12px;
   padding: 4px var(--size-4-2);
-  font-size: var(--font-size-xxs);
+  font-size: var(--font-size-xs);
   letter-spacing: 0.02em;
-  color: var(--text-faint);
+  color: var(--text-muted);
   border-top: 1px solid var(--background-modifier-border);
   background: var(--background-secondary);
   white-space: nowrap;
