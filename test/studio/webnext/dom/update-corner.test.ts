@@ -1,7 +1,7 @@
 /**
- * 更新角标（工作区左栏标题条左端）：形态三态（有点角标 / 下载环形 / 就绪胶囊）、弹层开合
- * （X 只关弹层 ≠ 忽略此版本）、就绪点即重启、失败与「上次更新未完成」告示、
- * 忽略按版本记忆。
+ * 更新角标（工作区左栏标题条、「刷新目录」按钮左侧）：形态三态（有点角标 / 下载环形 / 就绪胶囊）、
+ * 弹层开合（X 只关弹层 ≠ 忽略此版本）、就绪点即重启、失败与「上次更新未完成」告示、
+ * 忽略按版本记忆、挂点落位（刷新按钮左侧同组 + 间距取行 gap）。
  *
  * Teleport 口径：角标在组件树内（wrapper.find 可达）；弹层 Teleport 到 body——
  * 断言走 document.querySelector + dispatchEvent（tooltip-host 先例），afterEach 清 body。
@@ -21,6 +21,7 @@ vi.mock('../../../../src/studio/web-next/src/api/app-info', () => ({
 
 import UpdateCorner from '../../../../src/studio/web-next/src/components/ui/UpdateCorner.vue'
 import { UPDATE_DISMISS_KEY } from '../../../../src/studio/web-next/src/stores/update'
+import { readRepoFile } from '../../../helpers/repo-root.js'
 
 const UPDATE_FULL = {
   version: '1.0.0',
@@ -281,21 +282,46 @@ describe('更新角标：上次更新未完成', () => {
 })
 
 describe('更新角标：弹层锚定', () => {
-  // 红锚（真机暴露）：原按角标**右缘**对齐，而角标恒在左栏最左——78 − 300 = −222 被
-  // 8px 视口下限夹死，弹层实际钉在窗口左角、与角标脱钩（真机实测 chip x52-78 而
-  // pop x8-308，右缘多伸 230px）。
+  // 红锚（真机暴露）：原按角标**右缘**对齐（角标在标题条内偏右，紧邻刷新按钮左侧），
+  // 174 − 300 = −126 被 8px 视口下限夹死，弹层会钉在窗口左角、与角标脱钩。
   it('左缘锚定角标左缘（不再被视口下限夹到窗口左角）', async () => {
     installBridge()
     mocks.getAppInfo.mockResolvedValue({ version: '1.0.0-rc.4', update: UPDATE_FULL, updateAttempt: null })
     const wrapper = await mountCorner()
     const chip = wrapper.find('.uc-chip').element as HTMLElement
-    // jsdom 无布局（rect 恒 0）：给角标一个真机矩形——左栏内缩 8px、32px 标题条里居中
+    // jsdom 无布局（rect 恒 0）：给角标一个真机矩形——左栏标题条内、刷新按钮左侧（1536 宽窗实测）
     chip.getBoundingClientRect = (() =>
-      ({ left: 52, right: 78, top: 2.5, bottom: 28.5, width: 26, height: 26 }) as unknown as DOMRect) as () => DOMRect
+      ({ left: 148, right: 174, top: 2.5, bottom: 28.5, width: 26, height: 26 }) as unknown as DOMRect) as () => DOMRect
     await wrapper.find('.uc-chip').trigger('click')
     await flush()
     const pop = popEl() as HTMLElement
-    expect(pop.style.left).toBe('52px')
+    expect(pop.style.left).toBe('148px')
     expect(pop.style.top).toBe('34.5px')
+  })
+})
+
+describe('更新角标：挂点', () => {
+  // 静态源码守卫（先例 menu-labels / desktop-drag-class-scope）：挂点落位无运行时门，
+  // 且「前导位包裹 + margin-right:auto」一旦回归，角标就被重新顶到栏左端——布局漂移
+  // 在 jsdom 与纯 Chromium e2e 里都看不见，只能静态钉。
+  const sidebar = readRepoFile('src/studio/web-next/src/components/shell/SidebarLeft.vue')
+
+  it('角标是 .left-tabs 直接子件，紧邻「刷新目录」按钮左侧', () => {
+    const row = sidebar.slice(sidebar.indexOf('<div class="left-tabs"'), sidebar.indexOf('<div class="left-body"'))
+    const chipIdx = row.indexOf('<UpdateCorner />')
+    const refreshIdx = row.indexOf('refresh-tree')
+    expect(chipIdx, '角标应在 .left-tabs 行内').toBeGreaterThan(-1)
+    expect(row.lastIndexOf('<UpdateCorner />'), '角标在行内只应出现一次').toBe(chipIdx)
+    // 行首直接子件（旧形态是包裹进 .left-tabs-lead 的前导位，此处即红）
+    expect(row.slice(row.indexOf('>') + 1).trimStart().startsWith('<UpdateCorner />'), '角标应为行首直接子件').toBe(
+      true,
+    )
+    expect(chipIdx, '角标应在刷新按钮之前').toBeLessThan(refreshIdx)
+    expect(row.slice(chipIdx, refreshIdx), '角标与刷新按钮之间不得夹任何元素').not.toMatch(/<\/?div/)
+  })
+
+  it('贴栏左端的独立前导位（.left-tabs-lead / margin-right:auto）不得复活', () => {
+    expect(sidebar).not.toContain('left-tabs-lead')
+    expect(sidebar).not.toContain('margin-right: auto')
   })
 })

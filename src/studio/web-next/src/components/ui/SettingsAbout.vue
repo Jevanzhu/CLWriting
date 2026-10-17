@@ -16,7 +16,7 @@ const u = useUpdateStore()
       <SettingItem name="当前版本" desc="应用版本号（更新检查与更新包按此比对）">
         <span class="about-version" data-testid="about-version">{{ u.version ?? '未知' }}</span>
       </SettingItem>
-      <SettingItem name="更新" desc="有新版本时可在此下载；更新包就绪后，工作区左栏标题条左端的角标可一键重启完成替换">
+      <SettingItem name="更新" desc="有新版本时可在此下载；更新包就绪后，工作区左栏标题条「刷新目录」旁的角标可一键重启完成替换">
         <div class="about-update">
           <UpdateActions />
           <span v-if="!u.latest && !u.showAttempt" class="about-idle">尚未发现新版本</span>

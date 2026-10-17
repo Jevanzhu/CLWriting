@@ -13,8 +13,8 @@ import { usePlatform } from '../../composables/usePlatform'
 // 桌面版：顶部横排按钮与交通灯同一排（在交通灯右侧），右移让出交通灯宽度，不下移。
 // 交通灯仅在 mac（左上角红绿灯）存在 → has-traffic（52px 左避让）仅 mac 命中；
 // win 无左上角红绿灯，不加此避让（其右上 WCO 由 TabBar/右栏 env 避让）。
-// 自更新角标挂本栏标题条（.left-tabs）最左——作者拍板落点：工作栏（含刷新按钮的
-// 那条）左端；不入 TabBar（属中栏）与前置/辅助页。
+// 自更新角标挂本栏标题条（.left-tabs），与刷新/收起同按钮组、紧邻「刷新目录」左侧；
+// 间距取行内 gap（与「刷新目录 ↔ 收起左栏」同源）；不入 TabBar（属中栏）与前置/辅助页。
 const props = defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
 const tree = useTreeStore()
@@ -36,9 +36,7 @@ async function onRefresh(): Promise<void> {
 <template>
   <div class="sidebar-left" :class="{ 'has-traffic': isMac }">
     <div class="left-tabs" :class="{ 'is-drag': isDesktop }">
-      <div class="left-tabs-lead">
-        <UpdateCorner />
-      </div>
+      <UpdateCorner />
       <button
         v-if="ws.leftPanel === 'tree'"
         class="left-tab refresh-tree"
@@ -71,16 +69,10 @@ async function onRefresh(): Promise<void> {
   height: var(--size-tabbar);
   display: flex;
   align-items: center;
-  justify-content: flex-end; /* 面板切换按钮组靠右（左侧空白留给交通灯 + 拖窗） */
+  justify-content: flex-end; /* 按钮组（更新角标 + 刷新 + 收起）靠右（左侧空白留给交通灯 + 拖窗） */
   gap: 2px;
   padding: 0 var(--size-4-2);
   border-bottom: 1px solid var(--background-modifier-border);
-}
-/* 更新角标贴本栏最左（margin-right: auto 把右侧按钮组顶到栏尾） */
-.left-tabs-lead {
-  margin-right: auto;
-  display: flex;
-  align-items: center;
 }
 /* 桌面版：横排按钮与交通灯同排，右移让出交通灯宽度（交通灯约占窗口左上 x:13-65） */
 .sidebar-left.has-traffic .left-tabs {

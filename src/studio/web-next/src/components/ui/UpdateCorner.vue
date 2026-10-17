@@ -1,12 +1,13 @@
 <script setup lang="ts">
-// 更新角标（工作区左栏标题条左端）：安静时只剩一枚小图标——有小点=有新版本、环形=下载中、
+// 更新角标（工作区左栏标题条，刷新目录按钮左侧）：安静时只剩一枚小图标——有小点=有新版本、环形=下载中、
 // 小胶囊「重启更新」=包已就绪（点即重启，对齐 DSH 的「安装并重启」一步到位）、
 // 警示图标=失败或「上次更新未完成」。点击出小弹层（详情/进度/按钮），
 // 「忽略此版本」是弹层内的显式按钮——弹层右上角的叉只关弹层，两义不混。
 //
-// 挂点（单点）：工作区左栏标题条最左（SidebarLeft 的 .left-tabs，与「刷新目录」同排）——
-// 即「已进库的工作窗」的常驻面。引导页 / 书架窗 / 书库管理窗不挂；也不入 TabBar
-// （那条属中栏，右端还与专注/右栏按钮、右栏顶栏、win 窗控让位挤在同一角）。
+// 挂点（单点）：工作区左栏标题条（SidebarLeft 的 .left-tabs），紧邻「刷新目录」左侧、与
+// 刷新/收起按钮同组（间距取行 gap）——即「已进库的工作窗」的常驻面。引导页 / 书架窗 /
+// 书库管理窗不挂；也不入 TabBar（那条属中栏，右端还与专注/右栏按钮、右栏顶栏、win 窗控
+// 让位挤在同一角）。
 // 状态与订阅都在 stores/update（组件按页挂卸，进度不随切页丢）。
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { AlertTriangle, Download, Loader2, X } from 'lucide-vue-next'
@@ -73,8 +74,8 @@ function syncPopPos(): void {
   const el = chipRef.value
   if (!el || !popOpen.value) return
   const r = el.getBoundingClientRect()
-  // 左缘锚定角标左缘（弹层向右展开）：角标恒在左栏最左，按右缘对齐会让弹层整体落在
-  // 视口左侧之外、被 8px 下限夹成「钉窗口左角」，与角标脱钩。
+  // 左缘锚定角标左缘（弹层向右展开）：角标在左栏标题条内偏右（刷新按钮左侧），按右缘
+  // 对齐会把弹层整体推到角标左侧之外、被 8px 下限夹成「钉窗口左角」，与角标脱钩。
   popX.value = Math.max(8, Math.min(r.left, window.innerWidth - POP_W - 8))
   popY.value = r.bottom + 6
 }
