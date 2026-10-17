@@ -11,7 +11,10 @@ import type {
   CheckReport as ServerCheckReport,
   CheckSectionResult as ServerCheckSection,
 } from '../../check/types.js'
-import type { SampleCandidate as ServerSampleCandidate, QuoteCandidate as ServerQuoteCandidate } from '../../learn/index.js'
+import type {
+  SampleCandidate as ServerSampleCandidate,
+  QuoteCandidate as ServerQuoteCandidate,
+} from '../../learn/index.js'
 import type { DiffLine as ServerDiffLine } from '../../process/rewrite-prompt.js'
 import type {
   ForeshadowEntry as ServerForeshadowEntry,
@@ -35,13 +38,7 @@ import type {
   ReviewTier as ServerReviewTier,
 } from '../../review/contract.js'
 import type { CollectedReview as ServerCollectedReview } from '../../review/run.js'
-import type {
-  CheckItem,
-  CheckLevel,
-  CheckReport,
-  CheckSection,
-  CheckResult,
-} from './check.js'
+import type { CheckItem, CheckLevel, CheckReport, CheckSection, CheckResult } from './check.js'
 import type { QuoteCandidate, SampleCandidate } from './learn.js'
 import type { DiffLine } from './rewrite.js'
 import type { Foreshadow, ForeshadowHit, ForeshadowTrail } from './foreshadows.js'
@@ -80,9 +77,7 @@ export type _DiffLine = Assert<SameShape<DiffLine, ServerDiffLine>>
 // ── foreshadows（回包 = 条目 + 足迹）──
 export type _ForeshadowHit = Assert<SameShape<ForeshadowHit, ServerForeshadowHit>>
 export type _ForeshadowTrail = Assert<SameShape<ForeshadowTrail, ServerForeshadowTrail>>
-export type _Foreshadow = Assert<
-  SameShape<Foreshadow, ServerForeshadowEntry & { 足迹: ServerForeshadowTrail | null }>
->
+export type _Foreshadow = Assert<SameShape<Foreshadow, ServerForeshadowEntry & { 足迹: ServerForeshadowTrail | null }>>
 
 // ── style ──
 export type _EntryKind = Assert<SameUnion<EntryKind, ServerEntryKind>>

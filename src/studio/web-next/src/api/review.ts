@@ -5,11 +5,7 @@ import { bookUrl } from './url'
 import type { CollectedReview, ReviewEnvelope, ReviewIssue, ReviewResult } from '../../../../shared/contract/review'
 export type ReviewIssueFE = ReviewIssue
 export type CollectedReviewFE = CollectedReview
-export type {
-  ReviewEnvelope,
-  ReviewResult,
-  ReviewVerdict,
-} from '../../../../shared/contract/review'
+export type { ReviewEnvelope, ReviewResult, ReviewVerdict } from '../../../../shared/contract/review'
 type EnvelopeGet = { ok: true; envelope: ReviewEnvelope; stale: boolean }
 
 // POST /documents/:docId/review —— 三审直读（M12 B0.2，需 AI 可达）。

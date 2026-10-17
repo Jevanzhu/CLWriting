@@ -104,8 +104,7 @@ const incompleteReason = computed(() => {
   if (!c || c.ok) return ''
   const parts: string[] = []
   if (c.missing_lenses.length > 0) parts.push(`缺视角：${c.missing_lenses.map(lensLabel).join('、')}`)
-  if (c.bad_entries.length > 0)
-    parts.push(`损坏：${c.bad_entries.map((e) => `${e.path}（${e.reason}）`).join('；')}`)
+  if (c.bad_entries.length > 0) parts.push(`损坏：${c.bad_entries.map((e) => `${e.path}（${e.reason}）`).join('；')}`)
   return parts.join('；')
 })
 

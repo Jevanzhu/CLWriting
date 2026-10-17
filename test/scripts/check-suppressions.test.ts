@@ -19,9 +19,9 @@ describe('check:suppressions 上限门', () => {
 
   it('台账形状坏（顶层非对象 / count 非正整数）→ 红', () => {
     expect(inspectSuppressions([], SUPPRESSION_BASELINE).problems.length).toBeGreaterThan(0)
-    expect(
-      inspectSuppressions({ 'a.ts': { x: { count: 0 } } }, SUPPRESSION_BASELINE).problems.length,
-    ).toBeGreaterThan(0)
+    expect(inspectSuppressions({ 'a.ts': { x: { count: 0 } } }, SUPPRESSION_BASELINE).problems.length).toBeGreaterThan(
+      0,
+    )
   })
 
   it('当前仓库台账总量不超基线', () => {

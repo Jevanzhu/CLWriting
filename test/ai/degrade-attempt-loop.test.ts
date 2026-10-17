@@ -6,11 +6,7 @@
  * 本档锁这三条语义，防收敛把「消费后不重跑」的安全闸改丢。
  */
 import { describe, it, expect } from 'vitest'
-import {
-  buildDegradeAttempts,
-  runDegradeAttempts,
-  type DegradePlan,
-} from '../../src/ai/provider/adapter-errors.js'
+import { buildDegradeAttempts, runDegradeAttempts, type DegradePlan } from '../../src/ai/provider/adapter-errors.js'
 import type { GenRequest } from '../../src/ai/provider/types.js'
 
 class FakeApiError extends Error {

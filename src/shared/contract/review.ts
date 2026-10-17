@@ -6,14 +6,7 @@
  */
 
 export type ReviewLens =
-  | 'reader'
-  | 'editor'
-  | 'continuity'
-  | 'disclosure'
-  | 'plot_causality'
-  | 'hook'
-  | 'emotion_peak'
-  | 'payoff'
+  'reader' | 'editor' | 'continuity' | 'disclosure' | 'plot_causality' | 'hook' | 'emotion_peak' | 'payoff'
 
 export type ReviewSeverity = 'S1' | 'S2' | 'S3' | 'S4'
 

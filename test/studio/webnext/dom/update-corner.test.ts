@@ -313,9 +313,13 @@ describe('更新角标：挂点', () => {
     expect(chipIdx, '角标应在 .left-tabs 行内').toBeGreaterThan(-1)
     expect(row.lastIndexOf('<UpdateCorner />'), '角标在行内只应出现一次').toBe(chipIdx)
     // 行首直接子件（旧形态是包裹进 .left-tabs-lead 的前导位，此处即红）
-    expect(row.slice(row.indexOf('>') + 1).trimStart().startsWith('<UpdateCorner />'), '角标应为行首直接子件').toBe(
-      true,
-    )
+    expect(
+      row
+        .slice(row.indexOf('>') + 1)
+        .trimStart()
+        .startsWith('<UpdateCorner />'),
+      '角标应为行首直接子件',
+    ).toBe(true)
     expect(chipIdx, '角标应在刷新按钮之前').toBeLessThan(refreshIdx)
     expect(row.slice(chipIdx, refreshIdx), '角标与刷新按钮之间不得夹任何元素').not.toMatch(/<\/?div/)
   })

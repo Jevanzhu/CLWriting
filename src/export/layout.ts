@@ -12,7 +12,15 @@ import { chapterFilePrefix } from '../format/words.js'
 import { isMdFileName, isTxtFileName } from '../format/filename.js'
 import { errMsg } from '../log/index.js'
 import { exportPayload, purifyBody } from './purify.js'
-import { OLD_EXPORT_DIR, TXT_EXPORT_SUBDIR, archiveOldExport, nextFreeName, relPosixIn, sanitizeFileName, FILENAME_MAX_BYTES } from './naming.js'
+import {
+  OLD_EXPORT_DIR,
+  TXT_EXPORT_SUBDIR,
+  archiveOldExport,
+  nextFreeName,
+  relPosixIn,
+  sanitizeFileName,
+  FILENAME_MAX_BYTES,
+} from './naming.js'
 import { readUnitBody } from './collect.js'
 import type { ExportOutput, ExportPlan, ExportRun, StageResult } from './types.js'
 /** 阶段四·备目录：导出目录创建 + 同名旧产物归档清位 + 分章目录归档重建。
