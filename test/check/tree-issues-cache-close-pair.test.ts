@@ -64,9 +64,10 @@ describe('R0916-6-P3-5: 高频开/关不滞留（功能实测）', () => {
       }
       return m
     }
-    const dir = mkdtempSync(join(tmpdir(), 'r0916-6-p3-5-close-'))
-    const dbPath = join(dir, 'index.db')
-    // 与生产章循环同形态：开库 → 读写各走一次 prepared 缓存路径 → 配对关库
+    // 句柄生命周期与生产同形：开库 → 读写各走一次 prepared 缓存路径 → 配对关库。
+    // 存储后端用 :memory:——滞留对象图是 WeakMap → stmt → db，与后端无关；文件后端的
+    // 平台 IO 成本会主导总时长（win 上 2500 次循环可超 120s 预算），不在本档判据内。
+    const dbPath = ':memory:'
     const cycle = (): void => {
       const db = new DatabaseSync(dbPath)
       ensureTreeIssuesTables(db)
@@ -74,19 +75,15 @@ describe('R0916-6-P3-5: 高频开/关不滞留（功能实测）', () => {
       readTreeIssuesCache(db, '001-章.md', 1, 2, null, 'fp')
       closeTreeIssuesDb(db)
     }
-    try {
-      for (let i = 0; i < 500; i++) cycle()
-      const before = settled()
-      const N = 2_500
-      for (let i = 0; i < N; i++) cycle()
-      const after = settled()
-      const growthMB = (after - before) / 1048576
-      // 修复前形态 ≈ 0.85MB（0.35KB × 2500，rag R0911-G-P3-4 同源实测系数）；修复后 ≈ 0。
-      // N 收窄自 rag 侧用例的 8000（win 单机文件 IO 慢，控总时长），界值比例一致。
-      expect(growthMB, `高频开/关后堆增长 ${growthMB.toFixed(2)}MB 超界（裸 close 形态 ~0.85MB）`).toBeLessThan(0.5)
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
+    for (let i = 0; i < 500; i++) cycle()
+    const before = settled()
+    const N = 2_500
+    for (let i = 0; i < N; i++) cycle()
+    const after = settled()
+    const growthMB = (after - before) / 1048576
+    // :memory: 后端实测：修复前形态 ≈1.0MB（N=2500），修复后 ≈0。0.5MB 界在两者之间，
+    // 留足噪声余量同时必捕回归。
+    expect(growthMB, `高频开/关后堆增长 ${growthMB.toFixed(2)}MB 超界（裸 close 形态 ~1.0MB）`).toBeLessThan(0.5)
   }, 120_000)
 
   it('closeTreeIssuesDb 后句柄失效——库已关，后续 prepare 不再可用', () => {
