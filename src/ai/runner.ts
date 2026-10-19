@@ -1246,9 +1246,18 @@ function abortStepReason(userAborted: boolean): StepEndReason {
   return userAborted ? 'aborted' : 'interrupted'
 }
 
-/** 成功路径 step/end 终止原因：截断记 max-tokens，其余记 completed */
+/**
+ * 成功路径 step/end 终止原因：截断记 max-tokens，流未收到 done 记 interrupted，其余记 completed。
+ *
+ * `unknown` 是「流迭代结束仍未收到 done」的归类值（适配器早退 / 断流），产出可能是半截；
+ * 记成 completed 等于把不完整首稿标成正常收尾，消费方与统计面都无从分辨。它是值域内
+ * 唯一一类「不知是否完整」的结局，故按 interrupted 落账。其余值（end_turn/stop/tool_use/
+ * stop_sequence/pause_turn 等）都是服务端给出的确定结局，照 completed。
+ */
 function stepEndReasonFor(stopReason: StopReason): StepEndReason {
-  return stopReason === 'max_tokens' ? 'max-tokens' : 'completed'
+  if (stopReason === 'max_tokens') return 'max-tokens'
+  if (stopReason === 'unknown') return 'interrupted'
+  return 'completed'
 }
 
 /** 终态失败 errCode：结构化 code 优先于笼统 GEN_FAIL（trace-stats 口径不变，仍是非空字符串） */
