@@ -171,6 +171,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           </template>
           <template v-else>
             <span class="batch-count-inline">已选 {{ selected.size }} 本</span>
+            <!-- 全选覆盖渲染上限之外的书时如实提示：列表按 SHELF_RENDER_CAP 逐组省略，
+                 所见 ≠ 所选全集（删 N 部与列表显示的 M 部之间的认知差要靠这行消解） -->
+            <span
+              v-if="selected.size === shelf.books.length && shelf.books.length > SHELF_RENDER_CAP"
+              class="sel-all-hint"
+            >
+              已全选全部 {{ shelf.books.length }} 部（含列表显示上限之外——批量操作对全集生效）
+            </span>
             <button class="btn" :disabled="!shelf.books.length" @click="selectAll">全选</button>
             <button class="btn danger" :disabled="selected.size === 0" @click="requestDelete([...selected])">
               <Trash2 :size="14" /> 删除<span v-if="selected.size" class="del-num">({{ selected.size }})</span>
@@ -442,6 +450,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   color: var(--text-accent);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
+}
+/* 全选盖过渲染上限时的如实提示——字号/颜色的取舍与书架浮层同款（两壳同一交互，
+   提示形态不一致本身就是功能差） */
+.sel-all-hint {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+  white-space: nowrap;
 }
 /* 管理按钮：带文字标签 */
 .btn.batch-enter {

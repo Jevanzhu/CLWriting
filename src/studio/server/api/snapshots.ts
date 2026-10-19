@@ -2,7 +2,8 @@
  * 快照 REST 端点（单章版本回滚）。
  *
  * GET  /api/books/:name/documents/:docId/snapshots           → 版本列表（时间/来源/字数）
- * GET  /api/books/:name/documents/:docId/snapshots/:id       → 单个版本内容（预览）
+ * GET  /api/books/:name/documents/:docId/snapshots/:id       → 单个版本内容（当前无前端消费：
+ *                                                              客户端不提供只读预览面，端点保留供后续接线）
  * POST /api/books/:name/documents/:docId/snapshots/:id/restore → 恢复该版本
  *
  * 保留策略两层链：global.json snapMax*（全局）→ 硬编码 14 天 / 30 个。book.yaml snapshots 书级段
