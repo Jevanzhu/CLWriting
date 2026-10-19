@@ -26,6 +26,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFil
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { libraryInstanceKey } from '../../src/fs/user-data-path.js'
+import { createPathScrubber } from '../../src/log/path-scrub.js'
 import { LONG_BOOK, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { rmDirRetry } from '../helpers/rm-dir-retry.js'
 import { attachPageErrorBaseline, dismissStartupNotices } from './page-error-baseline.js'
@@ -183,13 +184,21 @@ test('两库并行两实例各显其库 → 同库第三实例自动退出 → �
   const instB = join(home, 'instances', keyB)
   const msgsA = readLogMsgs(join(instA, 'logs'))
   const msgsB = readLogMsgs(join(instB, 'logs'))
+  // 落盘行经路径脱敏（src/log/path-scrub.ts：家目录 → `<用户目录>`，其余绝对路径 →
+  // `<路径>`）——期望值走同一构造取，不手抄 `C:\Users\…` 形态：换机/换平台（CI 上
+  // lib 落在 `/tmp` 而非家目录下）时落盘形态随之变，硬编码绝对路径必假红。脱敏器
+  // 不登记具体目录（与 log/index.ts 的落盘单例同参），故书库根落到第 2/3 层占位符。
+  const scrub = createPathScrubber()
+  const libAScrubbed = scrub(libA)
+  const libBScrubbed = scrub(libB)
+  expect(libAScrubbed, '书库根应已被脱敏（本机绝对路径不得原样落盘）').not.toBe(libA)
   expect(
-    msgsA.some((m) => m.includes('实例启动：key=') && m.includes('来源=arg') && m.includes(`书库=${libA}`)),
-    `A 实例日志应含「来源=arg 书库=${libA}」启动行；实收：${JSON.stringify(msgsA.slice(0, 6))}`,
+    msgsA.some((m) => m.includes('实例启动：key=') && m.includes('来源=arg') && m.includes(`书库=${libAScrubbed}`)),
+    `A 实例日志应含「来源=arg 书库=${libAScrubbed}」启动行；实收：${JSON.stringify(msgsA.slice(0, 6))}`,
   ).toBe(true)
   expect(
-    msgsB.some((m) => m.includes('实例启动：key=') && m.includes('来源=arg') && m.includes(`书库=${libB}`)),
-    `B 实例日志应含「来源=arg 书库=${libB}」启动行；实收：${JSON.stringify(msgsB.slice(0, 6))}`,
+    msgsB.some((m) => m.includes('实例启动：key=') && m.includes('来源=arg') && m.includes(`书库=${libBScrubbed}`)),
+    `B 实例日志应含「来源=arg 书库=${libBScrubbed}」启动行；实收：${JSON.stringify(msgsB.slice(0, 6))}`,
   ).toBe(true)
 
   // ── D1：同库第三实例起即退（锁作用域=实例目录），A 不受影响 ────────────────
