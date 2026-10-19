@@ -30,6 +30,7 @@ structure-volume-move.spec.ts
 switch-book.spec.ts
 tree-issues.spec.ts
 tree-ops.spec.ts
+unsaved-leave-guard.spec.ts
 usage-card.spec.ts
 version-restore.spec.ts
 welcome.spec.ts

@@ -13,6 +13,7 @@
  *   5  startup-notices（R0915-4b 独立 server：幽灵登记播种 repair-books 通告需自有 workDir）
  *   6  search   7  shelf-search   8  short-flow   9  switch-book   10  audit   11  welcome
  *   （P2-13 批：只读型 spec 迁独立 server，缩小共享 workDir 顺序契约的连坐半径）
+ *  12  unsaved-leave-guard（造「保存失败仍 dirty」形态，须自有 workDir）
  *  13  overview-short 14  short-full-flow 15  batch-finalize 16  release-smoke
  *
  * 注意：独立 server spec 各自持有独立 workDir、分端口是为互不抢占（release-smoke
