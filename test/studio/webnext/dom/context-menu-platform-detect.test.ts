@@ -75,3 +75,42 @@ describe('R37-35: 平台探测三级兜底（userAgentData → navigator.platfor
     expect(document.querySelector('.cm-shortcut')!.textContent).toContain('Ctrl+')
   })
 })
+
+
+describe('ContextMenu 夹边补全：翻转后仍溢出时落点夹进视口', () => {
+  /** 挂一个关闭态菜单 → 装受控尺寸 → 开启（开启拍才测量）→ 返回菜单元素。 */
+  async function openWithRect(
+    rect: DOMRect,
+    x: number,
+    y: number,
+  ): Promise<{ menu: HTMLElement; wrapper: ReturnType<typeof mount> }> {
+    const { vi } = await import('vitest')
+    const spy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(rect)
+    const wrapper = mount(ContextMenu, {
+      props: { visible: false, x, y, items: [{ key: 'a', label: '动作' }] },
+      attachTo: document.body,
+    })
+    await wrapper.setProps({ visible: true })
+    await nextTick()
+    await nextTick()
+    // 菜单经 Teleport 挂 body：取末个，避免上一用例残留元素干扰
+    const menus = document.querySelectorAll('.cm-menu')
+    spy.mockRestore()
+    return { menu: menus[menus.length - 1] as HTMLElement, wrapper }
+  }
+
+  it('菜单宽于视口 → 不翻转且落点夹到左边距（此前翻转后仍探出屏外）', async () => {
+    const { menu, wrapper } = await openWithRect(new DOMRect(0, 0, window.innerWidth, 40), 10, 10)
+    expect(menu.classList.contains('flip-x')).toBe(false)
+    expect(menu.style.getPropertyValue('--cm-x')).toBe('8px')
+    wrapper.unmount()
+  })
+
+  it('贴右缘且左侧放得下 → 仍按翻转口径贴右（回归锚）', async () => {
+    const vw = window.innerWidth
+    const { menu, wrapper } = await openWithRect(new DOMRect(0, 0, 200, 40), vw - 20, 10)
+    expect(menu.classList.contains('flip-x')).toBe(true)
+    expect(menu.style.getPropertyValue('--cm-x')).toBe(String(vw - 20) + 'px')
+    wrapper.unmount()
+  })
+})

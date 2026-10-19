@@ -243,3 +243,38 @@ describe('R71-6→R44-2: Book.vue 关窗/刷新统一兜底（异步 flush + 落
     expect(ev.defaultPrevented).toBe(false) // 组件卸载 → 监听已移除
   })
 })
+
+
+describe('关窗钩子必须覆盖离书态（应用级在册 + 等卸载期在途冲刷）', () => {
+  it('Book 侧卸载后钩子仍在（App 级持有），App 卸载才摘', async () => {
+    const { defineComponent } = await import('vue')
+    const { useAppCloseFlush, useUnloadFlush } = await import(
+      '../../../../src/studio/web-next/src/composables/useUnloadFlush'
+    )
+    type HookWindow = Window & { __clwFlushBeforeClose?: () => Promise<{ failed: string[]; conflict: string[] }> }
+    const AppHolder = defineComponent({
+      setup() {
+        useAppCloseFlush()
+        return () => null
+      },
+    })
+    const BookHolder = defineComponent({
+      setup() {
+        useUnloadFlush()
+        return () => null
+      },
+    })
+
+    const app = mount(AppHolder)
+    const book = mount(BookHolder)
+    expect((window as HookWindow).__clwFlushBeforeClose).toBeTypeOf('function')
+
+    book.unmount()
+    // 离书态：主进程仍须拿到可等待的钩子（此前 Book 卸载即摘，关窗直接 destroy）
+    expect((window as HookWindow).__clwFlushBeforeClose).toBeTypeOf('function')
+    await (window as HookWindow).__clwFlushBeforeClose!()
+
+    app.unmount()
+    expect((window as HookWindow).__clwFlushBeforeClose).toBeUndefined()
+  })
+})

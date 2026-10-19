@@ -194,3 +194,20 @@ describe('X-6 · SSE 退避接管协议', () => {
     expect(MockES.instances).toHaveLength(2)
   })
 })
+
+
+describe('SSE 非 JSON 帧不再静默丢弃', () => {
+  it('首条非 JSON 帧 → toast 一次；同连接第二条不再重复', async () => {
+    const { useUiStore } = await import('../../../../src/studio/web-next/src/stores/ui')
+    const spy = vi.spyOn(useUiStore(), 'toast')
+
+    useSse(ref('书A'))
+    await settle()
+    const es = MockES.instances[MockES.instances.length - 1]!
+    es.onmessage?.(new MessageEvent('message', { data: 'not-json' }))
+    es.onmessage?.(new MessageEvent('message', { data: '{broken' }))
+
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(String(spy.mock.calls[0]![0])).toContain('进度事件解析失败')
+  })
+})

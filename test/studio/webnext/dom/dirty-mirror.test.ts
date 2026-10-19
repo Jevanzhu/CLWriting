@@ -542,3 +542,24 @@ describe('R59 清偿批（R57-E-3）：镜像清理属主判定', () => {
     expect(localStorage.getItem(KEY('A', 'corrupt'))).not.toBeNull()
   })
 })
+
+
+describe('镜像超限降级必须可见（不再只留 debug 日志）', () => {
+  it('单条镜像超限 → 触发 onOversize 且不写 localStorage', async () => {
+    vi.useFakeTimers()
+    const { createDirtyMirror } = await import('../../../../src/studio/web-next/src/shared/dirty-mirror')
+    const onOversize = vi.fn()
+    const big = 'x'.repeat(2_000_001)
+    const m = createDirtyMirror({
+      getEntry: () => ({ content: big, dirty: true, conflict: false, baselineRevision: 'r1' }),
+      getBook: () => '书A',
+      onOversize,
+    })
+    m.scheduleDirtyMirror('d1', 2_000_001)
+    await vi.advanceTimersByTimeAsync(9_000)
+
+    expect(onOversize).toHaveBeenCalledWith('d1', expect.any(Number))
+    expect(localStorage.getItem('clw:dirty-mirror:书A:d1')).toBeNull()
+    vi.useRealTimers()
+  })
+})

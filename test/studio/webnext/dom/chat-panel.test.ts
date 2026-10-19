@@ -579,3 +579,24 @@ describe('ChatMessages: 滚底 force 语义与在途节流帧共存', () => {
     w.unmount()
   })
 })
+
+
+describe('清空被服务端拒绝时提示含恢复说明（显示滞后不再只有报错）', () => {
+  it('clearChatHistory 失败 → toast 说明本次未清空且旧记录会重新出现', async () => {
+    const chat = useChatStore()
+    chat.pushUser('旧消息')
+    mocks.clearChatHistory.mockRejectedValue(new Error('对话正忙'))
+    const ui = useUiStore()
+    const spy = vi.spyOn(ui, 'toast')
+    const w = mountPanel()
+
+    await w.find('.composer-clear').trigger('click')
+    ui.resolveConfirm(true)
+    await flushPromises()
+
+    const msg = spy.mock.calls.map((c) => String(c[0])).join(' | ')
+    expect(msg).toContain('本次未清空')
+    expect(chat.messages).toHaveLength(1) // 本地不清：服务端事件库仍保留
+    w.unmount()
+  })
+})

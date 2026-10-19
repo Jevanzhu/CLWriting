@@ -2,7 +2,7 @@
 // CodeMirror 6 封装（细案 §5 editor/CmHost.vue）：正文编辑器。
 // 无行号/无卡片边框、lineWrapping、正文字体（--prose-* 偏好）；md 模式加 markdown 高亮。
 import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { defaultKeymap, history, historyKeymap, isolateHistory, undo, redo } from '@codemirror/commands'
+import { defaultKeymap, history, historyKeymap, isolateHistory, undo, redo, undoDepth } from '@codemirror/commands'
 import { markdown } from '@codemirror/lang-markdown'
 import { HighlightStyle, bracketMatching, foldKeymap, indentOnInput, syntaxHighlighting } from '@codemirror/language'
 import { highlightSelectionMatches, searchKeymap, openSearchPanel } from '@codemirror/search'
@@ -46,6 +46,8 @@ const emit = defineEmits<{
 }>()
 const el = ref<HTMLElement>()
 let view: EditorView | null = null
+/** 撤销栈重置提示位（每次挂载/切档复位）：同一篇反复外部同步只提示一次，不刷屏。 */
+let undoResetNotified = false
 
 // 墨色为主的高亮（md 模式生效；text 模式纯文本）
 const monoHighlight = HighlightStyle.define([
@@ -337,6 +339,12 @@ let pendingDocSwitch: { v: string; key: string | undefined } | null = null
 const programmaticReplace = Annotation.define<boolean>()
 /** 同文档外部全量替换的执行体（composing 守卫解耦出）。 */
 function applyExternalReplace(v: string): void {
+  // 下方两步真重置会清掉全部撤销历史，作者紧接着 ⌘Z 无历史可退（写稿手感面）——
+  // 有旧历史时提示一次；提示位随后置位，同档后续外部同步不再重复
+  if (!undoResetNotified && view && undoDepth(view.state) > 0) {
+    undoResetNotified = true
+    useUiStore().toast('内容已按外部变更整体替换，撤销历史已重置', 'info')
+  }
   if (!view) return
   // 全区间替换会把光标映射到文末——阅读中间章节的用户被 SSE sync/refresh
   // 拽到底部。替换前记 head，替换后 clamp 归位到原位置（越界→文末）。
@@ -379,6 +387,7 @@ function applyExternalReplace(v: string): void {
  *  （同文亦替换，内容同步 + 二次保险），注解保持原口径。 */
 function applyDocSwitch(v: string): void {
   pendingDocSwitch = null // 实际应用即清挂起槽（幂等：防消费回调与 watch 触发双应用）
+  undoResetNotified = false // 换档即重新给一次提示机会
   if (!view) return
   view.dispatch({ effects: historyConf.reconfigure([]) })
   view.dispatch({

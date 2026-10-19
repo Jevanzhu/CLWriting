@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { getAiStatus } from '../api/ai-status'
 import { usePrefsStore } from './prefs'
 import { rawErrorMessage } from '../shared/error'
+import { localApiDownMessage } from '../shared/local-api'
 
 // UI 全局状态：命令面板 / 设置 / 导出弹窗可见性 + Toast 队列 + AI 可达性（降级）。
 export interface ToastItem {
@@ -89,7 +90,7 @@ function createAiProbe(apply: (available: boolean, reason: string | null) => voi
       scheduleRetry()
     } catch {
       // 连不上本地 API 不是供应商配置问题：原因就地给，别把「后端没起」渲染成「供应商没配」
-      apply(false, '本地服务未连接（请确认 API 服务已启动）')
+      apply(false, localApiDownMessage(import.meta.env.DEV))
       // API 不可达：退避重试（dev 启动竞态 / 后端重启后自动恢复），成功即停
       scheduleRetry()
     }

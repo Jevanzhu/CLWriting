@@ -266,3 +266,79 @@ describe('R0916-7-P3-20: 提交前守卫——决断后照常切书', () => {
     expect(useDocStore().bookName).toBe('书B')
   })
 })
+
+
+describe('脏路由离书（/book/A → /shelf）与切书同口径：未落盘编辑走可见决断', () => {
+  it('保存失败 + 取消 → 回退原书路由，dirty 原封保留（此前静默丢弃）', async () => {
+    const doc = useDocStore()
+    const ui = useUiStore()
+    await seedDirty('d1')
+    mocks.saveContent.mockRejectedValue(new Error('网络断了'))
+    const askSpy = askAt(ui, false)
+
+    await router.push('/shelf')
+    await flushPromises()
+    await flushPromises()
+
+    expect(askSpy).toHaveBeenCalledTimes(1)
+    expect(askSpy.mock.calls[0]![0].title).toContain('保存失败')
+    expect(router.currentRoute.value.path).toBe(bookPath('书A'))
+    expect(doc.bookName).toBe('书A')
+    expect(doc.get('d1')!.dirty).toBe(true)
+  })
+
+  it('保存失败 + 确认丢弃 → 离书并清缓存（决断之后才离）', async () => {
+    const doc = useDocStore()
+    const ui = useUiStore()
+    await seedDirty('d1')
+    mocks.saveContent.mockRejectedValue(new Error('网络断了'))
+    askAt(ui, true)
+
+    await router.push('/shelf')
+    await flushPromises()
+    await flushPromises()
+
+    expect(router.currentRoute.value.path).toBe('/shelf')
+    expect(doc.bookName).toBe('')
+    expect(doc.get('d1')).toBeUndefined()
+  })
+
+  it('无脏无冲突 → 不弹窗直接离书（冷启动不误伤）', async () => {
+    const ui = useUiStore()
+    const askSpy = vi.spyOn(ui, 'ask')
+
+    await router.push('/shelf')
+    await flushPromises()
+
+    expect(askSpy).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.path).toBe('/shelf')
+  })
+})
+
+describe('切书链先落一次书级 prefs 写穿（500ms 防抖窗内的布局态不随切书丢弃）', () => {
+  it('冲刷步调用 flushPendingBookPrefs', async () => {
+    const { useWorkspaceStore } = await import('../../../../src/studio/web-next/src/stores/workspace')
+    const spy = vi.spyOn(useWorkspaceStore(), 'flushPendingBookPrefs')
+
+    await router.push(bookPath('书B'))
+    await flushPromises()
+
+    expect(spy).toHaveBeenCalled()
+  })
+})
+
+describe('autosave 连续失败在非编辑视图也可见', () => {
+  it('自动保存连续 3 拍失败 → toast 点名「未落盘」', async () => {
+    const doc = useDocStore()
+    const ui = useUiStore()
+    const spy = vi.spyOn(ui, 'toast')
+    await seedDirty('d1')
+    mocks.saveContent.mockRejectedValue(new Error('网络断了'))
+
+    await doc.save('d1', 'autosave')
+    await doc.save('d1', 'autosave')
+    await doc.save('d1', 'autosave')
+
+    expect(spy.mock.calls.some((c) => String(c[0]).includes('自动保存连续 3 次失败'))).toBe(true)
+  })
+})

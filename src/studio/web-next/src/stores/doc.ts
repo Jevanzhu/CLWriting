@@ -103,9 +103,20 @@ export const useDocStore = defineStore('doc', () => {
   // 单源——纯 localStorage 逻辑，文档缓存态经 deps 注入（下方
   // docs/bookName 取值器）；本 store 只留五个调用点的薄委托（patch/save/discard/setBook/
   // doOpen）+ 清理单源再导出（改名/删书各链经此调用，键拼法不外泄）。
+  /** 镜像超限提示位（每文档一次）——超限后本篇没有崩溃镜像兜底，只留 debug 日志时作者
+   *  无从得知；重开/切书复位（内容缩回限内后仍可能再超限）。 */
+  const mirrorOversizeNotified = new Set<string>()
   const mirror = createDirtyMirror({
     getEntry: (docId) => docs.value.get(docId),
     getBook: () => bookName.value,
+    onOversize: (docId, chars) => {
+      if (mirrorOversizeNotified.has(docId)) return
+      mirrorOversizeNotified.add(docId)
+      useUiStore().toast(
+        `本篇已超过本地镜像上限（约 ${Math.floor(chars / 10000)} 万字），崩溃恢复兜底已停用——请及时保存`,
+        'warning',
+      )
+    },
   })
 
   /** 切书：清空缓存（不同书的 docId 不通用）。 */
@@ -124,6 +135,8 @@ export const useDocStore = defineStore('doc', () => {
     //（legacy docId 按路径派生跨书同键）已在途同 docId 保存，旧 settle 会误删新登记 →
     // ⌘S 走进 e.saving 分支且 inflight 取不到 → 无闸同步尾递归（RangeError，保存静默失败）。
     inflightSaves.clear()
+    autosaveFailStreak.clear() // 连败计数不跨书（legacy docId 按路径派生，跨书可同 id）
+    mirrorOversizeNotified.clear() // 超限提示位同上
     if (prevBook) mirror.clearBookMirrors(prevBook)
     bookGen.invalidate()
     // 书级 kind 随切书复位并按新书重取（推代 + 复位在取之前：新书拉取失败也不沿用前书
@@ -378,6 +391,7 @@ export const useDocStore = defineStore('doc', () => {
         e.dirty = false
       }
       e.savedAt = Date.now()
+      autosaveFailStreak.delete(docId) // 落盘成功即清连败计数（下次失败重新起算）
       if (bookName.value === book) {
         // 局部更新 tree 字数（避免重拉整树）
         useTreeStore().updateWordCount(e.path, countWords(stripFrontmatter(snapshot)))
@@ -427,7 +441,15 @@ export const useDocStore = defineStore('doc', () => {
       } else {
         e.error = friendlyError(err)
       }
-      // autosave 失败不弹 toast（编辑器状态条已展示 error，避免周期性刷屏）
+      // autosave 失败不逐拍弹 toast（编辑器状态条已展示 error，避免周期性刷屏）；但连续
+      // 失败达阈值必须可见——非编辑视图下状态条不在当前视图，失败此前完全静默
+      if (origin === 'autosave') {
+        const streak = (autosaveFailStreak.get(docId) ?? 0) + 1
+        autosaveFailStreak.set(docId, streak)
+        if (streak === AUTOSAVE_FAIL_ALERT_STREAK) {
+          useUiStore().toast(`自动保存连续 ${streak} 次失败，这篇修改尚未落盘：${e.error}`, 'error')
+        }
+      }
       if (origin === 'manual') useUiStore().toast(e.error, 'error')
       return false
     } finally {
@@ -757,6 +779,11 @@ export const useDocStore = defineStore('doc', () => {
     return [...docs.value.values()].filter((e) => e.conflict && e.dirty && !e.saving).map((e) => e.docId)
   }
 
+  /** autosave 连续失败升级阈值——非编辑视图（工作台/总览）下状态条不在当前视图，周期失败
+   *  此前完全不可见；达阈值即 toast 一次，成功即清零（不按拍刷屏）。 */
+  const AUTOSAVE_FAIL_ALERT_STREAK = 3
+  const autosaveFailStreak = new Map<string, number>()
+
   /** 自动保存节拍（从 EditorView 上移）：扫全部 dirty 且不在保存中、无冲突的文档批量
    *  落盘——节拍若绑编辑器视图挂载，切到工作台/总览后 EditorView 卸载、dirty 文档停止
    *  自动保存（丢失窗口超过 autosave 间隔）。 */
@@ -788,6 +815,8 @@ export const useDocStore = defineStore('doc', () => {
     // 旧 open 的 finally 为 identity 条件删，不会误删新登记。
     inflightOpens.delete(docId)
     mirror.clearDirtyMirror(bookName.value, docId) // 条目已弃，镜像一并清
+    autosaveFailStreak.delete(docId)
+    mirrorOversizeNotified.delete(docId)
   }
 
   // 清理单源随 store 导出——clearDirtyMirror（docId 级精确删）/ clearBookMirrors（书级

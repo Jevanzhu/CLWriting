@@ -36,6 +36,10 @@ const openSub = ref<string | null>(null)
 const menuEl = ref<HTMLElement>()
 const flipX = ref(false)
 const flipY = ref(false)
+/** 夹边后的最终落点（视口内边距内）——翻转只解决右/下溢出，左/上缘与「菜单大于视口」
+ *  两类翻转也救不了，靠落点夹边兜住（优先保左/上缘不探出屏外）。 */
+const anchorX = ref(props.x)
+const anchorY = ref(props.y)
 
 // 2-：浏览器回退菜单键盘导航（照 FontPicker
 // 的 roving tabindex 搭法）——原 role="menu" 面仅 Esc 可用，无方向键导航，
@@ -222,13 +226,26 @@ function accelLabel(accel?: string): string {
     .replace(/Alt\+/g, isMac ? '⌥' : 'Alt+')
 }
 
-/** 视口溢出翻转测量（开启拍与 resize 跟随共用单源；调用前须已复位 flip 并过一拍渲染） */
+/** 视口内边距（翻转与夹边的共同余量）。 */
+const VIEWPORT_MARGIN = 8
+
+/** 视口溢出翻转 + 夹边测量（开启拍与 resize 跟随共用单源；调用前须已复位 flip 并过一拍渲染）。
+ *  翻转只在「翻过去真的放得下」时启用，否则翻转把菜单推到更外侧；落点再统一夹进视口，
+ *  「菜单高于/宽于视口」这类翻转也救不了的情形同样不探出屏外（优先保左/上缘）。 */
 function measureFlip(): void {
   const el = menuEl.value
   if (!el || !props.visible) return
   const r = el.getBoundingClientRect()
-  if (props.x + r.width > window.innerWidth - 8) flipX.value = true
-  if (props.y + r.height > window.innerHeight - 8) flipY.value = true
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  flipX.value = props.x + r.width > vw - VIEWPORT_MARGIN && props.x - r.width >= VIEWPORT_MARGIN
+  flipY.value = props.y + r.height > vh - VIEWPORT_MARGIN && props.y - r.height >= VIEWPORT_MARGIN
+  const left = flipX.value ? props.x - r.width : props.x
+  const top = flipY.value ? props.y - r.height : props.y
+  const clampedLeft = Math.max(VIEWPORT_MARGIN, Math.min(left, vw - r.width - VIEWPORT_MARGIN))
+  const clampedTop = Math.max(VIEWPORT_MARGIN, Math.min(top, vh - r.height - VIEWPORT_MARGIN))
+  anchorX.value = flipX.value ? clampedLeft + r.width : clampedLeft
+  anchorY.value = flipY.value ? clampedTop + r.height : clampedTop
 }
 
 /** 窗口 resize 跟随重算——原只在开启一刻快照判 flip，
@@ -239,6 +256,8 @@ async function recomputeFlip(): Promise<void> {
   if (!props.visible) return
   flipX.value = false
   flipY.value = false
+  anchorX.value = props.x
+  anchorY.value = props.y
   await nextTick()
   measureFlip()
 }
@@ -359,7 +378,7 @@ function closeWithRestore(): void {
         class="cm-menu"
         role="menu"
         :class="{ 'flip-x': flipX, 'flip-y': flipY }"
-        :style="{ '--cm-x': x + 'px', '--cm-y': y + 'px' }"
+        :style="{ '--cm-x': anchorX + 'px', '--cm-y': anchorY + 'px' }"
         :aria-activedescendant="activeId"
         @click.stop
         @contextmenu.prevent.stop
