@@ -1,5 +1,8 @@
 # 域3 全量代码审计报告：HTTP 服务端 / 检查引擎 / 事件与状态 / 进程与驱动
 
+- 定位：**全量代码审计（2026-10-19 第一轮）分域附档**——域3 HTTP 服务端 / 检查引擎 / 事件与状态 / 进程与驱动 的证据面与问题清单；主档 = `全量代码审计-评审-DeepSeek-V4.1-Flash-2026-10-19.md`（同槽位）。不属于本档：汇总结论、修复落地记录与作者拍板。
+- 执行模型：DeepSeek-V4.1-Flash（`ccats/deepseek-v4.1-flash`）域审员子 agent。
+
 - 审计对象：`src/studio/server/`、`src/check/`、`src/events/`、`src/state/`、`src/process/`、`src/driver/`、`src/log/`（工具调用 40 次内测读 ≈6.5k 行精读 + 定向 grep/glob）
 - 对照测试：`test/studio`(511)、`test/check`(54)、`test/events`(31)、`test/state`(25)、`test/process`(54)、`test/driver`(10)、`test/log`(7)
 - 证据面：源码 / 测试 / `git log`（本域 450 commits）；未读 docs/、知识层/、.agents/notes/、README.md 结论

@@ -1,5 +1,8 @@
 # 域5 审计报告:Web 前端(Vue 3 + Pinia + CodeMirror 6)
 
+- 定位：**全量代码审计（2026-10-19 第一轮）分域附档**——域5 Web 前端（Vue 3 + Pinia + CodeMirror） 的证据面与问题清单；主档 = `全量代码审计-评审-DeepSeek-V4.1-Flash-2026-10-19.md`（同槽位）。不属于本档：汇总结论、修复落地记录与作者拍板。
+- 执行模型：DeepSeek-V4.1-Flash（`ccats/deepseek-v4.1-flash`）域审员子 agent。
+
 - 审计对象:`src/studio/web-next`(工作树 = G:\02^Workspace\01^Codes\CLWriting\CLWriting-Main)
 - 审计员:audit-web(子域审员)/ 任务:task-5 / 日期:2026-10-19
 - 证据来源:源码、配置、测试档名与 git 提交记录。**不采信** docs/、知识层/、.agents/notes/、README.md 的任何结论或数字(仅用于「声称 vs 实现」对照)。
