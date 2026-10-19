@@ -4,7 +4,7 @@
  *（含日志内容门：承载书库文本的来源只留事件标签）、路径脱敏、落点与命名、
  * 缺 userDataPath 的失败面。
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
@@ -15,6 +15,13 @@ import {
 } from '../../src/diagnostics/index.js'
 import { instanceUserDataPath, libraryInstanceKey } from '../../src/fs/user-data-path.js'
 import { readZipStore } from '../helpers/zip-read.js'
+
+/** 写入失败注入：默认透传真实实现，仅多卷中途失败用例置位 */
+vi.mock('../../src/fs/atomic.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/fs/atomic.js')>()
+  return { ...actual, atomicWriteFile: vi.fn(actual.atomicWriteFile) }
+})
+import * as atomicWriteFileMod from '../../src/fs/atomic.js'
 
 /** 固定生成时刻：2026-10-10 12:30:40 本地时（日志文件名/包名与之一致） */
 const NOW = new Date(2026, 9, 10, 12, 30, 40)
@@ -137,6 +144,20 @@ describe('诊断包 · 基础集内容', () => {
     expect(entries.map((e) => e.name)).toEqual(r.entries)
     // 说明.txt 是首条目（拿到包的人先读它）
     expect(entries[0]!.data.toString('utf-8')).toContain('隐私边界')
+  })
+
+  it('同一秒内重复生成 → 换序号不覆盖（先前那包可能已被作者拿去反馈）', () => {
+    const first = build()
+    expect(first.ok).toBe(true)
+    expect(first.file).toBe(join(ud, '诊断包', '诊断包-20261010-123040.zip'))
+    const before = readFileSync(first.file!)
+    // 同 now 再生成一次：时刻段相同，但不得落到同名文件上
+    const second = build()
+    expect(second.ok).toBe(true)
+    expect(second.file).not.toBe(first.file)
+    expect(second.file).toBe(join(ud, '诊断包', '诊断包-20261010-123040-2.zip'))
+    // 前一包字节未被改写
+    expect(readFileSync(first.file!).equals(before)).toBe(true)
   })
 
   it('环境.json：应用版本/平台/架构/运行环境版本/生成时间齐备', () => {
@@ -520,6 +541,36 @@ describe('诊断包 · 超限分卷与截断提示（P2-12）', () => {
     expect(r.ok).toBe(false)
     expect(r.error).toContain('单卷上限')
     expect(existsSync(join(ud, '诊断包', '诊断包-20261010-123040.zip'))).toBe(false)
+  })
+
+  it('多卷写到中途失败 → 已落的卷整批清掉，不留半套包', () => {
+    // 第 2 卷落盘时失败：第 1 卷已写成，若不清就是「一套缺卷的包」，作者拿去反馈会缺料而不知
+    const spy = vi.mocked(atomicWriteFileMod.atomicWriteFile)
+    const real = spy.getMockImplementation()!
+    let n = 0
+    spy.mockImplementation((...args: Parameters<typeof atomicWriteFileMod.atomicWriteFile>) => {
+      n++
+      // 第 1 卷真落盘，第 2 卷抛：只有第 1 卷真的写过，「清掉半套」才有可观察的判据
+      if (n >= 2) throw new Error('磁盘已满')
+      ;(real as (...a: unknown[]) => void)(...args)
+    })
+    try {
+      const r = buildDiagnosticsBundle({
+        userDataPath: ud,
+        workDir: work,
+        appVersion: '1.0.0-rc.4',
+        now: NOW,
+        zipLimits: { maxEntries: 2 },
+      })
+      expect(r.ok).toBe(false)
+      expect(r.error).toContain('写入失败')
+      // 卷 1 与被试写的卷 2 都不得留在盘上
+      expect(existsSync(join(ud, '诊断包', '诊断包-20261010-123040.zip'))).toBe(false)
+      expect(existsSync(join(ud, '诊断包', '诊断包-20261010-123040-2.zip'))).toBe(false)
+    } finally {
+      // 还原透传实现本身，不能用 restoreAllMocks（会把 vi.fn 的默认实现一并清空）
+      spy.mockImplementation(real!)
+    }
   })
 })
 

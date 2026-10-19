@@ -27,7 +27,7 @@
  *（与书是否同步/搬走无关），落书库会被云同步带走、并在 `工作区/导出/` 里与导出稿混面。
  * 旧包不清理（同「归档不删」哲学）。
  */
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { redactSecret } from '../log/redact.js'
@@ -348,8 +348,10 @@ export function buildDiagnosticsBundle(opts: DiagnosticsOptions): DiagnosticsRes
   ]
 
   const dir = join(userDataPath, BUNDLE_DIR)
-  const stamp = `${localDayKeyPlain(now)}-${localClockPlain(now)}`
-  const file = join(dir, `诊断包-${stamp}.zip`)
+  // 同一秒内连续生成会撞名：后一次覆盖前一次（前一包作者可能刚拿去反馈）。撞名即换
+  // 序号，不覆盖——序号只在同秒重入时出现，正常路径的文件名形态不变。
+  const stem = uniqueBundleStem(dir, `诊断包-${localDayKeyPlain(now)}-${localClockPlain(now)}`)
+  const file = join(dir, `${stem}.zip`)
   try {
     // 超单卷上限（>4GiB 累计或 >65535 条目）不再整包失败——按条目边界分卷，
     // 单条自身超限则截断省略，两条路径都经 warnings 显式提示（不静默丢）。
@@ -361,11 +363,27 @@ export function buildDiagnosticsBundle(opts: DiagnosticsOptions): DiagnosticsRes
         ...(warnings.length > 0 ? { warnings } : {}),
       }
     }
-    const files = pack.volumes.map((_, i) => (i === 0 ? file : join(dir, `诊断包-${stamp}-${i + 1}.zip`)))
+    const files = pack.volumes.map((_, i) => (i === 0 ? file : join(dir, `${stem}-${i + 1}.zip`)))
+    // 多卷写入不是原子的：中途失败会留下前几卷（半套包，作者拿去反馈时缺卷而不知）。
+    // 已知卷名先记下，失败即按名清理——清不掉的留在盘上也不影响正确性，但错误里要
+    // 说清「可能残留」，否则作者按报错去删会漏。
+    const written: string[] = []
     let bytes = 0
-    for (let i = 0; i < pack.volumes.length; i++) {
-      atomicWriteFile(files[i]!, pack.volumes[i]!)
-      bytes += pack.volumes[i]!.length
+    try {
+      for (let i = 0; i < pack.volumes.length; i++) {
+        atomicWriteFile(files[i]!, pack.volumes[i]!)
+        written.push(files[i]!)
+        bytes += pack.volumes[i]!.length
+      }
+    } catch (e) {
+      const leftover = cleanupVolumes(written)
+      const tail =
+        leftover.length > 0 ? `；已写入的 ${leftover.length} 卷清理失败，请手动删除：${leftover.join('、')}` : ''
+      return {
+        ok: false,
+        error: `诊断包写入失败：${errMsg(e)}${tail}`,
+        ...(warnings.length > 0 ? { warnings } : {}),
+      }
     }
     if (pack.droppedNames.length > 0) {
       const head = pack.droppedNames.slice(0, 3).join('、')
@@ -497,6 +515,41 @@ function localDayKeyPlain(d: Date): string {
 /** 文件名时刻段（HHmmss，本地时区；win 文件名禁冒号，故不带分隔） */
 function localClockPlain(d: Date): string {
   return [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, '0')).join('')
+}
+
+/**
+ * 取一个不与盘上既有包撞名的词干。
+ *
+ * 时刻段只精确到秒，同秒内连点两次「生成诊断包」会落到同名文件；写入是覆盖语义，
+ * 后果是前一包（可能已被作者发给别人）被后一包静默替换。撞名时依次试 `-2`、`-3`…，
+ * 正常路径仍是裸时刻段。
+ */
+function uniqueBundleStem(dir: string, base: string): string {
+  if (!existsSync(join(dir, `${base}.zip`))) return base
+  for (let i = 2; i < 100; i++) {
+    const candidate = `${base}-${i}`
+    if (!existsSync(join(dir, `${candidate}.zip`))) return candidate
+  }
+  // 同一秒内百次重入不现实；真到了这一步，用毫秒段兜底（仍不覆盖）
+  return `${base}-${Date.now()}`
+}
+
+/**
+ * 多卷写到一半失败时清掉已落盘的卷，返回清不掉的路径。
+ *
+ * 只删本次已写入的那几卷（按记录名，不按目录扫描）：同目录可能放着作者先前生成的包，
+ * 按模式扫会连带删掉别人的。清不掉的由调用方写进错误文案——作者按报错去删才不漏。
+ */
+function cleanupVolumes(written: readonly string[]): string[] {
+  const leftover: string[] = []
+  for (const p of written) {
+    try {
+      rmSync(p, { force: true })
+    } catch {
+      leftover.push(p)
+    }
+  }
+  return leftover
 }
 
 /** 书数（只报数量，不列书名——书名属书稿面） */
