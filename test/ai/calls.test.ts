@@ -300,9 +300,13 @@ describe('E-4/E-7：迁移写互斥 + 互斥范围声明', () => {
     },
   )
 
-  it('E-7: 互斥范围声明已登记（进程内语义 + J7 依赖）', () => {
+  it('E-7: 互斥范围声明已登记（进程内语义 + J7 依赖 + 锁文件名不漂移）', () => {
     expect(AI_CALLS_MUTEX_SCOPE_NOTE).toContain('J7')
     expect(AI_CALLS_MUTEX_SCOPE_NOTE).toContain('跨进程文件锁')
+    // 文案的锁文件路径由 aiCallsLockPath（budgetPath 单源）拼出——回归：修复前文案写
+    // bookRoot/.cache/ai-calls.lock，实际锁在 .cache/ai-calls.json.lock（锚自身漂移）
+    expect(AI_CALLS_MUTEX_SCOPE_NOTE).toContain('ai-calls.json.lock')
+    expect(AI_CALLS_MUTEX_SCOPE_NOTE).not.toContain('ai-calls.lock ')
   })
 })
 

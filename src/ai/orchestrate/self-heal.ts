@@ -11,7 +11,7 @@
  * - AbortSignal 贯穿到 provider（interrupt 时 abort 请求）
  */
 import { join, relative, sep } from 'node:path'
-import { existsSync, rmSync } from 'node:fs'
+import { existsSync, rmSync, statSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { openChainRecorder } from '../open-chain.js'
 import { readBookConfig } from '../../format/yaml.js'
@@ -249,6 +249,8 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     // default check 读 ctx.config（非批头 config 快照）——
     // 章边界重读刷新 ctx.config 后，机检随本章新配置走，与预算闸/字数（draftFirstChapter/
     // rewriteOnce 均读 ctx.config）同源；opts.check 注入替身路径不受影响。
+    // 自引用不变量：闭包体在**调用时**才解引用 ctx（延迟求值），故构造表达式内不得调用
+    // check（TDZ 报错）；活跃读取语义即「读当轮 ctx.config」，不得改写成构造期快照。
     // 默认机检复用本轮 db（循环内不重开），实现体按悬停让出事件循环。
     const ctx: ChapterCtx = {
       bookRoot,
@@ -402,14 +404,11 @@ async function orchestrateBatch(
     // 单章 escalate → 停后续章，报批量进度（done=已完成章数）
     if (run.outcome === 'escalate') {
       emit(opts, { type: 'self_heal_batch_progress', done: i, total, stoppedAt: ch })
-      recordPause(ch, 'escalate', (run.reds ?? []).join('；'))
-      // 删 ?? '' 死防御——ChapterRun 契约 docId/path 为必填
-      // string（见上方类型定义；单章路径本就直传同款），?? '' 恒不生效，
-      // 反而暗示「可能缺字段」误导读改方（下方 pass 分支同款一并删）
+      recordPause(ch, 'escalate', run.reds.join('；'))
       return {
         outcome: 'escalate',
         chapter: ch,
-        reds: run.reds ?? [],
+        reds: run.reds,
         docId: run.docId,
         path: run.path,
         attempts: run.attempts,
@@ -477,10 +476,22 @@ async function prepareChapterMaterials(
     // 清掉旧章残留材料（best-effort）——沿用旧材料文件会让
     // buildDraftPrompt 把上一章的材料注入本章 prompt（模型可见却无本次出处）。
     // 读不到材料文件 = prompt 无备料段，是设计内降级。
+    const materialAbs = join(ctx.bookRoot, '工作区', '本章写作材料.md')
     try {
-      rmSync(join(ctx.bookRoot, '工作区', '本章写作材料.md'), { force: true })
-    } catch {
-      // 清理失败（如权限/磁盘）忽略——降级路径不反向阻断写稿主线
+      rmSync(materialAbs, { force: true })
+    } catch (err) {
+      // 清理失败（权限/占用/磁盘）不反向阻断写稿主线，但必须留痕——盘上旧章材料仍在，
+      // 下方 buildDraftPrompt 照旧注入「备料」段（模型可见却零记录的可达形态）。
+      log.warn('self-heal', `旧写作材料清理失败，本章可能沿用上一章材料（降级继续写稿）：${errMsg(err)}`)
+      // 不变量：盘上材料存在 ⟺ 已登记——清理失败且文件仍在盘上时同步并入 promptFiles，
+      // 使「注入备料段」与 llm/call promptMeta.files 登记同真同假。
+      let stillOnDisk = false
+      try {
+        stillOnDisk = statSync(materialAbs).isFile()
+      } catch {
+        stillOnDisk = false
+      }
+      if (stillOnDisk) promptFiles = ['工作区/本章写作材料.md']
     }
   }
   return promptFiles

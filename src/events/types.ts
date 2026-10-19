@@ -155,6 +155,16 @@ export interface LlmCallData {
    *  翻译等表内容随版本演进，跨版本重放时据此检测漂移（旧事件无此键 = 表初版前）。
    *  表内容任何变更必须同步 bump MODEL_QUIRKS_VERSION（见 model-quirks.ts 头注） */
   quirksVersion?: string
+  /** tool_choice 请求参数面：成功 attempt 记实发生效值（chat 恒 'auto'；tool 型任务为
+   *  requireTool 经模型表翻译后的 'any' / 'tool'），失败 attempt 记调用方声明值；
+   *  不发 tool_choice 的请求无此键（旧事件同）。重放据此 + 模型表 + quirksVersion 重建 */
+  toolChoice?: 'auto' | 'any' | 'tool'
+  /** 「必须产出工具调用」的调用意图（generateTool 的 requireTool；仅 true 时出现）——
+   *  与 toolChoice 配合表达「意图 → 派生结果」两面 */
+  requireTool?: boolean
+  /** 未登记的可选请求参数面（有意缺口，非漏改）：stopSequences 与 structured
+   *  （response_format / output_config.format）目前只有适配器降级剥离逻辑，**无生产
+   *  写入方**，不设字段；日后出现生产写入方时按 toolChoice 同款加性补键 */
 }
 
 /** llm/retry —— 重试记账（先落库后等待） */

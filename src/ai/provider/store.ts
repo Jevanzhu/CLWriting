@@ -915,10 +915,10 @@ export function newRagProviderId(): string {
   return `rag-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
 }
 
-/** key 遮蔽：只留前 4 后 4，不足 8 位 → *** */
+/** key 遮蔽：只留前 3 后 2，不足 8 位 → ***（掩码经 HTTP 下发到渲染层，暴露面按最小可用取——前 3 保形态、后 2 保同一面板内多条 key 可区分） */
 export function maskKey(key: string): string {
   if (key.length < 8) return '***'
-  return `${key.slice(0, 4)}...${key.slice(-4)}`
+  return `${key.slice(0, 3)}...${key.slice(-2)}`
 }
 
 /**

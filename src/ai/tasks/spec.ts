@@ -102,6 +102,10 @@ export interface SpecOutput {
    *  extractDegraded 落 llm/call。三处 run 回调均须透传该字段，缺则降级面成功的事件
    *  记录与真实参数面静默分叉（铁律②重放口径） */
   degraded?: boolean
+  /** requireTool 经模型表翻译后的实发 tool_choice（GenResult.toolChoice 透传）——runner
+   *  extractToolChoice 落 llm/call 参数面（铁律②重放口径）；tool 型 run 回调须透传，
+   *  缺则事件里的实发值与真实请求静默分叉 */
+  toolChoice?: 'auto' | 'any' | 'tool'
 }
 
 /**
@@ -179,7 +183,7 @@ export async function runSpec(spec: TaskSpec, opts: SpecOpts): Promise<TaskResul
       // tool 型 spec 经 generateTool 挂载单工具 schema（模型可见）
       // ——工具名进 promptMeta.tools（铁律②「模型可见 ⟺ 已记录」工具面登记）；文本型
       // 不挂 tools，无此键
-      ...(spec.genMode === 'tool' && tool ? { promptTools: [tool.name] } : {}),
+      ...(spec.genMode === 'tool' && tool ? { promptTools: [tool.name], requireTool: true } : {}),
       ctrl: opts.ctrl ?? bridge?.ctrl,
       register: opts.register,
       onReset: opts.onReset,
@@ -201,6 +205,8 @@ export async function runSpec(spec: TaskSpec, opts: SpecOpts): Promise<TaskResul
             stopReason: r.stopReason,
             usage: r.usage,
             resolvedMaxTokens: r.resolvedMaxTokens,
+            // requireTool 派生结果（模型表翻译后的实发 tool_choice）随封套回传 → llm/call
+            toolChoice: r.toolChoice,
             degraded: r.degraded,
           }
         }

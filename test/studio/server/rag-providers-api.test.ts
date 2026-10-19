@@ -83,7 +83,7 @@ describe('RAG 服务商管理端点', () => {
     expect(String(p['id']).startsWith('rag-')).toBe(true)
     // 脱敏：apiKey 空串 + 掩码回显
     expect(p['apiKey']).toBe('')
-    expect(p['apiKeyMasked']).toBe('sk-r...3456')
+    expect(p['apiKeyMasked']).toBe('sk-...56')
     expect(p['caps']).toBeNull()
   })
 
@@ -152,7 +152,7 @@ describe('RAG 服务商管理端点', () => {
     expect((keep.json['provider'] as Record<string, unknown>)['caps']).toMatchObject({ connected: true })
     // key 仍有效：落盘仍无明文 + 掩码不变（原 key 未被空串覆盖）
     const afterKeep = await api('/api/rag-providers')
-    expect((afterKeep.json['ragProviders'] as Array<Record<string, unknown>>)[0]!['apiKeyMasked']).toBe('sk-r...3456')
+    expect((afterKeep.json['ragProviders'] as Array<Record<string, unknown>>)[0]!['apiKeyMasked']).toBe('sk-...56')
 
     // 换 endpoint（同主机换路径，RC 源码重审 B-4 补洞后：同主机才允许留空 key）→ caps 清空（要求重测）
     const change = await api(`/api/rag-providers/${encodeURIComponent(id)}`, {
@@ -192,7 +192,7 @@ describe('RAG 服务商管理端点', () => {
     // 盘上零改写（endpoint 与掩码都还是原值；失败路径不得留下半改状态）
     const after = (await api('/api/rag-providers')).json['ragProviders'] as Array<Record<string, unknown>>
     expect(after[0]!['endpoint']).toBe('https://stub.example/v2/embeddings')
-    expect(after[0]!['apiKeyMasked']).toBe('sk-r...3456')
+    expect(after[0]!['apiKeyMasked']).toBe('sk-...56')
     expect(readFileSync(join(userData, 'providers.json'), 'utf8')).toBe(disk0)
 
     // 同请求显式带 Key → 正常放行（作者改主机的正路）
@@ -208,7 +208,7 @@ describe('RAG 服务商管理端点', () => {
     expect(ok.status).toBe(200)
     const afterOk = (await api('/api/rag-providers')).json['ragProviders'] as Array<Record<string, unknown>>
     expect(afterOk[0]!['endpoint']).toBe('https://evil.example/v1/embeddings')
-    expect(afterOk[0]!['apiKeyMasked']).toBe('sk-n...7654')
+    expect(afterOk[0]!['apiKeyMasked']).toBe('sk-...54')
 
     // 复原：换回原主机 + 重填原 key（后续用例共用同一服务商）
     const restore = await api(`/api/rag-providers/${encodeURIComponent(id)}`, {

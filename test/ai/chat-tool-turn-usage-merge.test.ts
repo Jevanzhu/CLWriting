@@ -90,6 +90,78 @@ describe('R35-1：工具轮 assistant 事件 usage 与 chat_done 同用 attempts
   )
 })
 
+describe('D1-01：两类一次性重发的首发用量并入回合封套（账本按次口径对齐）', () => {
+  let fake: FakeProvider
+  beforeAll(async () => {
+    fake = await createFakeProvider()
+  })
+  afterAll(async () => {
+    await fake.close()
+  })
+
+  it(
+    '超窗收缩重试：首发（截断 attempt + 超窗 attempt）与重试的用量合计进助理事件与 chat_done',
+    { timeout: 20_000 },
+    async () => {
+      const ud = tempUserData()
+      dirs.push(ud)
+      withFakeProvider(ud, fake.url)
+      const bookRoot = makeDualTrackWorkdir()
+      dirs.push(bookRoot)
+      const events: DriverEvent[] = []
+      // 肥历史给出可切边界（纯文本 user 边界）：首发超 20k 内预切并全量发出 → 400 超窗
+      const BIG = 'X'.repeat(6_000)
+      histories.set('d1-01-shrink-usage', [
+        { role: 'user', content: 'u0' + BIG },
+        { role: 'assistant', content: 'a0' },
+        { role: 'user', content: 'u1' + BIG },
+        { role: 'assistant', content: 'a1' },
+        { role: 'user', content: 'u2' + BIG },
+        { role: 'assistant', content: 'a2' },
+      ])
+      fake.setScript([
+        // 第 1 attempt：截断流（usage {10,1} 随 NETWORK 错上抛）→ runner 退避重试
+        { type: 'truncated', content: '半截', usage: { input: 10, output: 1 } },
+        // 第 2 attempt：超窗 400（零增量）→ runTask 终态失败，封套带 {10,1}
+        { type: 'error', status: 400, message: 'prompt is too long: 18015 tokens > 8000 maximum' },
+        // 收缩重试（第二次 runTask）：成功，usage {100,50}
+        { type: 'text', content: '收缩后回复。', usage: { input: 100, output: 50 } },
+      ])
+      await runChat({
+        driver: makeFakeDriver({ emitted: events }),
+        mainSession: { id: 's1', cwd: bookRoot, closed: false },
+        userDataPath: ud,
+        bookRoot,
+        bookName: 'd1-01-shrink-usage',
+        message: '继续',
+      })
+      // 线缆级证据：截断重试 attempt + 超窗首发 + 收缩重试恰三次
+      expect(fake.requestCount()).toBe(3)
+
+      const store = openSessionStore(ud, bookRoot)!
+      const evs = store.listEvents('d1-01-shrink-usage')
+      store.close()
+      const assts = evs.filter((e) => e.type === 'assistant/message')
+      // 修复前只有收缩重试段（{100,50}）——首发段的 {10,1} 只进账本不进封套
+      expect(assts.some((e) => JSON.stringify(e.data['usage']) === JSON.stringify({ inputTokens: 110, outputTokens: 51 }))).toBe(
+        true,
+      )
+      const done = events.find((e) => e.type === 'chat_done') as { inputTokens?: number; outputTokens?: number } | undefined
+      expect(done?.inputTokens).toBe(110)
+      expect(done?.outputTokens).toBe(51)
+
+      // D1-05：tool_choice 参数面随 llm/call 落库——成功 attempt 取实发值，失败 attempt
+      // 按调用方声明回落；本回合两次发送共三个 attempt（截断/超窗/收缩后成功）全记 'auto'
+      const ws = openSessionStore(ud, bookRoot)!
+      const llmCalls = ws.listEvents(bookHash(bookRoot)).filter((e) => e.type === 'llm/call')
+      ws.close()
+      expect(llmCalls).toHaveLength(3)
+      expect(llmCalls.every((e) => e.data['toolChoice'] === 'auto')).toBe(true)
+      histories.delete('d1-01-shrink-usage')
+    },
+  )
+})
+
 describe('R35-2：checkpoint 摘要调用的 usage/stopReason 进账本与 llm/call', () => {
   let fake: FakeProvider
   beforeAll(async () => {

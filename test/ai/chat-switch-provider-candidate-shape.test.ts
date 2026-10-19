@@ -156,4 +156,76 @@ describe('A104: 换网候选过滤不实例化 provider / 不进 LRU', () => {
     cpSpy.mockRestore()
     warnSpy.mockRestore()
   })
+
+  it('D1-09: 轮首发送预算 resolve 只读模型行,不实例化 provider / 不进 LRU', async () => {
+    // 轮首即中止（不进入任何发送）——此时唯一的 provider 解析点就是发送预算的档位
+    // contextWindow resolve：修复前走 resolveProvider('chat') → createProvider 白建实例
+    // 并占 registry LRU 槽（容量 8），与换网候选预检的同域纪律相反。
+    const cpSpy = vi.spyOn(await import('../../src/ai/provider/registry.js'), 'createProvider')
+    // 计数器清零——同档前一用例已打过 2 次请求（本用例期望 0 次）
+    fake.setScript([])
+    const ud = tempUserData()
+    dirs.push(ud)
+    await saveProviders(ud, {
+      providers: [
+        {
+          id: 'fake-a',
+          name: 'fake-a',
+          protocol: 'openai',
+          auth: 'bearer',
+          baseUrl: fake.url,
+          model: 'fake-model',
+          apiKey: 'sk-fake-a',
+          caps: { connected: true, streaming: true },
+          capsProbedAt: Date.now(),
+          models: [{ id: 'fake-model', name: 'fake-model', contextWindow: 30_000 }],
+        },
+      ],
+      currentId: 'fake-a',
+      currentModel: 'fake-model',
+      modelCaps: {},
+      ragProviders: [],
+      tiers: { creative: { model: 'fake-model', effort: 'medium' }, assistant: null, chat: null },
+      revision: 0,
+      vault: null,
+      dek: null,
+    })
+    const bookRoot = mkdtempTracked(join(tmpdir(), 'd109-budget-book-'))
+    dirs.push(bookRoot)
+    const history: ChatMsg[] = [{ role: 'user', content: '查玉佩' }]
+    const ctrl = new AbortController()
+    ctrl.abort()
+    const deps = {
+      opts: {
+        driver: makeFakeDriver({ emitted: [] }),
+        mainSession: { id: 's1', cwd: bookRoot, closed: false } as Session,
+        userDataPath: ud,
+        bookRoot,
+        bookName: 'd1-09-budget',
+      },
+      state: { ctrl, deadline: Date.now() + 60_000, pending: new Map() },
+      confirmTimeout: 1_000,
+      history,
+      baseLen: history.length,
+      recorder: new SessionRecorder(null, 'd1-09-budget-session'),
+      sys: 'SYS',
+      turnBranch: undefined,
+      digests: { settings: 'd1-09-digest' },
+      promptFiles: [],
+      revisionPath: undefined,
+      seqs: {
+        msgSeqs: [] as number[][],
+        pendingMsgSeqs: [] as Array<number | number[]>,
+        commitPendingMsgSeqs: () => {},
+      },
+      markCompleted: () => {},
+    }
+
+    const ok = await runAgentTurns(deps as unknown as Parameters<typeof runAgentTurns>[0])
+    expect(ok).toBe(false)
+    expect(fake.requestCount()).toBe(0)
+    expect(cpSpy.mock.calls).toHaveLength(0)
+
+    cpSpy.mockRestore()
+  })
 })
