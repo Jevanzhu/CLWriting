@@ -102,6 +102,31 @@ describe('resolveEntryPath（条目名 → 目标内绝对路径）', () => {
     expect(resolveEntryPath(dest, '/')).toBeNull()
     expect(resolveEntryPath(dest, 'a\0b.txt')).toBeNull()
   })
+
+  it('段级 Windows 形态不可用 → 拒（保留设备名 / 尾点尾空格 / 数据流 / 非法字符）', () => {
+    const dest = '/tmp/clw-extract-y'
+    // 保留设备名：写的是设备不是文件
+    for (const name of ['NUL', 'CON', 'COM1', 'resources/AUX.txt', 'nul.txt', 'CLOCK$']) {
+      expect(resolveEntryPath(dest, name), `保留名应被拒：${name}`).toBeNull()
+    }
+    // 尾点/尾空格：win 落盘被静默归一，与既有名撞名（判据锚在**段尾**，故 `x .txt` 不算
+    // ——它的尾空格在扩展名之前，落盘名与声明名一致，无歧义）
+    for (const name of ['name.', 'name ', 'resources/dir./x.txt', 'x.txt ']) {
+      expect(resolveEntryPath(dest, name), `尾点尾空格应被拒：${JSON.stringify(name)}`).toBeNull()
+    }
+    // `:` = NTFS 备用数据流（盘上看不见）
+    for (const name of ['a.txt:stream', 'resources/b.md:$DATA']) {
+      expect(resolveEntryPath(dest, name), `数据流应被拒：${name}`).toBeNull()
+    }
+    // Windows 非法文件名字符
+    for (const name of ['a*b.txt', 'a?b.txt', 'a"b.txt', 'a<b.txt', 'a|b.txt']) {
+      expect(resolveEntryPath(dest, name), `非法字符应被拒：${name}`).toBeNull()
+    }
+    // 对照：常规名与含点的常规扩展名不受影响
+    expect(resolveEntryPath(dest, 'resources/app.asar')).not.toBeNull()
+    expect(resolveEntryPath(dest, 'CLWriting.exe')).not.toBeNull()
+    expect(resolveEntryPath(dest, 'a.b.c.txt')).not.toBeNull()
+  })
 })
 
 describe('extractZipTo（解压主流程）', () => {

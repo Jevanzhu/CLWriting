@@ -120,15 +120,79 @@ export function isWithinRoot(bookRoot: string, abs: string): boolean {
   }
 }
 
+/** Windows HTTP 保留设备名（大小写不敏感）。这些名字本身是合法目录名，但拷到
+ *  Windows 会被文件系统拒绝或改写；同一族的判据（尾点/尾空格/冒号数据流/保留名）
+ *  必须在两条面共用：**新写入面的净化**（format/filename 的 winCompat）与**外来名的
+ *  拒绝**（解压条目、docId 段）。单源住本模块（fs 为最低层，format/update/document
+ *  都据此判，不反向依赖）。 */
+export const RESERVED_WIN = new Set([
+  'CON',
+  'PRN',
+  'AUX',
+  'NUL',
+  'CLOCK$',
+  'COM1',
+  'COM2',
+  'COM3',
+  'COM4',
+  'COM5',
+  'COM6',
+  'COM7',
+  'COM8',
+  'COM9',
+  'LPT1',
+  'LPT2',
+  'LPT3',
+  'LPT4',
+  'LPT5',
+  'LPT6',
+  'LPT7',
+  'LPT8',
+  'LPT9',
+])
+
+/**
+ * 单个路径段的 Windows 不可用判据（**拒绝向**，与 format/filename 的净化向互补）。
+ *
+ * 判据四条，缺一条就有一条落盘路径是「盘上被 FS 改写/写设备而非写文件/与既有名撞名」：
+ *  1. 控制字符——落盘被拒或产生不可见名；
+ *  2. `:`——NTFS 备用数据流（`a.txt:stream` 写的是流不是文件，目录列表看不见）；
+ *  3. 尾点/尾空格——Win 落盘被静默剥掉，读写名不一致（`name.` 与 `name` 撞名）；
+ *  4. 保留设备名（`NUL`/`CON`/`COM1`…，按首个点前的词干判）——写的是设备不是文件。
+ * 另拒 Windows 非法字符 `*?"<>|`：这些字符在 win 上创建即失败（fail-loud 优于半途失败）。
+ *
+ * `allowColon`：调用方若在落盘前**自行编码**掉冒号（docId → 版本目录名的既有编码面），
+ * 冒号不再构成数据流风险，可放开；其余三条判据编码不掉，任何面都不得放开。
+ *
+ * 非 win 平台同样判：数据面跨平台一致是本仓既有口径（format/filename 的 winCompat
+ * 在 mac 上也执行，理由同）。
+ */
+export function isWinUnsafePathSegment(seg: string, opts: { allowColon?: boolean } = {}): boolean {
+  if (seg === '') return true
+  if (/[\u0000-\u001f\u007f]/.test(seg)) return true
+  if (opts.allowColon ? /[*?"<>|]/.test(seg) : /[:*?"<>|]/.test(seg)) return true
+  if (/[. ]$/.test(seg)) return true
+  const stem = seg.split('.')[0]!.toUpperCase()
+  return RESERVED_WIN.has(stem)
+}
+
 /**
  * 校验 docId 不含路径穿越字符（manifest 可篡改数据面 defense-in-depth）。
  *
  * docId 系统生成（ULID 或 legacy:<hex>），正常不含分隔符。
  * 此函数供内核层（version/analysis）调用，与 API 端点（snapshots.ts）的
  * docId 白名单保持一致：拒绝 `\0` / `/` / `\` / `..`。
+ *
+ * docId 在版本面被当作**目录名**用（`join(versionsDir, docId)`），故还须过段级 Windows
+ * 判据：清单被手改成 `NUL`/`abc.` 一类形态时，mkdir/写盘在该平台上恒失败，表现为
+ * 保存永久 WRITE_ERROR 且无从自查（清单是本地可篡改数据面）。
+ *
+ * 冒号不在拒绝面：id 空间的 `legacy:<hex>` 前缀是既有真实形态，而落盘为目录名时冒号由
+ * 编码面（`encodeDocDirName`）换成下划线，数据流风险不成立。其余三条编码不掉，一律拒。
  */
 export function safeDocId(docId: string): boolean {
-  return !docId.includes('\0') && !docId.includes('/') && !docId.includes('\\') && !docId.includes('..')
+  if (docId.includes('\0') || docId.includes('/') || docId.includes('\\') || docId.includes('..')) return false
+  return !isWinUnsafePathSegment(docId, { allowColon: true })
 }
 
 /** 校验 manifest 路径不越出 bookRoot，返回绝对路径或 null（非法）。委托 resolveWithinRoot。 */
