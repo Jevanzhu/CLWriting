@@ -16,8 +16,8 @@
  * 实际生效 deadline 换算）——finishTurn 单元臂收编于文末（注入换算 / 45s→1 分钟
  * 四舍五入 / 缺省 30 分钟三形态；与 runChat 层 ④① 的文案断言互补，零断言去重）。
  */
-import { rmSync } from 'node:fs'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import { rmDirRetry } from '../helpers/rm-dir-retry.js'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { makeFakeDriver } from './fake-driver.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
@@ -40,6 +40,14 @@ let bookRoot: string
 const CONFIRM_DEADLINE_MS = process.env.CI ? 15_000 : 2_000
 const CONFIRM_WINDOW_MS = process.env.CI ? 60_000 : 8_000
 
+/** 收尾删除重试预算（≈ (400-1)×25ms ≈ 10s）：对齐 test/events/store.test.ts 同因族
+ *  ——win 腿临时目录句柄释放迟滞的 EPERM 间歇红。 */
+const CLEANUP_RETRY = { attempts: 400, delayMs: 25 } as const
+
+/** 事件/请求到达的轮询窗：CI 满载腿部等一轮真实 provider 往返可超 3s（waitFor 缺省），
+ *  与上方确认闸同口径按 CI 分档——放宽的是等待窗，不是断言口径（事件仍在才过）。 */
+const ARRIVAL_WAIT_MS = process.env.CI ? 20_000 : 3_000
+
 beforeAll(async () => {
   fake = await createFakeProvider()
 })
@@ -56,7 +64,10 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.CLWRITING_DRIVER
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
+  // 收尾删除走重试原语：本档每例都在临时 userData / 书库上跑真实会话落盘，win 腿
+  // 收尾期句柄释放迟滞（EPERM/EBUSY 族）会把清理变成假红——用例本身可能已通过。
+  // 重试预算 ≈ (attempts-1)×delayMs = 5s，超限仍上抛（真句柄泄漏照旧红，不吞故障）。
+  for (const d of dirs.splice(0)) rmDirRetry(d, CLEANUP_RETRY)
 })
 
 function setup(): string {
@@ -198,7 +209,7 @@ describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
         confirmTimeoutMs: 8000,
       })
       // 工具挂起确认闸（此时未 abort、未超时）→ 用户中断 → waitConfirm 放行取消 → 轮首中止
-      await waitFor(() => events.some((e) => e.type === 'chat_tool_pending'))
+      await waitFor(() => events.some((e) => e.type === 'chat_tool_pending'), ARRIVAL_WAIT_MS)
       abortChat('exit-interrupted')
       await p
 
@@ -381,7 +392,7 @@ describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
         message: '出口走查',
       })
       // 请求已在途（generate 进行中）→ 用户中断 → runTask ABORTED → finishTurn 'interrupted'
-      await waitFor(() => fake.requestCount() > 0)
+      await waitFor(() => fake.requestCount() > 0, ARRIVAL_WAIT_MS)
       abortChat('exit-r42-aborted')
       await p
 
