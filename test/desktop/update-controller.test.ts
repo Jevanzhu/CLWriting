@@ -235,6 +235,26 @@ describe('startUpdateDownload（发布信息重取 + 流式下载 + 缓存复用
   it('取消入口安全：无在途下载时为 no-op（不抛）', () => {
     expect(() => cancelUpdateDownload()).not.toThrow()
   })
+
+  it('单飞占位同步预置：发布信息在途窗内二次调用即被拒（不产生两路并发写）', async () => {
+    setPlatform('win32')
+    // 首调卡在发布信息请求上（该窗即原缺陷的穿透窗口）
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    M.netFetchResponse = async (url: string) => {
+      if (url.includes('api.github.com')) {
+        await gate
+        return releasesResponse('1.0.0', { digest: `sha256:${ZIP_SHA}` })
+      }
+      return zipResponse(ZIP_BYTES)
+    }
+    const first = startUpdateDownload({ version: '1.0.0', onProgress: () => {} })
+    // 首调尚未越过发布信息请求：此时二调必须被单飞判据挡下
+    const second = await startUpdateDownload({ version: '1.0.0', onProgress: () => {} })
+    expect(second).toEqual({ ok: false, reason: '已有一次下载正在进行中' })
+    release()
+    await first
+  })
 })
 
 describe('更新链地址信任面（规范地址单源 + 仅回环放行）', () => {
