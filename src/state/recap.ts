@@ -16,6 +16,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { assembleStatus } from '../process/assemble.js'
+import { closeWithPrepared } from '../shared/sqlite-prepared.js'
 import { readChapterDir } from '../format/chapters.js'
 import {
   readManifest,
@@ -119,7 +120,9 @@ function readRecapSnapshot(
     // 同族：close 包 try/catch——finally 内 close 抛错会顶替 catch
     // 的降级返回值直接上抛（node:sqlite close 极少抛错，防御级）。
     try {
-      db?.close()
+      // 关库经单源摘缓存——assembleStatus 面用的语句进的是 prepared 缓存，
+      // 裸 close 断不开 StatementSync→DatabaseSync 的 ephemeron 环，每次近况复述滞留一份语句。
+      if (db) closeWithPrepared(db)
     } catch {
       /* 句柄由进程退出兜底回收 */
     }
