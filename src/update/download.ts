@@ -335,6 +335,14 @@ export async function downloadUpdateZip(opts: UpdateDownloadOptions): Promise<Up
   } catch (e) {
     return { ok: false, failure: { reason: 'disk', detail: `更新缓存目录创建失败：${errMsg(e)}` } }
   }
+
+  // 期望校验值在**下包体之前**解析（含清单回落的那次出站）：发布方没给值、清单拉不到、
+  // 清单里没这一行，三种都注定失败——先把三百兆下完再报「无法校验」，作者的等待全白费。
+  const expected = await resolveExpectedSha256(opts, fetchImpl)
+  if ('error' in expected) {
+    return { ok: false, failure: { reason: 'checksum', detail: expected.error } }
+  }
+
   await dropPart()
   await sweepStaleParts(opts.destDir, opts.fileName)
 
@@ -361,11 +369,6 @@ export async function downloadUpdateZip(opts: UpdateDownloadOptions): Promise<Up
   }
 
   const actual = hash.digest('hex')
-  const expected = await resolveExpectedSha256(opts, fetchImpl)
-  if ('error' in expected) {
-    await dropPart()
-    return { ok: false, failure: { reason: 'checksum', detail: expected.error } }
-  }
   if (expected.hex !== actual) {
     await dropPart()
     return {

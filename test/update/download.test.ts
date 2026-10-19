@@ -352,8 +352,32 @@ describe('地址判据（规范地址单源 + 仅回环放行）', () => {
       fetchImpl: fetchStub,
     })
     expect(r.ok).toBe(true)
-    expect(calls).toEqual([canonicalZip, canonicalSums])
+    // 清单先于包体：期望值必须在开始下包体之前就解析出来（下完才报「无法校验」=白等）
+    expect(calls).toEqual([canonicalSums, canonicalZip])
     expect(entries(dir)).toEqual([ASSET_NAME])
+  })
+
+  it('校验值拿不到 → 包体零出站（不在注定失败时下三百兆）', async () => {
+    const dir = destDir()
+    const calls: string[] = []
+    const fetchStub = (async (input: RequestInfo | URL) => {
+      calls.push(String(input))
+      return { ok: true, status: 200, headers: { get: () => null }, text: async () => 'other.zip  ' + ZIP_SHA }
+    }) as unknown as typeof fetch
+    const r = await downloadUpdateZip({
+      tag: TAG,
+      url: releaseAssetUrl(TAG, ASSET_NAME),
+      destDir: dir,
+      fileName: ASSET_NAME,
+      sha256: null,
+      checksumsUrl: releaseChecksumsUrl(TAG),
+      fetchImpl: fetchStub,
+    })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.failure.reason).toBe('checksum')
+    // 只有清单那一次出站，包体一次都没有
+    expect(calls).toEqual([releaseChecksumsUrl(TAG)])
+    expect(existsSync(join(dir, ASSET_NAME))).toBe(false)
   })
 
   it('资产名含路径分隔符 / 相对段 / 控制字符 → 拒且零出站、不建目录（落盘路径纵深防御）', async () => {

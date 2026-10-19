@@ -299,8 +299,9 @@ describe('更新链地址信任面（规范地址单源 + 仅回环放行）', (
     expect(r).toEqual({ ok: true })
     expect(M.netFetchCalls).toEqual([
       expect.stringContaining('api.github.com'),
-      ASSET_URL,
+      // 清单先于包体：期望值在开始下包体之前解析（下完才报「无法校验」= 白等三百兆）
       releaseChecksumsUrl('v1.0.0'),
+      ASSET_URL,
     ])
     expect(M.netFetchCalls.some((u) => u.includes('objects.githubusercontent.com'))).toBe(false)
   })
