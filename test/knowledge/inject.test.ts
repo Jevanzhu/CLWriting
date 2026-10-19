@@ -278,6 +278,39 @@ describe('assembleKnowledge：两级 rank 与登记名', () => {
     expect(a.records.map((r) => r.layer)).toEqual(['book', 'bundled'])
     expect(a.sources).toEqual(['知识层/' + REL_A, `知识层(内置)/${REL_B}`])
   })
+
+  it('书级篇编码可疑（BOM / 替换符）→ 跳过该篇，不用它顶替随包件', () => {
+    stubCorpus({ [REL_A]: '随包甲。' })
+    const bookRoot = join(dir, 'book')
+    const writeBook = (text: string): void => {
+      const abs = join(bookRoot, '知识层', ...REL_A.split('/'))
+      mkdirSync(join(abs, '..'), { recursive: true })
+      writeFileSync(abs, text)
+    }
+    // BOM：UTF-16/GBK 存盘的典型残留
+    writeBook('\uFEFF甲正文。')
+    const bom = assemble([REL_A], { bookRoot })
+    expect(bom.text).not.toContain('甲正文。')
+    expect(bom.text).toContain('随包甲。') // 两级回落照旧：书级不可用即用随包件
+    expect(bom.records.map((r) => r.layer)).toEqual(['bundled'])
+    // 替换符：真 GBK 字节按 utf-8 解码的结果就是成片 U+FFFD
+    writeBook('甲\uFFFD\uFFFD正文。')
+    const garbled = assemble([REL_A], { bookRoot })
+    expect(garbled.text).not.toContain('正文。')
+    expect(garbled.records.map((r) => r.layer)).toEqual(['bundled'])
+    expect(garbled.dropped).toEqual([])
+  })
+
+  it('书级与随包两级皆编码可疑 → 该篇记 missing（不静默注入乱码）', () => {
+    stubCorpus({ [REL_A]: '\uFEFF随包乱码。' })
+    const bookRoot = join(dir, 'book')
+    const abs = join(bookRoot, '知识层', ...REL_A.split('/'))
+    mkdirSync(join(abs, '..'), { recursive: true })
+    writeFileSync(abs, '甲\uFFFD正文。')
+    const r = assemble([REL_A], { bookRoot })
+    expect(r.text).toBe('')
+    expect(r.dropped).toEqual([{ rel: REL_A, reason: 'missing' }])
+  })
 })
 
 describe('assembleKnowledge：开关关停', () => {
