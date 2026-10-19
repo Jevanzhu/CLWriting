@@ -40,7 +40,9 @@ import type { BookConfig } from '../format/types.js'
 import { log, errMsg } from '../log/index.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
-import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+// 摘要链在服务进程事件循环上执行（背景任务 owner bg-summary:<书>）——取锁走异步孪生，
+// 双进程争用时同步 Atomics.wait 微睡会冻结 HTTP/SSE 心跳（同 executeSave/health 纪律）。
+import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { hashBytes } from '../fs/hash.js'
 import { chapterNoFromName } from '../format/filename.js'
 import type { Session, StudioDriver } from '../driver/index.js'
@@ -214,7 +216,7 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
   if (inFlight.has(key)) return { ok: true, path: fp, skipped: true }
   // 跨进程锁（锁内才判状态——锁外判会重开「判完他进程开写」的 TOCTOU 窗口）
   // 接线续期——持锁面覆盖全长 AI 调用，不续期会被第二进程按超龄接管成双持锁
-  const releaseLock = acquireCrossProcessLockWithTimeout(
+  const releaseLock = await acquireCrossProcessLockAsync(
     // 锁名补 .lock 后缀——fs/atomic sweepAbandonedTmpFiles 的陈锁
     // 清扫分支只认 `*.lock`，此前 `.摘要锁-章N` 永不命中：崩溃残留锁只能靠
     // stale 接管对冲，锁主人不再有获取者时（产物已 purge 等）永久堆积。后缀不参与锁
@@ -584,7 +586,7 @@ export async function generateVolumeSummary(opts: {
   const volKey = `${bookRoot}#vol${volume}`
   if (inFlight.has(volKey)) return { ok: true, path: fp, skipped: true }
   // 接线续期（同章摘要锁）——链完整性判定 + AI 调用 + 落盘全临界段在持锁面内
-  const releaseLock = acquireCrossProcessLockWithTimeout(
+  const releaseLock = await acquireCrossProcessLockAsync(
     // 锁名补 .lock 后缀（同章摘要锁——sweep 陈锁清扫分支只认 *.lock）
     join(bookRoot, '工作区', `.摘要锁-卷${volume}.lock`),
     getSummaryGenerateLockTimeoutMs(),

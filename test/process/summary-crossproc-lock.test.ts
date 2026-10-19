@@ -218,3 +218,12 @@ describe('R26-19: 章摘要跨进程锁', () => {
     }
   })
 })
+
+// ── A3：摘要链在服务进程事件循环上取锁，两处都必须走异步孪生 ──────────────
+
+test('章与卷摘要锁都走异步孪生（同步 Atomics.wait 档会冻结 HTTP/SSE 心跳）', async () => {
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../../src/process/summary.ts', import.meta.url), 'utf8')
+  expect(src.match(/await acquireCrossProcessLockAsync\(/g)?.length).toBe(2)
+  expect(src.includes('acquireCrossProcessLockWithTimeout')).toBe(false)
+})

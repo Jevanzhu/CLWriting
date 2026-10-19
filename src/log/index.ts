@@ -27,6 +27,11 @@
 import { appendFile, mkdir, readdir, unlink } from 'node:fs/promises'
 import { readdirSync } from 'node:fs'
 import { basename, join } from 'node:path'
+import { createPathScrubber } from './path-scrub.js'
+
+/** 落盘行路径脱敏器（单例：词表一次构造多次调用）——不登记具体目录，家目录形态 +
+ *  其余绝对路径两层，与诊断包/错误信封同源（见 log/path-scrub.ts）。 */
+const scrubLogPaths = createPathScrubber()
 
 export type LogLevel = 'error' | 'warn' | 'info'
 
@@ -319,6 +324,23 @@ function emit(level: LogLevel, tag: string, msg: string, err?: unknown): void {
   // key 掩码在序列化后的 JSON 行上做（msg 与 err.message/stack
   // 一层兜底；JSON 文本层替换不影响行结构）
   line = maskKeys(line)
+  // 路径脱敏（出口第二层，与诊断包/错误信封同源）：err.stack 与 fs 错误消息原样内嵌
+  // 本机绝对路径（书库/用户目录），落盘行留存 7 天且可被导出/上报——JSON 行内的 win
+  // 路径是 `\\` 转义形，词表已覆盖（见 log/path-scrub.ts）。两者都不改行结构。
+  // 路径脱敏在「原文」形态上做（msg 与 err.message/stack 经解码后逐串替换，再重新
+  // 序列化）——直接替换 JSON 行会落在 `\\` 转义对中间，把单行 JSONL 打成不可解析
+  //（实测：win 路径尾段被切一半）。分工：掩码认序列化后的形态，路径脱敏认原文形态。
+  const pathScrubRec = JSON.parse(line) as Record<string, unknown>
+  for (const [k, v] of Object.entries(pathScrubRec)) {
+    if (typeof v === 'string') pathScrubRec[k] = scrubLogPaths(v)
+    else if (v !== null && typeof v === 'object') {
+      const pathScrubFields = v as Record<string, unknown>
+      for (const [k2, v2] of Object.entries(pathScrubFields)) {
+        if (typeof v2 === 'string') pathScrubFields[k2] = scrubLogPaths(v2)
+      }
+    }
+  }
+  line = JSON.stringify(pathScrubRec)
   if (state.stdoutOnly) {
     // child 专用通道：一行 JSON 直写 stdout（与落盘行同构），main 收行解析重发落盘。
     // 不镜像 console（stdout 本身就是出口，镜像即双写）。

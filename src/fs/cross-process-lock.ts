@@ -57,6 +57,8 @@ interface CrossProcessLockOptions {
    *  防被 SIGSTOP/挂起误接管为 stale → 双持锁）；release 时停表。注入用最小周期
    *  保测试快（生产调用方按持锁段上界选择是否启用，毫秒级持锁段无需续期）。 */
   renewIntervalMs?: number
+  /** 续期 touch 的实现（测试注入用，构造瞬态失败/连续失败臂）；缺省 utimesSync。 */
+  renewTouch?: (lockPath: string) => void
 }
 
 /** open 'wx' 成功 → writeSync(pid) 之间存在微秒级窗口：对手 EEXIST 后读到空锁，
@@ -89,6 +91,30 @@ const MAX_HELD_MS = 10 * 60_000
  */
 const OPEN_TRANSIENT_RETRY_MAX = 10
 const OPEN_TRANSIENT_RETRY_INTERVAL_MS = 5
+
+/** 续期失败的连续次数上限——到顶才停表并 warn 留痕（单次瞬态失败不得让长临界段
+ *  永久失去续期：10 分钟超龄门槛一到，第二进程即可接管同一把锁成双持锁）。 */
+const RENEW_MAX_CONSECUTIVE_FAILURES = 3
+/** 续期失败的退避基数（毫秒）——第 n 次连续失败排 n×基数 后的重试拍。 */
+const RENEW_RETRY_BACKOFF_MS = 20
+
+/**
+ * 续期单拍：touch 一次锁文件 mtime，返回是否成功。touch 可注入（测试用）。
+ * 退避重试与停表判据在调用方（renewIntervalMs 定时器）：定时器回调里同步微睡会冻结
+ * 事件循环，本模块的续期重试一律用 setTimeout 排下一拍，不用 Atomics.wait。
+ */
+export function renewLockFileTouch(
+  lockPath: string,
+  opts?: { touch?: (lockPath: string) => void },
+): boolean {
+  const touch = opts?.touch ?? ((p: string) => utimesSync(p, new Date(), new Date()))
+  try {
+    touch(lockPath)
+    return true
+  } catch {
+    return false
+  }
+}
 
 function openExclusiveWithTransientRetry(lockPath: string): number {
   let lastErr: unknown
@@ -198,32 +224,62 @@ export function tryAcquireCrossProcessLock(lockPath: string, opts?: CrossProcess
         off += writeSync(fd, buf, off, buf.length - off)
       }
       let released = false
-      // 续期定时器——周期 utimes 刷锁文件 mtime（best-effort：锁文件被外部清理/
-      // 磁盘异常时静默跳过，release 照常删文件）。release 幂等 + 停表。
+      // 续期定时器——周期 touch 锁文件 mtime。失败分级处置：单拍失败不动表（退避
+      // 重试用 setTimeout 排下一拍，回调里同步微睡会冻结事件循环），连续失败超限才
+      // 停表并 warn 留痕——单次瞬态失败（杀软/索引器占用）不得让长临界段无声失去续期
+      // （失续即等 10 分钟超龄被第二进程接管成双持锁）。release 幂等 + 停表。
       const renewMs = opts?.renewIntervalMs ?? 0
       let renewTimer: ReturnType<typeof setInterval> | null = null
+      let renewRetryTimer: ReturnType<typeof setTimeout> | null = null
+      const stopRenew = (): void => {
+        if (renewTimer) clearInterval(renewTimer)
+        renewTimer = null
+        if (renewRetryTimer) clearTimeout(renewRetryTimer)
+        renewRetryTimer = null
+      }
       if (renewMs > 0) {
-        renewTimer = setInterval(() => {
-          try {
-            utimesSync(lockPath, new Date(), new Date())
-          } catch {
-            /* best-effort：锁文件已不在（异常态）→ 停止续期，防定时器空转 */
-            if (renewTimer) clearInterval(renewTimer)
+        let failures = 0
+        const tick = (): void => {
+          const touched = renewLockFileTouch(
+            lockPath,
+            opts?.renewTouch ? { touch: opts.renewTouch } : undefined,
+          )
+          if (touched) {
+            failures = 0
+            return
           }
-        }, renewMs)
+          failures++
+          if (failures >= RENEW_MAX_CONSECUTIVE_FAILURES) {
+            // 锁文件被外部删除/不可写：停表 + 留痕（此前该态两侧都零可观测面）
+            log.warn(
+              'fs',
+              `锁续期连续失败 ${failures} 次（锁文件可能已被外部删除或不可写），停止续期：${lockPath}`,
+            )
+            stopRenew()
+            return
+          }
+          renewRetryTimer = setTimeout(tick, RENEW_RETRY_BACKOFF_MS * failures)
+          renewRetryTimer.unref()
+        }
+        renewTimer = setInterval(tick, renewMs)
         renewTimer.unref()
       }
       return () => {
         if (released) return
         released = true
-        if (renewTimer) clearInterval(renewTimer)
+        stopRenew()
         // ②：释放前校验「仍是我创建的那把锁」——读锁文件内容与写入串逐字节
         // 一致（pid+bootTime 即自身）才删；不一致 =双 contender 双持锁残余窗口
         // 里锁已被他人重建（无条件 rmSync 会删掉他人在位的新锁）。读失败（含已不在
         // 盘）同样不删——删错他人锁的代价高于残留（残留由 stale 接管路径收口）。
+        // 两种不一致都 warn 留痕：「锁文件被外部删除/易主」此前在释放侧无迹可查。
         try {
-          if (readFileSync(lockPath, 'utf-8') !== payload) return
+          if (readFileSync(lockPath, 'utf-8') !== payload) {
+            log.warn('fs', `锁释放前锁文件已不在或已易主（未删除，残留交陈锁接管/清扫自愈）：${lockPath}`)
+            return
+          }
         } catch {
+          log.warn('fs', `锁释放前锁文件不可读（可能已被外部删除，未删除，残留交陈锁接管/清扫自愈）：${lockPath}`)
           return
         }
         // 改 rmWithRetryQuiet——瞬时占用（杀软/索引器锁定刚关闭的锁文件）下

@@ -319,3 +319,19 @@ describe('log stdout-only 模式（阶段 22 批 U2 / U-5 单写者，S-3 + 二�
     expect(existsSync(join(dir, 'app-20200101.jsonl'))).toBe(true)
   })
 })
+
+// ── A5：落盘行路径脱敏（诊断日志不出本机绝对路径）──────────────
+
+describe('落盘行路径脱敏', () => {
+  it('msg 与 err.stack 里的本机绝对路径落盘前替换为占位符', async () => {
+    dir = mkdtempTracked('log-scrub-')
+    initLogging({ logsDir: dir, mirrorConsole: false })
+    const probe = 'C:\\clw-scrub-probe\\写作\\正文\\0001-开篇.md'
+    log.error('fs', `读取失败：${probe}`, new Error(`ENOENT: no such file or directory, open '${probe}'`))
+    await flushLogsForTest()
+    const lines = readLines()
+    const text = JSON.stringify(lines[lines.length - 1])
+    expect(text).toContain('<路径>')
+    expect(text).not.toContain('clw-scrub-probe')
+  })
+})

@@ -218,3 +218,19 @@ describe('R55-E-N：真实 socket 部分后 end()（干净 FIN）→ settle + �
     await new Promise<void>((r) => server.close(() => r()))
   })
 })
+
+// ── A4：400 信封不回显 JSON.parse 原文（请求体片段不入错误文本）──────────────
+
+describe('readJson 400 信封脱敏', () => {
+  it('非法 JSON → 400 且错误文本不含请求体片段（只给固定人话 + 偏移量）', async () => {
+    const ps = new PassThrough()
+    const p = readJson(ps as unknown as IncomingMessage)
+    ps.end('{"secret":"leak-me-please"', 'utf8') // 缺右花括号 → JSON.parse 抛错
+    const e = (await p.catch((x: unknown) => x)) as HttpError
+    expect(e).toBeInstanceOf(HttpError)
+    expect(e.status).toBe(400)
+    expect(e.code).toBe('BAD_INPUT')
+    expect(e.message).toContain('请求体不是合法 JSON')
+    expect(e.message).not.toContain('leak-me-please')
+  })
+})

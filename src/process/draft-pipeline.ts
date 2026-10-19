@@ -244,7 +244,7 @@ export async function saveDraft(
   // 在双进程争用时冻结服务事件循环（SSE/HTTP 最坏停 ≈15s）；保存协议各步原样平移。
   const docSaveLock = await acquireCrossProcessLockAsync(`${journalPath}.save.lock`, getDraftSaveLockTimeoutMs())
   if (!docSaveLock) {
-    throw new Error(`草稿保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试`)
+    throw new Error(`草稿保存等待超时：另一进程正在保存此文档（${getDraftSaveLockTimeoutMs() / 1000} 秒未让出），请重试`)
   }
   try {
     // 锁内复核（executeSave 纪律对齐）——resolveDraftPath 与

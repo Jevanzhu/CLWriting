@@ -37,6 +37,25 @@ const replySseBusy = (res: ServerResponse): void =>
   replyError(res, 429, 'BUSY', '本书 SSE 连接数已达上限，请关闭多余的标签页/窗口')
 const replySseForbidden = (res: ServerResponse): void => replyError(res, 403, 'FORBIDDEN', 'forbidden')
 
+/** 进程级 SSE 总名额（跨书）——per-book 名额（stream-sse-writer.ts 的 MAX_SSE_PER_BOOK）
+ *  只约束单书：多书库多窗口场景总连接数 = 每书上限 × 书数，FD 上限全靠 OS 兜底。
+ *  判定只在本文件两处名额判点（GET 建流与不建流 HEAD 探测）消费，与每书名额同序同源
+ *  （同一 replySseBusy 单源回包）；只读观测出口 = __getSseConnections（按书快照，求和
+ *  即进程级总连接数）。 */
+export const MAX_SSE_TOTAL = 20
+let sseTotalMax = MAX_SSE_TOTAL
+
+/** @internal 测试钩子：注入进程级总名额（构造「跨书总名额耗尽 → 429」臂）；恢复传 MAX_SSE_TOTAL。 */
+export function __setSseTotalMaxForTest(n: number): void {
+  sseTotalMax = n
+}
+
+function sseTotalExhausted(): boolean {
+  let total = 0
+  for (const conns of sseConnections.values()) total += conns.size
+  return total >= sseTotalMax
+}
+
 export async function handleBookStream(
   ctx: StreamCtx,
   routeCtx: { params: Record<string, string> },
@@ -76,7 +95,7 @@ export async function handleBookStream(
   // per-book 连接数限制（SSE 名额上限；按句柄集合实际存活数判定）
   const sseName = params['name']!
   const conns = sseConnections.get(sseName)?.size ?? 0
-  if (conns >= MAX_SSE_PER_BOOK) {
+  if (conns >= MAX_SSE_PER_BOOK || sseTotalExhausted()) {
     // SSE 错误路径也走统一 JSON 信封（不再裸文本）——
     // EventSource API 不暴露 body 不受影响，curl/测试可见 code 机器码
     replySseBusy(res)
@@ -263,7 +282,7 @@ export async function handleBookStreamProbe(
   }
   const sseName = params['name']!
   const conns = sseConnections.get(sseName)?.size ?? 0
-  if (conns >= MAX_SSE_PER_BOOK) {
+  if (conns >= MAX_SSE_PER_BOOK || sseTotalExhausted()) {
     replySseBusy(res)
     return
   }

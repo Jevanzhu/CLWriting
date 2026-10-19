@@ -39,9 +39,9 @@ export class HttpError extends Error {
   }
 }
 
-/** -7（全库代码审）：客户端断连错误形状——readJson 在请求体读取
- * 中途识别到客户端断开（ECONNRESET/EPIPE）时给原始错误打的显式标记（不换壳，保留
- * 原始 errno 信息），供 dispatch 兜底判别日志级别。 */
+/** 客户端断连错误形状——readJson 在请求体读取中途识别到客户端断开（ECONNRESET/EPIPE）
+ *  时给原始错误打的显式标记（不换壳，保留原始 errno 信息），供 dispatch 兜底判别日志
+ *  级别。 */
 interface ClientAbortError extends Error {
   clientAbort: true
 }
@@ -299,7 +299,11 @@ export function readJson(
         // 字面 null 体（JSON.parse('null') = null）兜底为 {}，防端点 body['x'] TypeError
         parsed = data.trim() === '' ? {} : (JSON.parse(data) ?? {})
       } catch (e) {
-        reject(new HttpError(400, `请求体不是合法 JSON：${e instanceof Error ? e.message : ''}`, 'BAD_INPUT'))
+        // 不回显 JSON.parse 原文——其报错文本内嵌请求体片段（V8 各版本片段长度不同），
+        // 只给固定人话 + 出错偏移量（取不到偏移就只说人话，不回退为回显）
+        const m = e instanceof Error ? /at position (\d+)/.exec(e.message) : null
+        const pos = m ? Number(m[1]) : null
+        reject(new HttpError(400, `请求体不是合法 JSON${pos === null ? '' : `（位置 ${pos}）`}`, 'BAD_INPUT'))
         return
       }
       // body 统一断言为 JSON object——全部调用方（含 defineRoute

@@ -91,6 +91,55 @@ const MAINTENANCE_LOCK_TIMEOUT_MS = 150
 /** 游标/时刻表上限（FIFO）：条目只是一个整数，上限纯防御。 */
 const TABLE_MAX = 256
 
+/** 事件库体积观测阈值（行数）——**只读观测**：超阈只 warn 留痕，不改任何保留语义
+ *  （产品数据依旧只能由作者点「清空对话 / 清除事件史 / 删书」回收）。行数以 MAX(seq)
+ *  近似（seq 是 INTEGER PRIMARY KEY 且单调递增，清库后重置）：O(log n) 索引探测，
+ *  不为观测在维护路径上扫全表。 */
+export const [getEventStoreRowWarnThreshold, __setEventStoreRowWarnThresholdForTest] =
+  testableConst(200_000)
+/** 事件库体积观测阈值（主库页数 × 页大小）——与行数阈同款处理。 */
+export const [getEventStoreBytesWarnThreshold, __setEventStoreBytesWarnThresholdForTest] =
+  testableConst(1024 * 1024 * 1024)
+/** 观测留痕的按库节流（同一库路径只 warn 一次；条目为时刻，FIFO 上限纯防御）。 */
+const footprintWarnedAt = new Map<string, number>()
+
+export interface EventStoreFootprint {
+  /** 行数近似上界（MAX(seq)）；-1 = 读失败（按未超阈处理） */
+  rows: number
+  /** 主库字节数（页数 × 页大小）；-1 = 读失败 */
+  bytes: number
+}
+
+/**
+ * 只读观测：库体积/行数读数 + 超阈 warn 留痕（每库至多一次；不改数据、不触发裁剪或
+ * 回收）。调用方须持**已开**连接——不为观测另开连接（只读连接在 WAL 库上留不回收的
+ * 侧车，且库指纹是 stats 端点缓存的失效判据，见文件头）。读失败按未超阈处理：观测面
+ * 不得反噬维护链。
+ */
+export function observeEventStoreSize(db: DatabaseSync, dbPath: string): EventStoreFootprint {
+  let rows = -1
+  try {
+    rows =
+      (db.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM events').get() as { m?: number } | undefined)?.m ?? -1
+  } catch {
+    /* 表不在位/库不可读：按未超阈处理 */
+  }
+  const pages = pageStats(db).pages
+  const pageSize =
+    (db.prepare('PRAGMA page_size').get() as { page_size?: number } | undefined)?.page_size ?? 4096
+  const bytes = pages < 0 ? -1 : pages * pageSize
+  const overRows = rows >= 0 && rows >= getEventStoreRowWarnThreshold()
+  const overBytes = bytes >= 0 && bytes >= getEventStoreBytesWarnThreshold()
+  if ((overRows || overBytes) && !footprintWarnedAt.has(dbPath)) {
+    remember(footprintWarnedAt, dbPath, Date.now())
+    log.warn(
+      'events',
+      `事件库体积/行数超阈（行数 ≈ ${rows}，主库 ${bytes} 字节）——产品数据不自动裁剪，请按需清空对话/清除事件史：${dbPath}`,
+    )
+  }
+  return { rows, bytes }
+}
+
 export interface PruneOutcome {
   /** 本轮实际取行条数（受窗口上限约束，非全表行数） */
   scanned: number
@@ -375,6 +424,9 @@ async function maintainDbPath(dbPath: string, trigger: MaintenanceTrigger): Prom
       // 可能已被清表/清空（清库路径的强制档不吃这道闸——清完即回收正是它的目的）。
       // 幽灵库（他进程刚建文件未跑 DDL）与空库也在复查里静默跳过。
       if (!hasEventsTable(db)) return null
+      // 体积/行数只读观测先跑（与到期/空闲页判据无关）：库只增不减时这是唯一的可见面，
+      // 超阈当场 warn 留痕；观测不裁剪、不回收，保留语义零变化
+      observeEventStoreSize(db, dbPath)
       if (trigger === 'idle' && !isIdleMaintenanceDue(db)) return null
       return await runMaintenance(db, dbPath, Date.now(), trigger)
     } finally {

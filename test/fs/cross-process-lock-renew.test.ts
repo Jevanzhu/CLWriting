@@ -96,3 +96,68 @@ describe('N6 锁续期', () => {
     release()
   })
 })
+
+// ── A2 / 新发现 3：续期失败分级处置 + 「锁文件被外部删除」两侧留痕 ──────────────
+
+describe('续期失败分级处置', () => {
+  it('续期单拍：touch 成功判成功、抛错判失败（重试与停表的判据源）', async () => {
+    const { renewLockFileTouch } = await import('../../src/fs/cross-process-lock.js')
+    let calls = 0
+    expect(
+      renewLockFileTouch(lp('touch-ok'), {
+        touch: () => {
+          calls += 1
+        },
+      }),
+    ).toBe(true)
+    expect(calls).toBe(1)
+    expect(
+      renewLockFileTouch(lp('touch-bad'), {
+        touch: () => {
+          throw new Error('EBUSY')
+        },
+      }),
+    ).toBe(false)
+  })
+
+  it('瞬态失败不停表：首拍失败经退避重试后定时器存活并继续 touch', async () => {
+    const { log } = await import('../../src/log/index.js')
+    const spy = vi.spyOn(log, 'warn')
+    const p = lp('renew-retry')
+    let attempts = 0
+    const release = tryAcquireCrossProcessLock(p, {
+      renewIntervalMs: 10,
+      renewTouch: (q) => {
+        attempts += 1
+        if (attempts === 1) throw new Error('EBUSY') // 首拍瞬态失败
+        utimesSync(q, new Date(), new Date())
+      },
+    })
+    expect(release).not.toBeNull()
+    try {
+      await vi.waitFor(() => expect(attempts).toBeGreaterThan(3), { timeout: 10_000 })
+      expect(spy.mock.calls.some((c) => String(c[1]).includes('锁续期连续失败'))).toBe(false)
+    } finally {
+      release!()
+      spy.mockRestore()
+    }
+  })
+
+  it('锁文件被外部删除 → 连续失败停表并 warn 留痕（对手 open wx 直接成功这一态不再无迹）', async () => {
+    const { log } = await import('../../src/log/index.js')
+    const spy = vi.spyOn(log, 'warn')
+    const p = lp('renew-lost')
+    const release = tryAcquireCrossProcessLock(p, { renewIntervalMs: 10 })
+    expect(release).not.toBeNull()
+    try {
+      rmSync(p, { force: true })
+      await vi.waitFor(
+        () => expect(spy.mock.calls.some((c) => String(c[1]).includes('锁续期连续失败'))).toBe(true),
+        { timeout: 10_000 },
+      )
+    } finally {
+      release!()
+      spy.mockRestore()
+    }
+  })
+})
