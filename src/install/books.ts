@@ -244,9 +244,14 @@ export async function removeBookEntryAsync(workDir: string, name: string): Promi
  * 照 appendBookLocked（拆出）先例收编单源，语义逐位不变）。 */
 function removeBookEntryLocked(workDir: string, name: string): void {
   // 读失败拒绝重写——降级空表会让 writeBooks 清掉其余登记；
-  // 登记留在盘上成为幽灵条目（repairBooks 只报告 missing 不清除），文件系统侧删除照常进行
+  // 登记留在盘上成为幽灵条目（repairBooks 只报告 missing 不清除），文件系统侧删除照常进行。
+  // 留痕不得省：同函数写失败/锁超时都有 warn，唯独此路静默 return 时作者只会看到
+  // 「删了书但书架里还在」，无处查是因由。
   const books = readBooksStrict(workDir)
-  if (books === null) return
+  if (books === null) {
+    log.warn('books', `books.jsonl 读取失败，跳过移除「${name}」登记（登记留盘，成为幽灵条目需人工清理）`)
+    return
+  }
   // （#37）：写段 try/catch 对齐 appendBookLocked 收编形态——
   // writeBooks/active 清指针在 EACCES/ENOSPC 时抛出此前直穿（测试同步面无契约），
   // 失败按锁超时同款跳过留痕：登记留盘成幽灵条目，由

@@ -20,6 +20,7 @@ import {
 } from '../../src/install/books.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { denyRead } from '../helpers/fs-deny.js'
+import { log } from '../../src/log/index.js'
 
 // win 臂 EACCES 注入的模块包装（posix 臂走 chmod 不依赖）——见 helpers/fs-deny.ts 头注
 vi.mock('node:fs', async (importOriginal) => {
@@ -85,6 +86,27 @@ test('DA-3（第七轮）：读失败 → readBooksStrict=null / readBooks=[]（
   } finally {
     deny.restore()
     expect(readFileSync(fp, 'utf-8')).toContain('旧书') // 登记保留（repair 兜底可重建口径）
+    rmSync(wd, { recursive: true, force: true })
+  }
+})
+
+// 读失败跳过移除时不得静默——同函数的写失败/锁超时都有 warn，唯独此路无声时，
+// 作者只见「删了书但书架里还在」，无处查因由。
+test('removeBookEntry 读失败跳过移除 → warn 留痕（同函数写失败/锁超时同口径）', () => {
+  const wd = mkdtempTracked(join(tmpdir(), 'books-remove-warn-'))
+  const fp = join(wd, '.clwriting', 'books.jsonl')
+  mkdirSync(join(wd, '.clwriting'), { recursive: true })
+  writeFileSync(fp, JSON.stringify({ name: '旧书', path: '旧书', kind: 'long' }) + '\n')
+  const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+  const deny = denyRead(fp)
+  try {
+    removeBookEntry(wd, '旧书')
+    expect(warn).toHaveBeenCalledWith('books', expect.stringContaining('旧书'))
+    expect(warn).toHaveBeenCalledWith('books', expect.stringContaining('读取失败'))
+  } finally {
+    deny.restore()
+    warn.mockRestore()
+    expect(readFileSync(fp, 'utf-8')).toContain('旧书')
     rmSync(wd, { recursive: true, force: true })
   }
 })

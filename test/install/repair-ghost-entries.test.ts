@@ -104,6 +104,26 @@ describe('R35-28 repairBooks 幽灵条目', () => {
     }
   })
 
+  it('瞬态不可读的条目不按「目录已不在」措辞——提示面区分确认缺失与暂不可读', () => {
+    makeWorkDir()
+    mkdirSync(join(workDir, '长篇'))
+    writeBooks(workDir, [{ name: '离线书', path: '长篇/离线书', kind: 'long' }])
+    // stat 该路径注入 EACCES（网络盘离线/权限故障形态），与确认缺失（ENOENT）对照
+    FAIL.oldPathStat = join(workDir, '长篇', '离线书')
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+    const r = repairBooks(workDir)
+    // 仍进 missing 报告面（作者要知道这张卡坏了），但措辞不得断言「已不在」
+    expect(r.missing.map((b) => b.name)).toEqual(['离线书'])
+    expect(r.missingHint).toContain('暂不可读')
+    expect(r.missingHint).not.toContain('目录已不在）')
+    expect(warn).toHaveBeenCalledWith('books', expect.stringContaining('暂不可读'))
+    // 对照：真缺失（ENOENT）仍按「目录已不在」措辞
+    FAIL.oldPathStat = ''
+    writeBooks(workDir, [{ name: '真缺书', path: '长篇/真缺书', kind: 'long' }])
+    const r2 = repairBooks(workDir)
+    expect(r2.missingHint).toContain('目录已不在')
+  })
+
   it('可重关联（目录被移动到可扫位置）走 relink，绝不进清除面', () => {
     makeWorkDir()
     writeBooks(workDir, [{ name: '搬家书', path: '长篇/搬家书', kind: 'long' }])

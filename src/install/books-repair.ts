@@ -237,10 +237,25 @@ function repairBooksLocked(workDir: string, purgeConfirmedMissing: boolean): Rep
 
   // 幽灵条目的可操作提示（missing 非空才带）——自愈不自动清除（避免把「暂时
   // 读不到」误判为已删而静默丢书），作者按提示二选一自救。
+  // missing 含两种原因（确认不存在 / 瞬态不可读），提示面不得一律断言「已不在」：
+  // 网络盘离线、权限故障的条目其实还在，作者照「已不在」去删登记就真丢书了。
+  const unreadable = missing.filter((b) => !isDirConfirmedMissing(join(workDir, b.path)))
+  const missingReason =
+    unreadable.length === 0
+      ? '目录已不在'
+      : unreadable.length === missing.length
+        ? '暂不可读（网络盘离线或权限故障，条目可能仍在）'
+        : `其中 ${unreadable.length} 条暂不可读（网络盘离线或权限故障，条目可能仍在）`
   const hint =
     missing.length > 0
-      ? `缺失登记（目录已不在）的书架卡将标「损坏」且无法经端点删除——可把书目录移回原位（自愈自动重关联），或确认书已不要后手工编辑 .clwriting/books.jsonl 移除对应行`
+      ? `缺失登记（${missingReason}）的书架卡将标「损坏」且无法经端点删除——可把书目录移回原位（自愈自动重关联），或确认书已不要后手工编辑 .clwriting/books.jsonl 移除对应行`
       : undefined
+  if (unreadable.length > 0) {
+    log.warn(
+      'books',
+      `books.jsonl 有 ${unreadable.length} 条登记暂不可读（stat 非 ENOENT）——本轮不按缺失处理、不清除：${unreadable.map((b) => b.name).join('、')}`,
+    )
+  }
   return {
     rebuilt,
     missing,
