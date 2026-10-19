@@ -43,6 +43,10 @@ export interface DroppedPiece {
   reason: 'missing' | 'cap-total' | 'switch-off'
 }
 
+function errMsgOf(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
 export interface KnowledgeAssembly {
   /** 注入段全文；无篇入选为空串 */
   text: string
@@ -128,8 +132,21 @@ export function assembleKnowledge(args: {
     }
   }
 
-  // 首次注入前抽查随包语料(一次性;缺口只留痕不阻断——见 corpus.ensureBundledCorpusChecked)
-  ensureBundledCorpusChecked()
+  // 抽查与逐篇解析都经 `bundledResource` → `resourcesRoot()`，后者在 resources/ 缺失时
+  // **按设计抛错**（打包 bug 须显式暴露）。但本模块是**叠加层**：三面（写稿/三审/对话）
+  // 都把它拼进主链，抛在这里等于让资源目录问题带走整条写稿链。故本层兜底降级为
+  // 「本篇皆缺」并留痕——暴露面交给打包门（check:packaging）与日志，不交给作者的那一章。
+  try {
+    ensureBundledCorpusChecked()
+  } catch (e) {
+    log.warn('knowledge-inject', `随包语料探测失败，本轮知识注入整体降级为空：${errMsgOf(e)}`)
+    return {
+      text: '',
+      sources: [],
+      records: [],
+      dropped: rels.map((rel) => ({ rel, reason: 'missing' as const })),
+    }
+  }
 
   const blocks: string[] = []
   const sources: string[] = []
@@ -139,7 +156,16 @@ export function assembleKnowledge(args: {
 
   for (let i = 0; i < rels.length; i++) {
     const rel = rels[i]!
-    const resolved: ResolvedCorpus | null = resolveCorpusFile(bookRoot, rel)
+    // 逐篇解析同样可能因资源根问题抛错（resolveCorpusFile 走 bundledResource）——
+    // 单篇失败按「该篇缺料」跳过，不连坐其余篇。
+    let resolved: ResolvedCorpus | null
+    try {
+      resolved = resolveCorpusFile(bookRoot, rel)
+    } catch (e) {
+      log.warn('knowledge-inject', `语料解析失败,跳过该篇:${rel}(${errMsgOf(e)})`)
+      dropped.push({ rel, reason: 'missing' })
+      continue
+    }
     if (resolved === null) {
       // 两级皆缺 / 读失败 / 超限——增强面不阻断,留痕后跳过该篇
       log.warn('knowledge-inject', `语料两级皆缺,跳过该篇:${rel}(书级 知识层/${rel} 与随包均不可读)`)
