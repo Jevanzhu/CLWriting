@@ -39,6 +39,7 @@ import { renameWithRetry } from '../fs/atomic.js'
 import { queryLockHeld } from '../fs/cross-process-lock.js'
 import { isProcessAlive } from '../fs/process-alive.js'
 import { APP_INSTANCE_LOCK_FILE } from './app-instance-guard.js'
+import { instanceKeyForDir } from '../fs/user-data-path.js'
 import { errMsg, log } from '../log/index.js'
 import {
   updateCacheDir,
@@ -248,7 +249,9 @@ export function recoverInterruptedSwap(targetDir: string): boolean {
  * 是否有**其他实例**在运行（跨库多窗）。判据 = `instances/<key>/app-instance.lock` 在持
  * （queryLockHeld 与 acquire 同源口径：活 pid 未超龄才算在持，死进程残留不算）——
  * 不看 Electron 单实例锁：它按 userData 隔离，只覆盖同库。
- * `excludeKey` = 本实例 key（点击时刻自查用：自己的锁必在持，不算「其他」）。
+ * `excludeKey` = 本实例 key：调用方**恒须显式传**本机已知 key（自己的锁必在持，不算
+ *  「其他」）——控制器侧 IPC 预检传 `currentInstanceKey()`，助手侧传 `ownInstanceKeyOf(inv)`；
+ *  两路都取不到时才传 null，并按「多算即保守 abort」编码。
  * 读不到 `instances/`（单实例旧布局/权限）按「无其他实例」放行——少查一层的代价是
  * 极端形态下别的窗口被换掉底座，故此处**不留 fail-open 兜底判断**：目录不存在本身
  * 就是「本机从未跑过多实例」的强信号。
@@ -268,13 +271,58 @@ export function otherInstancesRunning(homeDir: string, excludeKey?: string | nul
   return false
 }
 
+/**
+ * 被替换旧实例的本机实例 key（`otherInstancesRunning` 的 excludeKey 实参）。
+ * 两路取自控制器装配 argv 时既有的信息，都取不到 → null（不排除任何实例；多算即保守 abort）：
+ *  ① `--log-dir` 的 `<home>/instances/<key>/logs` 段：旧实例的 userData 目录名即 key（最直接）；
+ *  ② `--dir <书库>`：经 instanceKeyForDir 单源算式（与控制器 `currentInstanceKey()` 同式）。
+ * 助手在「旧进程未退净」形态下工作时，自己的锁不得被算成「其他实例」。
+ */
+export function ownInstanceKeyOf(inv: ApplyUpdateInvocation): string | null {
+  if (inv.logDir) {
+    const m = /[\\/]instances[\\/]([^\\/]+)[\\/]logs[\\/]?$/.exec(resolve(inv.logDir))
+    if (m?.[1]) return m[1]
+  }
+  const dir = argValue(inv.relaunchArgs, '--dir')
+  return dir ? instanceKeyForDir(dir) : null
+}
+
+/** 只做还原的子命令旗：argv 含它即走还原出口（不解析更新参数、不换目录、不写结果条、
+ *  不拉起任何进程）。用途 = 「已改名未就位」中断现场（target 缺席、快捷方式落空）下，
+ *  用户无须先成功启动应用——直接跑 `CLWriting.exe --recover-interrupted-update
+ *  --target <应用目录>` 把最近残留改回原位。 */
+export const RECOVER_UPDATE_FLAG = '--recover-interrupted-update'
+
+/** 是否还原子命令态（只看旗，与助手态同款：解析失败也必须走该出口，不得落回应用形态） */
+export function isRecoverUpdateInvocation(argv: readonly string[]): boolean {
+  return argv.includes(RECOVER_UPDATE_FLAG)
+}
+
+/** 还原出口（进程入口按本旗分流调用）：true = 目标目录已在位。
+ *  与助手主流程共用 `recoverInterruptedSwap` 单点实现（不复制还原判据、不新增还原源），
+ *  故不改写既有换目录 / 回滚语义；本出口只认 `--target`，其余 argv 一律不解释。 */
+export function runRecoverUpdateCli(argv: readonly string[]): boolean {
+  const target = argValue(argv, '--target')
+  if (!target) {
+    log.error('update', '还原子命令缺少 --target：无法定位应用目录')
+    return false
+  }
+  const recovered = recoverInterruptedSwap(target)
+  if (existsSync(target)) {
+    log.info('update', `还原子命令：应用目录已在位（${target}）${recovered ? '（本次由残留还原）' : ''}`)
+    return true
+  }
+  log.error('update', `还原子命令：无可还原残留，应用目录仍缺席（${target}）`)
+  return false
+}
+
 export interface UpdateHelperDeps {
   isProcessAlive?: (pid: number) => boolean
   sleep?: (ms: number) => Promise<void>
   now?: () => number
   spawnDetached?: (exe: string, args: string[]) => Promise<boolean>
   extract?: (zipPath: string, dir: string, limits?: Partial<ExtractLimits>) => Promise<void>
-  instancesRunning?: (homeDir: string) => boolean
+  instancesRunning?: (homeDir: string, excludeKey?: string | null) => boolean
   sha256Of?: (path: string) => Promise<string>
   /** 助手自身镜像路径（来源校验基准；缺省 `process.execPath`）——测试注入 */
   execPath?: string
@@ -337,11 +385,14 @@ async function waitForExit(
  * 预检：包体在位且复核一致 + 无其他实例在跑。返回不放行的原因（null = 通过）。
  * 只读不写——目标目录原样保留，调用方据此决定是否把旧应用还给用户。
  * `sha256` 由来源校验保证有值（除测试开关放行形态），故此处复核恒被走到。
+ * `ownInstanceKey` = 本机（被替换的旧实例）已知 key：显式排除自身，与控制器侧 IPC 预检
+ * （`prepareUpdateApply` 传 `currentInstanceKey()`）形态对称。
  */
 async function precheck(
   inv: ApplyUpdateInvocation,
-  instancesRunning: (homeDir: string) => boolean,
+  instancesRunning: (homeDir: string, excludeKey?: string | null) => boolean,
   sha256Of: (path: string) => Promise<string>,
+  ownInstanceKey: string | null,
 ): Promise<UpdateReason | null> {
   if (!existsSync(inv.payloadZip)) return 'payload-missing'
   if (inv.sha256) {
@@ -354,7 +405,7 @@ async function precheck(
     }
     if (actual !== inv.sha256.trim().toLowerCase()) return 'payload-corrupt'
   }
-  if (inv.homeDir && instancesRunning(inv.homeDir)) {
+  if (inv.homeDir && instancesRunning(inv.homeDir, ownInstanceKey)) {
     // 其他库的窗口还开着：换目录会抽掉它们的运行底座（同库不同库都一样——
     // 「换一次全机生效」的前提就是此刻没有人正在跑旧版）
     return 'other-instances'
@@ -488,7 +539,7 @@ export async function runUpdateHelper(inv: ApplyUpdateInvocation, deps: UpdateHe
   }
 
   // 3. 预检（全部通过才动目标目录）
-  const blocked = await precheck(inv, instancesRunning, sha256Of)
+  const blocked = await precheck(inv, instancesRunning, sha256Of, ownInstanceKeyOf(inv))
   if (blocked) return abortKeepingOld(blocked)
   const noRoom = prepareWorkDir(newDir, targetDir, inv.payloadZip)
   if (noRoom) return abortKeepingOld(noRoom)

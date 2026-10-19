@@ -3,7 +3,7 @@
  *
  * - R40-50：resetRagIndex 落 reset 标记后，「已清空可用」（cleared）与「从未建索引」
  *   （unbuilt）凭 ragIndexState 可区分；recall 空库早退附 indexState；有索引内容 =
- *   built。损坏态走开库异常（不在本组）。
+ *   built。损坏态走开库异常（不在本组）；版本超前（too-new）与损坏同列，收成返回值不再裸抛。
  * - R40-51：buildIndex 部分成功续传的 chunkCount/chapterCount = 本事务实际新嵌落库数
  *   （此前恒报 0/0，进度与实际嵌入数偏差）。
  */
@@ -53,6 +53,16 @@ describe('R40-50: 索引三态', () => {
     setRagMeta(db, 'embedding_model', 'test-embed')
     db.close()
     expect(ragIndexState(root)).toBe('built')
+  })
+
+  it('库 schema 版本超前（user_version 高于本应用 target）→ too-new（指引升级应用，不裸抛）', () => {
+    const root = tempBook()
+    resetRagIndex(root) // 建库（本应用 target 版本）
+    const db = openRagDb(root)
+    db.exec('PRAGMA user_version = 999')
+    db.close()
+    // 回退即变红：归并缺失时 openRagDb 抛 SqliteSchemaTooNewError，本断言直接失败
+    expect(ragIndexState(root)).toBe('too-new')
   })
 
   it('recall 空库早退附 indexState（unbuilt / cleared）', async () => {

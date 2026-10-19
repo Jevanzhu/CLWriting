@@ -252,12 +252,12 @@ export function helperStageDir(homeDir: string, toVersion: string): string {
 /** 整棵应用目录 → 暂存落点（半成品先清）；成功返回暂存 exe 路径，失败留痕并返回 null */
 function stageHelperCopy(sourceDir: string, stageDir: string): string | null {
   try {
-    rmDirQuietly(stageDir)
+    rmDirQuietlyWithAsarRetry(stageDir)
     cpSync(sourceDir, stageDir, { recursive: true })
     return join(stageDir, PORTABLE_EXE_NAME)
   } catch (e) {
     log.error('update', `助手暂存副本复制失败（${sourceDir} → ${stageDir}）：${errMsg(e)}`)
-    rmDirQuietly(stageDir)
+    rmDirQuietlyWithAsarRetry(stageDir)
     return null
   }
 }
@@ -359,8 +359,10 @@ function detachAsarLeaves(dir: string): number {
 
 /** 删目录（best-effort；rm 可注入——测试用桩模拟 asar 层的 EPERM）。
  *  Electron 进程的 asar 层会绊住含 `resources/*.asar` 的递归删（见 detachAsarLeaves）：
- *  先摘叶再重试一次，两次仍失败交残留（下次启动维护再清），不阻断调用方。 */
-export function rmDirQuietly(path: string, opts?: { rm?: (p: string) => void }): void {
+ *  先摘叶再重试一次，两次仍失败交残留（下次启动维护再清），不阻断调用方。
+ *  命名带 `WithAsarRetry` 是为了与助手的 `rmDirQuietlyPlain`（纯 rm 吞错；助手进程已
+ *  `process.noAsar = true`）区分——同名跨文件语义不同，误引即「asar 目录删不掉」缺陷复现。 */
+export function rmDirQuietlyWithAsarRetry(path: string, opts?: { rm?: (p: string) => void }): void {
   const doRm = opts?.rm ?? ((p: string) => rmSync(p, { recursive: true, force: true }))
   try {
     doRm(path)
@@ -411,7 +413,7 @@ export function runUpdateMaintenance(opts: UpdateMaintenanceOptions): void {
       const isOld = name.startsWith(`${base}.old-`)
       if (isNew || (isOld && targetPresent)) {
         log.info('update', `清理更新残留目录：${join(parent, name)}`)
-        rmDirQuietly(join(parent, name))
+        rmDirQuietlyWithAsarRetry(join(parent, name))
       }
     }
   }
@@ -428,7 +430,7 @@ export function runUpdateMaintenance(opts: UpdateMaintenanceOptions): void {
     if (name === UPDATE_RESULT_FILENAME) continue
     const path = join(root, name)
     if (name.endsWith('.part')) {
-      rmDirQuietly(path)
+      rmDirQuietlyWithAsarRetry(path)
       continue
     }
     let isDir = false
@@ -442,7 +444,7 @@ export function runUpdateMaintenance(opts: UpdateMaintenanceOptions): void {
     const cmp = compareSemver(opts.currentVersion, name)
     if (cmp > 0) {
       log.info('update', `清理更新缓存：${path}`)
-      rmDirQuietly(path)
+      rmDirQuietlyWithAsarRetry(path)
     }
   }
 }

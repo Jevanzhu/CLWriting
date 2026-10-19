@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { existsSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { deleteRagDbFiles, isRagDbCorruptionError } from '../../src/rag/store.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
@@ -150,6 +150,24 @@ describe('deleteRagDbFiles unlink 退避重试（R37-39）', () => {
       ).not.toThrow()
       expect(calls).toBeGreaterThanOrEqual(2)
       expect(delays).toEqual([200])
+    } finally {
+      rmSync(bookRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('删库顺序不变量：侧车（-wal/-shm）先删、主库最后删', () => {
+    const bookRoot = makeBook()
+    try {
+      const order: string[] = []
+      deleteRagDbFiles(bookRoot, {
+        unlink: (fp) => {
+          order.push(basename(fp))
+          unlinkSync(fp)
+        },
+      })
+      // 主库先删而侧车因占用滞留 = 下次建库带着与主库不匹配的旧 WAL 开工；
+      // 倒序删的中间失败只留下主库，重跑本函数即从侧车继续收敛
+      expect(order).toEqual(['rag.db-wal', 'rag.db-shm', 'rag.db'])
     } finally {
       rmSync(bookRoot, { recursive: true, force: true })
     }

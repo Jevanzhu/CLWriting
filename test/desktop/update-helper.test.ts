@@ -10,23 +10,28 @@
  * 取当前场景应用目录内的 exe（就地形态）；不符形态与降级方向各有拒绝路径用例。
  */
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 import { buildZipStore } from '../../src/diagnostics/zip.js'
-import { readUpdateAttemptNote, updateCacheDir } from '../../src/update/cache.js'
+import { readUpdateAttemptNote, takeUpdateAttemptNote, updateCacheDir, updateCacheRoot, updateResultPath, writeUpdateAttemptNote, type UpdateAttemptNote } from '../../src/update/cache.js'
 import { type ExtractLimits } from '../../src/update/extract.js'
 import {
   EXTRACT_BYTES_FACTOR,
   PORTABLE_EXE_NAME,
+  RECOVER_UPDATE_FLAG,
+  isRecoverUpdateInvocation,
   otherInstancesRunning,
+  ownInstanceKeyOf,
   parseApplyUpdateArgv,
   recoverInterruptedSwap,
+  runRecoverUpdateCli,
   runUpdateHelper,
   type ApplyUpdateInvocation,
   type UpdateHelperDeps,
 } from '../../src/desktop/update-helper.js'
+import { instanceKeyForDir } from '../../src/fs/user-data-path.js'
 
 const OLD_VERSION = '1.0.0-rc.4'
 const NEW_VERSION = '1.0.0'
@@ -486,5 +491,83 @@ describe('助手默认值兜底', () => {
     await runUpdateHelper(invocation(s, { exePath: null }), deps)
     expect(calls[0]).toBe(join(s.appDir, PORTABLE_EXE_NAME))
     expect(vi.isMockFunction(deps.spawnDetached)).toBe(false)
+  })
+})
+
+describe('takeUpdateAttemptNote（一次性信箱：读后即删；删除失败仍返回本次内容）', () => {
+  const noteOf = (outcome: 'applied' | 'rolled-back'): UpdateAttemptNote => ({
+    at: '2026-01-01T00:00:00.000Z',
+    outcome,
+    from: OLD_VERSION,
+    to: NEW_VERSION,
+    reason: outcome === 'applied' ? 'ok' : 'swap-failed',
+  })
+
+  it('首次取到 → 文件已删 → 二次取为空（同一提示不重复出现）', () => {
+    const home = tempDirTracked('clw-upd-take-')
+    mkdirSync(updateCacheRoot(home), { recursive: true })
+    expect(writeUpdateAttemptNote(home, noteOf('rolled-back'))).toBe(true)
+    expect(takeUpdateAttemptNote(home)).toMatchObject({ outcome: 'rolled-back', reason: 'swap-failed' })
+    expect(existsSync(updateResultPath(home))).toBe(false)
+    expect(takeUpdateAttemptNote(home)).toBeNull()
+  })
+
+  it('删除失败（瞬时占用）→ 不抛出、仍返回本次内容，文件留待下次再取', () => {
+    const home = tempDirTracked('clw-upd-take2-')
+    mkdirSync(updateCacheRoot(home), { recursive: true })
+    expect(writeUpdateAttemptNote(home, noteOf('applied'))).toBe(true)
+    const taken = takeUpdateAttemptNote(home, {
+      rm: () => {
+        throw Object.assign(new Error('EBUSY: resource busy'), { code: 'EBUSY' })
+      },
+    })
+    // 回退即变红：删失败分支若改抛错或改返 null，「新版起不来」场景的唯一反馈通道即丢
+    expect(taken).toMatchObject({ outcome: 'applied', reason: 'ok' })
+    expect(existsSync(updateResultPath(home))).toBe(true)
+  })
+})
+
+describe('ownInstanceKeyOf 与实例在持判定（助手侧显式排除自身，与控制器侧对称）', () => {
+  it('本机 key 两路取法：--log-dir 的 instances/<key>/logs 段优先，其次 --dir 书库经单源算式', () => {
+    const s = makeScene()
+    expect(ownInstanceKeyOf(invocation(s, { logDir: join(s.home, 'instances', 'abc123', 'logs') }))).toBe('abc123')
+    expect(ownInstanceKeyOf(invocation(s, { relaunchArgs: ['--dir', 'D:/书库'] }))).toBe(instanceKeyForDir('D:/书库'))
+    expect(ownInstanceKeyOf(invocation(s))).toBeNull() // 两路皆无 → 不排除（多算即保守 abort）
+  })
+
+  it('预检把本机 key 传进「实例在持」判定：只有自身锁在持时不 abort', async () => {
+    const s = makeScene()
+    const seen: Array<string | null | undefined> = []
+    const { deps } = stubs({
+      // 判别式桩：excludeKey 命中本机 key 才算「无其他实例」；未传/不匹配即按在持计（多算保守）
+      instancesRunning: (_home, excludeKey) => {
+        seen.push(excludeKey)
+        return excludeKey !== 'abc123'
+      },
+    })
+    const outcome = await runUpdateHelper(invocation(s, { logDir: join(s.home, 'instances', 'abc123', 'logs') }), deps)
+    expect(seen).toEqual(['abc123']) // 回退即变红：单参调用形态下这里收到的是 undefined
+    expect(outcome).toBe('applied')
+  })
+})
+
+describe('runRecoverUpdateCli（不依赖应用启动的中断自愈还原入口）', () => {
+  it('旗判定：含旗即还原态（解析失败也不得落回应用形态）', () => {
+    expect(isRecoverUpdateInvocation(['CLWriting.exe', RECOVER_UPDATE_FLAG, '--target', 'C:/app'])).toBe(true)
+    expect(isRecoverUpdateInvocation(['CLWriting.exe', '--apply-update'])).toBe(false)
+  })
+
+  it('target 缺席 + .old- 残留 → 只做还原：目录回位并返回成功，不拉起进程、不写结果条', () => {
+    const s = makeScene()
+    renameSync(s.appDir, `${s.appDir}.old-${OLD_VERSION}`)
+    expect(runRecoverUpdateCli(['CLWriting.exe', RECOVER_UPDATE_FLAG, '--target', s.appDir])).toBe(true)
+    expect(exeOf(s.appDir)).toBe('old-exe')
+    expect(readUpdateAttemptNote(s.home)).toBeNull() // 还原出口不碰一次性信箱
+  })
+
+  it('无可还原残留 / 缺 --target → 返回失败（可观测出口，不静默装作已还原）', () => {
+    const s = makeScene()
+    expect(runRecoverUpdateCli(['CLWriting.exe', RECOVER_UPDATE_FLAG, '--target', join(s.root, 'gone')])).toBe(false)
+    expect(runRecoverUpdateCli(['CLWriting.exe', RECOVER_UPDATE_FLAG])).toBe(false)
   })
 })

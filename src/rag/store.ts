@@ -12,7 +12,12 @@ import { createRagTables } from './schema.js'
 import { log } from '../log/index.js'
 import { fsBackoffSleep } from '../fs/atomic.js'
 import { prepared, closeWithPrepared, rollbackQuietly } from '../shared/sqlite-prepared.js'
-import { migrateSqlite, describeSqliteMigration, type SqliteMigrationOutcome } from '../shared/sqlite-migrate.js'
+import {
+  migrateSqlite,
+  describeSqliteMigration,
+  isSqliteSchemaTooNewError,
+  type SqliteMigrationOutcome,
+} from '../shared/sqlite-migrate.js'
 
 /** 一个向量块（召回返回位置 + 向量，原文交精准读取从定稿取） */
 export interface RagChunk {
@@ -59,6 +64,13 @@ function newRagDbPath(bookRoot: string): string {
 /** 旧版落点（书根裸 .rag.db）——只作迁移探测，不再往这里新建 */
 function legacyRagDbPath(bookRoot: string): string {
   return join(bookRoot, '.rag.db')
+}
+
+/** 库 schema 版本超前（旧代码打开新库）判据：与损坏态同族的「可透出状态」判据——
+ *  调用方（状态面）据此给出「请升级应用」指引，而不是把打开点异常原样上抛成 500。
+ *  判据单源在 shared/sqlite-migrate 的类型化错误。 */
+export function isRagSchemaTooNewError(e: unknown): boolean {
+  return isSqliteSchemaTooNewError(e)
 }
 
 /** RAG 库是否已建（新路径或未迁移的旧路径任一在即算——status 轮询不误报「未建索引」） */
@@ -182,7 +194,11 @@ export function deleteRagDbFiles(bookRoot: string, opts?: DeleteRagDbFilesOption
   const retries = opts?.retries ?? 3
   const delayMs = opts?.delayMs ?? 200
   const dbPath = resolveRagDbPath(bookRoot)
-  for (const suffix of ['', '-wal', '-shm']) {
+  // 删除顺序是不变量：侧车（-wal/-shm）先删、主库最后删。反过来（主库先删）时，侧车因
+  // 占用/权限滞留就留下「主库已亡而旧 WAL 在」的态——下次开库带着与主库不匹配的旧 WAL
+  // 开工（salt 不匹配通常被重置，属概率性残余）。倒序删的中间失败只让主库留下：重跑本
+  // 函数即从侧车继续收敛，且中途抛错即整体报错（绝不出现「主库已删而调用方以为失败」）。
+  for (const suffix of ['-wal', '-shm', '']) {
     const fp = dbPath + suffix
     if (!existsSync(fp)) continue
     for (let attempt = 0; ; attempt++) {

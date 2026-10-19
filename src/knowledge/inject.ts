@@ -18,7 +18,7 @@
  * 段为空（无任何篇入选）时 `text: ''`，调用方按「空段不入 prompt 不登记」契约处置。
  */
 import type { ResolvedCorpus } from './corpus.js'
-import { resolveCorpusFile } from './corpus.js'
+import { ensureBundledCorpusChecked, resolveCorpusFile } from './corpus.js'
 import { clipWithNotice, codePointLength } from '../shared/text.js'
 import { log } from '../log/index.js'
 
@@ -127,6 +127,9 @@ export function assembleKnowledge(args: {
       dropped: rels.map((rel) => ({ rel, reason: 'switch-off' as const })),
     }
   }
+
+  // 首次注入前抽查随包语料(一次性;缺口只留痕不阻断——见 corpus.ensureBundledCorpusChecked)
+  ensureBundledCorpusChecked()
 
   const blocks: string[] = []
   const sources: string[] = []

@@ -483,7 +483,7 @@ describe('runUpdateMaintenance（启动维护清扫规则）', () => {
     vi.resetModules()
     try {
       const fresh = await import('../../src/desktop/update-controller.js')
-      fresh.rmDirQuietly(dir)
+      fresh.rmDirQuietlyWithAsarRetry(dir)
       expect(existsSync(dir)).toBe(false)
     } finally {
       vi.doUnmock('node:fs')

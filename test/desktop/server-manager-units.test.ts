@@ -18,6 +18,7 @@ import {
   createStudioServerManager,
 } from '../../src/desktop/server-manager.js'
 import type { LogLike } from '../../src/desktop/server-manager.js'
+import { FakeChild } from './server-manager-fixtures.js'
 
 const logger: LogLike = { error: () => {}, warn: () => {}, info: () => {} }
 
@@ -40,6 +41,36 @@ function spellings(env: Record<string, string | undefined>, name: string): strin
 
 afterEach(() => {
   vi.unstubAllEnvs()
+})
+
+describe('假件行为契约（FakeChild 对照真机 utilityProcess 语义）', () => {
+  it('kill() 返回 true 且 exit 不在同拍派发（真实收尸异步到达）', async () => {
+    const child = new FakeChild()
+    const codes: number[] = []
+    child.on('exit', (code: number) => codes.push(code))
+    expect(child.kill()).toBe(true)
+    // 回退即变红：假件若改同步 emit('exit')，「kill 后同一拍仍读旧态」的用例会集体失真
+    expect(codes).toEqual([])
+    await Promise.resolve() // queueMicrotask：下一拍
+    expect(codes).toEqual([0])
+  })
+
+  it('pid 可在退出后置 undefined（Electron 语义：退出即失 pid），kill 次数累加', () => {
+    const child = new FakeChild()
+    expect(child.pid).toBe(4242)
+    child.kill()
+    child.pid = undefined
+    expect(child.pid).toBeUndefined()
+    expect(child.killed).toBe(1)
+  })
+
+  it('error 三参事件（type/location/report）原样透传（真机崩溃/OOM 形态）', () => {
+    const child = new FakeChild()
+    const got: unknown[][] = []
+    child.on('error', (...args: unknown[]) => got.push(args))
+    child.emit('error', 'FatalError', 'heap/0x1c8', 'report: invalid table size')
+    expect(got).toEqual([['FatalError', 'heap/0x1c8', 'report: invalid table size']])
+  })
 })
 
 describe('R0916-7-P3-2 组装依赖：resolveManagerConfig 缺省注入表', () => {

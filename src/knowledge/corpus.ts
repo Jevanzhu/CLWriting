@@ -12,6 +12,7 @@ import { resolveWithinRoot } from '../fs/safe-path.js'
 import { bundledResource } from '../fs/resources.js'
 import { bodyOf } from '../shared/frontmatter-core.js'
 import { log } from '../log/index.js'
+import { BUNDLED_CATALOG } from './catalog.js'
 
 /** 书级知识层目录名(书根下) */
 export const BOOK_KNOWLEDGE_DIR = '知识层'
@@ -125,4 +126,97 @@ export function listBookKnowledgeEntries(bookRoot: string): Array<{ category: st
 /** 随包知识层(`resources/knowledge/`)的语料清单——与书级同构,判据单源 */
 export function listBundledKnowledgeEntries(): Array<{ category: string; rel: string }> {
   return scanKnowledgeEntries(bundledResource(BUNDLED_KNOWLEDGE_SUBDIR), '随包知识层')
+}
+
+/** 前缀抽查的判据字节数(只看前 4KB 的「非空 / 可解码」,不逐字节 sha256) */
+const INTEGRITY_HEAD_BYTES = 4096
+
+/** 运行期一致性抽查结果(存在性全量 + 前缀抽样) */
+export interface BundledCorpusIntegrityReport {
+  /** 走存在性判据的篇目数 */
+  checked: number
+  /** 走前缀抽查的篇目数 */
+  sampled: number
+  /** 缺口(空 = 通过):rel + 人话原因 */
+  issues: Array<{ rel: string; detail: string }>
+}
+
+/**
+ * 随包语料运行期抽查:逐篇存在性 + 抽样子集读前缀,判「非空 / 可解码 / 未超单篇上限」。
+ * 不逐字节 sha256、不比对 manifest——那一档成本归 CI 门(check:knowledge);本函数的目的
+ * 只是把「随包篇目在用户机上被替换 / 截断 / 读不动」从「模型参考变差」变成可观测结果,
+ * 成本 = 每篇一次 existsSync + 至多 sample 篇读文件(默认 4 篇)。采样按固定步长取
+ * (不用随机),同一包的抽样面每次一致。
+ */
+export function checkBundledCorpus(
+  rels: readonly string[],
+  opts?: { root?: string; sample?: number },
+): BundledCorpusIntegrityReport {
+  const root = opts?.root ?? bundledResource(BUNDLED_KNOWLEDGE_SUBDIR)
+  const sample = Math.max(1, opts?.sample ?? 4)
+  const step = Math.max(1, Math.floor(rels.length / sample))
+  const issues: BundledCorpusIntegrityReport['issues'] = []
+  let sampled = 0
+  for (let i = 0; i < rels.length; i++) {
+    const rel = rels[i]!
+    const abs = join(root, ...rel.split('/'))
+    if (!existsSync(abs)) {
+      issues.push({ rel, detail: '随包篇目缺失' })
+      continue
+    }
+    if (i % step !== 0) continue
+    sampled++
+    try {
+      const size = statSync(abs).size
+      if (size === 0) {
+        issues.push({ rel, detail: '前缀为空(文件被截断或清空)' })
+        continue
+      }
+      if (size > MAX_CORPUS_BYTES) {
+        issues.push({ rel, detail: `超过单篇上限(>${MAX_CORPUS_BYTES}B,注入侧会跳过该篇)` })
+        continue
+      }
+      const head = readFileSync(abs, 'utf-8').slice(0, INTEGRITY_HEAD_BYTES)
+      if (head.trim() === '') issues.push({ rel, detail: '前缀为空(文件被截断或清空)' })
+      else if (head.includes('\uFFFD')) issues.push({ rel, detail: '前缀非合法 UTF-8(文件被替换或损坏)' })
+    } catch (e) {
+      issues.push({ rel, detail: `前缀读取失败:${e instanceof Error ? e.message : String(e)}` })
+    }
+  }
+  return { checked: rels.length, sampled, issues }
+}
+
+/** 一次性抽查的进程内快照(null = 本进程尚未按随包根查过) */
+let bundledCorpusSnapshot: BundledCorpusIntegrityReport | null = null
+
+/** 抽查快照读取面(排障与测试用);null = 尚未查过 */
+export function bundledCorpusIntegrityReport(): BundledCorpusIntegrityReport | null {
+  return bundledCorpusSnapshot
+}
+
+/**
+ * 首次注入前跑一次随包语料抽查(一次性;之后零成本)。
+ * 失败出口 = log.warn(缺口计数 + 逐条 rel 与原因,随日志进诊断包)与
+ * bundledCorpusIntegrityReport()(进程内快照);**不阻断注入**——知识层是增强面,
+ * 缺料只该降级并留痕(与 readCorpusBody / scanKnowledgeEntries 的 best-effort 同族)。
+ * 显式给 rels / root = 强制现算(测试与排障面),不动快照。
+ */
+export function ensureBundledCorpusChecked(opts?: { rels?: readonly string[]; root?: string }): BundledCorpusIntegrityReport {
+  if (opts?.rels || opts?.root) return auditBundledCorpus(opts)
+  if (bundledCorpusSnapshot === null) bundledCorpusSnapshot = auditBundledCorpus({})
+  return bundledCorpusSnapshot
+}
+
+/** 抽查 + 留痕(缺口的唯一对外出口;两条出口同源同一份报告) */
+function auditBundledCorpus(opts: { rels?: readonly string[]; root?: string }): BundledCorpusIntegrityReport {
+  const rels = opts.rels ?? BUNDLED_CATALOG.map((e) => e.rel)
+  const report = checkBundledCorpus(rels, opts.root ? { root: opts.root } : undefined)
+  if (report.issues.length > 0) {
+    log.warn(
+      'knowledge-corpus',
+      `随包语料抽查发现 ${report.issues.length}/${report.checked} 处缺口(相关篇注入会缺料或失真):` +
+        report.issues.map((i) => `${i.rel}(${i.detail})`).join(';'),
+    )
+  }
+  return report
 }

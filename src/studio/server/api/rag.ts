@@ -26,7 +26,14 @@ import { readRagConfig } from '../../../rag/config.js'
 import { resolveRag, type RagProviderRef } from '../../../rag/resolve.js'
 import { loadProviders } from '../../../ai/provider/index.js'
 import { buildIndex, resetRagIndex, RAG_RESET_MARKER_KEY, type BuildIndexResult } from '../../../rag/index.js'
-import { openRagDbAsync, closeRagDb, getRagMeta, ragDbExists, isRagDbCorruptionError } from '../../../rag/store.js'
+import {
+  openRagDbAsync,
+  closeRagDb,
+  getRagMeta,
+  ragDbExists,
+  isRagDbCorruptionError,
+  isRagSchemaTooNewError,
+} from '../../../rag/store.js'
 import type { TaskGate, TaskGateInjected } from './task-gate.js' // 闸实例经组装根注入（startRagBuild 为模块级助手，显式接闸）
 // 建索引失败信息与 replyError 同源的脱敏单源（http.ts 同款 import）——
 // embed 上游报错 message 可能夹带完整 URL（key 在 query）/ Authorization 痕迹
@@ -239,6 +246,15 @@ export function registerRagRoutes(ctx: RagCtx): void {
         try {
           db = await openRagDbAsync(bookRoot)
         } catch (e) {
+          // 库版本超前（旧应用打开新版本建的库）：不吞成兜底 500——给「升级应用」的确定出路
+          if (isRagSchemaTooNewError(e)) {
+            return replyError(
+              res,
+              409,
+              'RAG_SCHEMA_TOO_NEW',
+              'RAG 索引库由更新版本的应用建立，当前版本读不了——请升级应用后重试，或重建索引',
+            )
+          }
           if (!isRagDbCorruptionError(e)) throw e
           return replyError(
             res,

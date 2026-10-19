@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { assembleKnowledge, titleOf, knowledgeReportOf, summarizeDropped } from '../../src/knowledge/inject.js'
+import { bundledCorpusIntegrityReport, checkBundledCorpus, ensureBundledCorpusChecked } from '../../src/knowledge/corpus.js'
 import { clipWithNotice } from '../../src/shared/text.js'
 
 let dir: string
@@ -58,6 +59,36 @@ function assemble(
     reasonOf: (rel, i) => `理由${i}:${rel}`,
   })
 }
+
+describe('随包语料运行期抽查（存在性 + 前缀抽样，不逐字节 sha256）', () => {
+  it('缺失 / 空文件逐条报缺口；齐备且前缀非空 → 零 issue', () => {
+    const root = join(dir, 'knowledge')
+    mkdirSync(join(root, '类目'), { recursive: true })
+    writeFileSync(join(root, '类目', '甲篇.md'), '---\ntitle: 甲\n---\n\n甲篇正文\n')
+    const rels = ['类目/甲篇.md', '类目/乙篇.md']
+    const missing = checkBundledCorpus(rels, { root })
+    expect(missing.checked).toBe(2)
+    expect(missing.issues.map((i) => i.rel)).toEqual(['类目/乙篇.md'])
+    writeFileSync(join(root, '类目', '乙篇.md'), '')
+    const empty = checkBundledCorpus(rels, { root })
+    expect(empty.issues).toHaveLength(1)
+    expect(empty.issues[0]!.rel).toBe('类目/乙篇.md')
+    expect(empty.issues[0]!.detail).toContain('空')
+    writeFileSync(join(root, '类目', '乙篇.md'), '乙篇正文\n')
+    expect(checkBundledCorpus(rels, { root }).issues).toEqual([])
+  })
+
+  it('首次注入前自动抽查一次：缺口留痕但注入照常，进程内快照可读；显式入参强制现算', () => {
+    stubCorpus({ [REL_A]: '甲正文。' })
+    const a = assemble([REL_A])
+    expect(a.text).toContain('甲正文。') // 抽查发现缺口也不阻断装配（知识层是增强面）
+    const report = bundledCorpusIntegrityReport()
+    expect(report).not.toBeNull() // 回退即变红：钩子被摘掉时本进程快照恒为 null
+    expect(report!.checked).toBeGreaterThan(0)
+    expect(bundledCorpusIntegrityReport()).toBe(report) // 一次性：不再重算
+    expect(ensureBundledCorpusChecked({ rels: [REL_A], root: join(dir, 'knowledge') }).issues).toEqual([])
+  })
+})
 
 describe('assembleKnowledge：单篇与多篇装配', () => {
   it('多篇序：段头 + 逐篇块（### 篇题 + 正文），块间空行，sources/records 按注入序', () => {
