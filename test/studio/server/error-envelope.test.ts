@@ -96,6 +96,35 @@ describe('replyError 统一信封单元', () => {
     expect(j.error).toContain("open '<用户目录>\\书库\\book.yaml'")
   })
 
+  // UNC 与 `\\?\` 设备前缀：服务器名/共享名/设备语义都在前缀里，盘符层只认 `D:`。
+  // 两种形态都按「整条替换」判——只剥前缀会留 `\\?\<路径>`、`\\<路径>` 一类残形，
+  // 而诊断包是外发给开发者的文件，前缀本身就是可识别信息。
+  it('UNC 与 \\\\?\\ 设备前缀整条消掉（含日志里成对转义的 JSON 形态）', () => {
+    const calls: Array<{ body: string }> = []
+    const res = {
+      writeHead() {},
+      end(body: string) {
+        calls.push({ body })
+      },
+    } as unknown as ServerResponse
+    replyError(
+      res,
+      500,
+      'IO_ERROR',
+      `ENOENT: no such file or directory, open '\\\\NAS-SERVER\\共享盘\\我的书库\\写作\\正文\\0001.md'` +
+        ` / ENOENT: no such file or directory, open '\\\\?\\D:\\书库\\book.yaml'` +
+        ` / ENOENT: no such file or directory, open '\\\\?\\UNC\\srv\\share\\a.md'` +
+        ` / 日志 JSON 值: {"path":"\\\\\\\\NAS-SERVER\\\\共享盘\\\\x.md"}`,
+    )
+    const j = JSON.parse(calls[0]!.body) as { error: string }
+    expect(j.error).not.toContain('NAS-SERVER')
+    expect(j.error).not.toContain('共享盘')
+    expect(j.error).not.toContain('srv')
+    expect(j.error).not.toContain('\\?\\')
+    // 三处路径全部落通用占位符（无带名目录可登记时）
+    expect(j.error.match(/<路径>/g)).toHaveLength(4)
+  })
+
   it('对照：相对路径与中文人话逐字保留（防过度脱敏）', () => {
     const calls: Array<{ body: string }> = []
     const res = {
