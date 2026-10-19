@@ -23,6 +23,7 @@ import { withFakeProvider, tempUserData, makeDualTrackWorkdir, LONG_BOOK } from 
 import { runChat, clearChatHistory } from '../../src/ai/orchestrate/chat.js'
 import { histories } from '../../src/ai/orchestrate/chat/state.js'
 import { checkAiCallBudget } from '../../src/ai/calls.js'
+import { runSpec, type TaskSpec } from '../../src/ai/tasks/spec.js'
 import type { BookConfig } from '../../src/format/types.js'
 import type { ChatMsg } from '../../src/ai/provider/types.js'
 import type { DriverEvent } from '../../src/driver/types.js'
@@ -158,6 +159,92 @@ describe('D1-01：两类一次性重发的首发用量并入回合封套（账�
       expect(llmCalls).toHaveLength(3)
       expect(llmCalls.every((e) => e.data['toolChoice'] === 'auto')).toBe(true)
       histories.delete('d1-01-shrink-usage')
+    },
+  )
+})
+
+// D1-05 spec 侧：tool_choice 参数面的派生链端到端——
+// spec.tool → generateTool 按模型表把 requireTool 意图翻译为实发值 → SpecOutput.toolChoice
+// → runner extractToolChoice → llm/call.data.toolChoice。此回传断掉时，成功 attempt 的
+// llm/call 无值可落，事件里的实发参数面与真实请求静默分叉（重放不可精确重建）。
+describe('D1-05（spec 侧）：requireTool 派生 toolChoice 随 llm/call 落库', () => {
+  let fake: FakeProvider
+  beforeAll(async () => {
+    fake = await createFakeProvider()
+  })
+  afterAll(async () => {
+    await fake.close()
+  })
+
+  const TOOL_SPEC: TaskSpec = {
+    name: 'self-heal',
+    tierKind: 'creative',
+    genMode: 'tool',
+    systemPrompt: 's',
+    tool: { def: { name: 'submit_x', description: 'd', input_schema: { type: 'object' } }, name: 'submit_x' },
+  }
+
+  /** 写指向 stub 的 providers.json；模型列决定 requireTool 的派生档位
+   *（gpt 系列 named → 指名 / deepseek 系列 required → 不指名） */
+  function writeProviders(ud: string, model: string): void {
+    writeFileSync(
+      join(ud, 'providers.json'),
+      JSON.stringify({
+        providers: [
+          {
+            id: 'prov-spec-tc',
+            name: 'test',
+            protocol: 'openai',
+            auth: 'bearer',
+            baseUrl: fake.url,
+            apiKey: 'sk-test',
+            model,
+            caps: { connected: true, streaming: true },
+          },
+        ],
+        currentId: 'prov-spec-tc',
+        currentModel: model,
+      }),
+    )
+  }
+
+  /** 跑一次 tool 型 spec（真实 provider 路径）→ 返回落库的 llm/call data */
+  async function runToolSpec(model: string): Promise<Record<string, unknown>[]> {
+    const ud = mkdtempTracked(join(tmpdir(), 'clw-d105-spec-ud-'))
+    dirs.push(ud)
+    delete process.env.CLWRITING_DRIVER
+    writeProviders(ud, model)
+    const bookRoot = mkdtempTracked(join(tmpdir(), 'clw-d105-spec-book-'))
+    dirs.push(bookRoot)
+    mkdirSync(join(bookRoot, '.cache'), { recursive: true })
+    fake.setScript([{ type: 'tool', name: 'submit_x', input: { ok: 1 } }])
+    const out = await runSpec(TOOL_SPEC, { userDataPath: ud, bookRoot, userPrompt: '写' })
+    expect(out.ok).toBe(true)
+    expect(fake.requestCount()).toBe(1) // 线缆级证据：请求确曾打到 stub
+    const store = openSessionStore(ud, bookRoot)!
+    const evs = store.listEvents(bookHash(bookRoot)).filter((e) => e.type === 'llm/call')
+    store.close()
+    expect(evs).toHaveLength(1)
+    return evs.map((e) => e.data as Record<string, unknown>)
+  }
+
+  it(
+    'named 家族：requireTool 派生 toolChoice=tool（指名）随 llm/call 落库',
+    { timeout: 20_000 },
+    async () => {
+      const [call] = await runToolSpec('gpt-5')
+      expect(call!['toolChoice']).toBe('tool')
+      expect(call!['requireTool']).toBe(true)
+    },
+  )
+
+  it(
+    'required 家族：requireTool 派生 toolChoice=any（不指名）随 llm/call 落库',
+    { timeout: 20_000 },
+    async () => {
+      const [call] = await runToolSpec('deepseek-v4')
+      expect(call!['toolChoice']).toBe('any')
+      expect(call!['requireTool']).toBe(true)
     },
   )
 })

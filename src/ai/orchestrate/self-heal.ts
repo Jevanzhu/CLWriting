@@ -11,7 +11,7 @@
  * - AbortSignal 贯穿到 provider（interrupt 时 abort 请求）
  */
 import { join, relative, sep } from 'node:path'
-import { existsSync, rmSync, statSync } from 'node:fs'
+import { existsSync, rmSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { openChainRecorder } from '../open-chain.js'
 import { readBookConfig } from '../../format/yaml.js'
@@ -21,6 +21,7 @@ import { evaluateRetry, redSetKey, buildStrategyReminder } from '../../process/r
 import { prepareMaterials } from '../../process/materials.js'
 import { readOutlineLeads } from '../../check/outline-leads.js'
 import { atomicWriteFile } from '../../fs/atomic.js'
+import { readSafe } from '../../fs/read-safe.js'
 import { canonicalizeText } from '../../fs/text-canonical.js'
 import { getRedItems } from '../../check/types.js'
 // 建链段（openSessionStore/openSessionStoreAsync/bookHash → ChainRecorder）单源
@@ -481,17 +482,14 @@ async function prepareChapterMaterials(
       rmSync(materialAbs, { force: true })
     } catch (err) {
       // 清理失败（权限/占用/磁盘）不反向阻断写稿主线，但必须留痕——盘上旧章材料仍在，
-      // 下方 buildDraftPrompt 照旧注入「备料」段（模型可见却零记录的可达形态）。
+      // 材料读得到时下方 buildDraftPrompt 照旧注入「备料」段（模型可见却零记录的可达形态）。
       log.warn('self-heal', `旧写作材料清理失败，本章可能沿用上一章材料（降级继续写稿）：${errMsg(err)}`)
-      // 不变量：盘上材料存在 ⟺ 已登记——清理失败且文件仍在盘上时同步并入 promptFiles，
+      // 不变量：材料读得到 ⟺ 已登记——清理失败且材料仍读得到时同步并入 promptFiles，
       // 使「注入备料段」与 llm/call promptMeta.files 登记同真同假。
-      let stillOnDisk = false
-      try {
-        stillOnDisk = statSync(materialAbs).isFile()
-      } catch {
-        stillOnDisk = false
-      }
-      if (stillOnDisk) promptFiles = ['工作区/本章写作材料.md']
+      // 判据与 buildDraftPrompt 的「备料」段同源（readSafe：缺席/读失败/空文件一律回空串，
+      // 空串即该段不入 prompt）。只判 stat 存在会在「stat 成功但读失败」时反向虚报：
+      // 登记了该路径，模型却读不到材料。
+      if (readSafe(materialAbs)) promptFiles = ['工作区/本章写作材料.md']
     }
   }
   return promptFiles

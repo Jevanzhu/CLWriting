@@ -23,15 +23,17 @@ import type { DriverEvent } from '../../../src/driver/index.js'
 import type { ChapterMeta } from '../../../src/format/types.js'
 import type { saveDraft } from '../../../src/studio/server/api/draft.js'
 import { checkAiCallBudget } from '../../../src/ai/calls.js'
+import { log } from '../../../src/log/index.js'
 
 vi.mock('../../../src/ai/calls.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/ai/calls.js')>()
   return { ...actual, checkAiCallBudget: vi.fn() }
 })
 
-// 注入缝：只对 hoisted 指定的那一个绝对路径模拟清理失败（EACCES/EPERM 语义），
-// 其余 rmSync 逐字转发真实实现——生产语义零改动；指向未设时即真实实现
-const h = vi.hoisted(() => ({ rmFailPath: null as string | null }))
+// 注入缝：只对 hoisted 指定的那一个绝对路径模拟清理失败（EACCES/EPERM 语义）与
+// 读失败（stat 仍成功），其余 rmSync/readFileSync 逐字转发真实实现——生产语义零改动；
+// 指向未设时即真实实现
+const h = vi.hoisted(() => ({ rmFailPath: null as string | null, readFailPath: null as string | null }))
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
   return {
@@ -43,6 +45,15 @@ vi.mock('node:fs', async (importOriginal) => {
         throw e
       }
       return actual.rmSync(...args)
+    },
+    // stat 成功但读失败（EACCES 语义）→ readSafe 回空串；指向未设时逐字转发
+    readFileSync: (...args: Parameters<typeof actual.readFileSync>) => {
+      if (h.readFailPath !== null && String(args[0]) === h.readFailPath) {
+        const e: Error & { code?: string } = new Error('EACCES: permission denied')
+        e.code = 'EACCES'
+        throw e
+      }
+      return actual.readFileSync(...args)
     },
   }
 })
@@ -224,6 +235,90 @@ test('D1-04: 备料失败 + 旧材料清理失败(EPERM) → 材料仍在盘且�
     expect(first.promptFiles).toContain('工作区/本章写作材料.md')
   } finally {
     h.rmFailPath = null
+    vi.mocked(prepareMaterials).mockReset()
+    vi.mocked(runSpec).mockReset()
+  }
+})
+
+/**
+ * 反向不变量端到端钉：备料失败 + 旧材料清理失败，且材料「stat 存在但读失败」
+ * （EACCES 语义，注入缝）时，buildDraftPrompt 读不到材料 ⇒ prompt 无「备料」段，
+ * 同一轮 promptFiles 就不得登记该材料路径——登记却模型不可见 = 溯源反向虚报
+ * （铁律①「模型可见 ⟺ 已记录」的另一侧）。
+ *
+ * 判据必须与 buildDraftPrompt 的「备料」段同源（读判据 readSafe）：只看盘上存在会
+ * 在本形态下登记一条模型读不到的材料路径。清理失败仍须 log.warn 留痕（不因读不到而免）。
+ * 断言面 = runSpec 收到的 (userPrompt, promptFiles) 对：可见为假而登记为真即红。
+ */
+test('反向: 备料失败 + 清理失败且材料 stat 存在但读失败(EACCES) → 同轮 promptFiles 不登记该路径', async () => {
+  const workDir = trackTempDir(makeDualTrackWorkdir())
+  const bookRoot = join(workDir, '长篇', LONG_BOOK)
+  const materialPath = join(bookRoot, '工作区', '本章写作材料.md')
+  mkdirSync(join(bookRoot, '工作区'), { recursive: true })
+  writeFileSync(materialPath, '上一章的旧材料内容', 'utf-8')
+  const emitted: DriverEvent[] = []
+  const save: typeof saveDraft = async (_root, _ch, content) => ({
+    relPath: '写作/正文/0005-第五章.md',
+    docId: 'read-5',
+    words: content.length,
+    snapshotted: false,
+  })
+  const opts: SelfHealOpts = {
+    driver: makeFakeDriver({ emitted }),
+    mainSession: { id: 'main', cwd: workDir, closed: false },
+    userDataPath: trackTempDir(tempUserData()),
+    cwd: workDir,
+    bookRoot,
+    bookName: LONG_BOOK,
+    chapter: 5,
+    check: (): CheckOutcome => ({
+      ok: true,
+      report: { sections: [] },
+      hasRed: false,
+      chapter: { 章号: 5, 标题: '第五章', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' },
+      body: '正文',
+    }),
+    save,
+  }
+  vi.mocked(prepareMaterials).mockRejectedValue(new Error('备料整体失败'))
+  vi.mocked(runSpec).mockResolvedValue({
+    ok: true,
+    data: {
+      input: undefined,
+      text: '---\n章号: 5\n标题: 第五章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文。',
+      stopReason: 'tool_use',
+    },
+    ctrl: new AbortController(),
+    usage: null,
+    runId: 'd1-04-read',
+    model: null,
+  } as never)
+  const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
+  h.rmFailPath = materialPath
+  h.readFailPath = materialPath
+  try {
+    const r = await runSelfHeal(opts)
+    expect(r.outcome).toBe('pass')
+    // 清理失败：旧材料仍在盘上（stat 成功），只是读不到
+    expect(existsSync(materialPath)).toBe(true)
+    const calls = vi
+      .mocked(runSpec)
+      .mock.calls.filter((c) => (c[1] as { promptFiles?: string[] }).promptFiles !== undefined)
+    expect(calls).toHaveLength(1)
+    const first = calls[0]![1] as { promptFiles?: string[]; userPrompt: string }
+    // 模型不可见：读失败 = prompt 无「备料」段
+    expect(first.userPrompt).not.toContain('上一章的旧材料内容')
+    // 已记录面同假：不登记模型读不到的材料路径
+    expect(first.promptFiles).not.toContain('工作区/本章写作材料.md')
+    // 清理失败仍留痕（读不到材料不免除 warning）
+    const warned = warnSpy.mock.calls.some(
+      (c) => c[0] === 'self-heal' && typeof c[1] === 'string' && c[1].includes('旧写作材料清理失败'),
+    )
+    expect(warned).toBe(true)
+  } finally {
+    warnSpy.mockRestore()
+    h.rmFailPath = null
+    h.readFailPath = null
     vi.mocked(prepareMaterials).mockReset()
     vi.mocked(runSpec).mockReset()
   }
