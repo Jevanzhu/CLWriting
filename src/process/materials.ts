@@ -245,7 +245,16 @@ export async function prepareMaterials(
     }
   }
   const realWorkDir = existsSync(join(workDir, '.clwriting')) ? workDir : (findWorkDir(bookRoot) ?? workDir)
-  const resolved = resolveRag(ragConfig, ragProviders, realWorkDir)
+  // RAG 解析面同样纳入降级：resolveRag 会读 .clwriting/rag.secret（readFileSync 裸调），
+  // 文件存在但不可读（权限/被同名目录占位）时抛错——本函数是备料主链，抛出去就是一次
+  // 500，而 RAG 只是叠加层，不该拿走写稿主路径。解析失败按「未配 RAG」继续并留痕。
+  let resolved: ReturnType<typeof resolveRag>
+  try {
+    resolved = resolveRag(ragConfig, ragProviders, realWorkDir)
+  } catch (e) {
+    resolved = null
+    log.warn('materials', `RAG 配置解析失败（降级按未配 RAG 处理，主路径不受影响）：${errMsg(e)}`)
+  }
 
   // 未配 RAG → 直接 prepare，行为与配 RAG 前逐字节相同
   if (!resolved) {
@@ -326,8 +335,24 @@ export async function prepareMaterials(
     }
   }
 
-  // 命中 → 取原文片段 → 喂给 prepare 的 ragRecallText（正文读取已异步化）
-  const ragRecallText = await renderRecallHits(bookRoot, hits)
+  // 命中 → 取原文片段 → 喂给 prepare 的 ragRecallText（正文读取已异步化）。
+  // 取片段同属叠加层：读正文失败（权限/文件被移除）不得把主路径带下水——失败即按
+  // 「无命中」降级，ragNote 记明病因。
+  let ragRecallText: string
+  try {
+    ragRecallText = await renderRecallHits(bookRoot, hits)
+  } catch (e) {
+    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene, writeModel, opts.chapter)
+    return {
+      ...base,
+      ragUsed: false,
+      ragHitCount: 0,
+      summaryGenerated,
+      ...(ragTruncated ? { ragTruncated } : {}),
+      ragNote: `RAG 命中片段读取失败（降级回落精准读取）：${errMsg(e)}`,
+      ...styleNoteOf(declaredScenes, base),
+    }
+  }
   const base = prepare(db, config, bookRoot, chapterLeadIds, ragRecallText, sampleScene, writeModel, opts.chapter)
   return {
     ...base,
