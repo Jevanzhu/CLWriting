@@ -451,20 +451,16 @@ describe('FocusStatsBar: 专注统计浮动条', () => {
     expect(stat(w, 2)).toContain('2/2,000')
 
     // 输入 +3 字：本次 +3；同刻起算无时长 → 速度仍 —
-    // R47-3（四十七轮）：FocusStatsBar 全文统计改 150ms 防抖——两笔间隔 >150ms 保
-    // 证中间态可观测（窗口内连续键入合并为末次值，防抖语义本体）
+    // FocusStatsBar 全文统计有 150ms 防抖——这里等的是「防抖已触发」这个**状态**，
+    // 故用 waitFor 轮询判据本身，不再先实睡一个凑好的固定时长（实睡既慢又不保证）
     const doc = useDocStore()
     doc.patch('d1', '---\n标题: 标题\n---\n\n正文六七八')
-    await new Promise((r) => setTimeout(r, 170))
-    await nextTick()
-    await vi.waitFor(() => expect(stat(w, 0)).toBe('+3 字')) // R46-5：字数 150ms 防抖
+    await vi.waitFor(() => expect(stat(w, 0)).toBe('+3 字')) // 字数 150ms 防抖
     expect(stat(w, 1)).toBe('—')
     // 再一笔（隔 ≥2ms 有时长）：速度起算
     await new Promise((r) => setTimeout(r, 3))
     doc.patch('d1', '---\n标题: 标题\n---\n\n正文六七八九')
-    await new Promise((r) => setTimeout(r, 170))
-    await nextTick()
-    await vi.waitFor(() => expect(stat(w, 0)).toBe('+4 字')) // R46-5：字数 150ms 防抖
+    await vi.waitFor(() => expect(stat(w, 0)).toBe('+4 字')) // 字数 150ms 防抖
     expect(stat(w, 1)).toMatch(/字\/分$/)
     w.unmount()
   })
@@ -506,10 +502,8 @@ describe('FocusStatsBar: 专注统计浮动条', () => {
     await nextTick()
     expect(stat(w, 0)).toBe('+0 字')
     useDocStore().patch('d1', '---\n标题: 标题\n---\n\n正文六七八')
-    // R47-3（四十七轮）：统计改 150ms 防抖——稳定窗口后再断言增量与退出 toast
-    await new Promise((r) => setTimeout(r, 170))
-    await nextTick()
-    await vi.waitFor(() => expect(stat(w, 0)).toBe('+3 字')) // R46-5：字数 150ms 防抖（退出汇报前组件 flush）
+    // 统计有 150ms 防抖——等的是「防抖已触发」这个状态，轮询判据即可（实睡固定时长既慢又不保证）
+    await vi.waitFor(() => expect(stat(w, 0)).toBe('+3 字')) // 字数 150ms 防抖（退出汇报前组件 flush）
     ws.setFocus(false)
     await nextTick()
     expect(ui.toasts.some((t) => t.msg.includes('专注结束') && t.msg.includes('+3 字'))).toBe(true)
