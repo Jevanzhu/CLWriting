@@ -140,7 +140,6 @@ describe('R51-I-6: 切文档分支的组合期守卫', () => {
   })
 })
 
-
 describe('外部全量替换清撤销栈时给出一次可见提示', () => {
   it('有旧撤销历史的外部替换 → 提示一次；同档第二次替换不再提示', async () => {
     const { useUiStore } = await import('../../../../src/studio/web-next/src/stores/ui')

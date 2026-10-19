@@ -1078,9 +1078,8 @@ describe('关闭路径事件流自检', () => {
 
 describe('事件库体积观测', () => {
   it('行数超阈 → warn 留痕；观测只读、幂等且不改任何保留语义', async () => {
-    const { observeEventStoreSize, __setEventStoreRowWarnThresholdForTest } = await import(
-      '../../src/events/store-retention.js'
-    )
+    const { observeEventStoreSize, __setEventStoreRowWarnThresholdForTest } =
+      await import('../../src/events/store-retention.js')
     const dbPath = join(tmpRoot(), 'footprint.db')
     const db = new DatabaseSync(dbPath)
     db.exec(

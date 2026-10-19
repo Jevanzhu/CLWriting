@@ -201,7 +201,10 @@ export function bundledCorpusIntegrityReport(): BundledCorpusIntegrityReport | n
  * 缺料只该降级并留痕(与 readCorpusBody / scanKnowledgeEntries 的 best-effort 同族)。
  * 显式给 rels / root = 强制现算(测试与排障面),不动快照。
  */
-export function ensureBundledCorpusChecked(opts?: { rels?: readonly string[]; root?: string }): BundledCorpusIntegrityReport {
+export function ensureBundledCorpusChecked(opts?: {
+  rels?: readonly string[]
+  root?: string
+}): BundledCorpusIntegrityReport {
   if (opts?.rels || opts?.root) return auditBundledCorpus(opts)
   if (bundledCorpusSnapshot === null) bundledCorpusSnapshot = auditBundledCorpus({})
   return bundledCorpusSnapshot

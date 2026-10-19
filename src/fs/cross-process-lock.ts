@@ -103,10 +103,7 @@ const RENEW_RETRY_BACKOFF_MS = 20
  * 退避重试与停表判据在调用方（renewIntervalMs 定时器）：定时器回调里同步微睡会冻结
  * 事件循环，本模块的续期重试一律用 setTimeout 排下一拍，不用 Atomics.wait。
  */
-export function renewLockFileTouch(
-  lockPath: string,
-  opts?: { touch?: (lockPath: string) => void },
-): boolean {
+export function renewLockFileTouch(lockPath: string, opts?: { touch?: (lockPath: string) => void }): boolean {
   const touch = opts?.touch ?? ((p: string) => utimesSync(p, new Date(), new Date()))
   try {
     touch(lockPath)
@@ -240,10 +237,7 @@ export function tryAcquireCrossProcessLock(lockPath: string, opts?: CrossProcess
       if (renewMs > 0) {
         let failures = 0
         const tick = (): void => {
-          const touched = renewLockFileTouch(
-            lockPath,
-            opts?.renewTouch ? { touch: opts.renewTouch } : undefined,
-          )
+          const touched = renewLockFileTouch(lockPath, opts?.renewTouch ? { touch: opts.renewTouch } : undefined)
           if (touched) {
             failures = 0
             return
@@ -251,10 +245,7 @@ export function tryAcquireCrossProcessLock(lockPath: string, opts?: CrossProcess
           failures++
           if (failures >= RENEW_MAX_CONSECUTIVE_FAILURES) {
             // 锁文件被外部删除/不可写：停表 + 留痕（此前该态两侧都零可观测面）
-            log.warn(
-              'fs',
-              `锁续期连续失败 ${failures} 次（锁文件可能已被外部删除或不可写），停止续期：${lockPath}`,
-            )
+            log.warn('fs', `锁续期连续失败 ${failures} 次（锁文件可能已被外部删除或不可写），停止续期：${lockPath}`)
             stopRenew()
             return
           }

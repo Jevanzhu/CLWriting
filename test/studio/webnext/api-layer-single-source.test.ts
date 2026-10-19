@@ -139,9 +139,7 @@ function scanSources(sources: ReadonlyArray<readonly [string, string]>): BetaMou
 
 /** 未登记白名单的挂点档（文件 + 行号 + 登记状态），即断言失败时要看的那一眼。 */
 function outsideWhitelist(mounts: readonly BetaMount[], whitelist: readonly string[]): string[] {
-  return mounts
-    .filter((m) => !whitelist.includes(m.file))
-    .map((m) => `${m.file}:${m.lines.join(',')}（未在白名单）`)
+  return mounts.filter((m) => !whitelist.includes(m.file)).map((m) => `${m.file}:${m.lines.join(',')}（未在白名单）`)
 }
 
 /** 白名单：挂点档 → 为什么该档属 AI 辅助面。 */
@@ -151,10 +149,7 @@ const BETA_WHITELIST: ReadonlyArray<readonly [file: string, why: string]> = [
   ['components/shell/SidebarRight.vue', '右栏「AI 分析」折叠区入口，经 CollapseSection 的 beta 属性透出'],
   ['components/style/StyleAcceptancePanel.vue', '文风验收：AI 比对样章与正文的文风偏差'],
   ['components/style/StyleBaselineCard.vue', '文风基线定标：AI 抽取样章文风特征'],
-  [
-    'components/ui/CollapseSection.vue',
-    'BetaBadge 的受控渲染器：beta 由调用方显式开启，本档不自行声明任何功能为 Beta',
-  ],
+  ['components/ui/CollapseSection.vue', 'BetaBadge 的受控渲染器：beta 由调用方显式开启，本档不自行声明任何功能为 Beta'],
   ['components/ui/SettingsAi.vue', '设置页 AI 对话 / AI 写作卡'],
   ['components/ui/SettingsAnalysis.vue', '设置页知识层 / 关系图 / 知识检索（AI 分析管线）'],
   ['components/ui/SettingsBookAnalysis.vue', '书级知识层 / 关系图 / 知识检索（AI 分析管线）'],
@@ -180,9 +175,7 @@ describe('Beta 标注挂点白名单守卫（AI 辅助面之外不得标 Beta）
       'views/FakeView.vue:2',
       'components/shell/ChatDock.vue:2',
     ])
-    expect(outsideWhitelist(mounts, ['components/shell/ChatDock.vue'])).toEqual([
-      'views/FakeView.vue:2（未在白名单）',
-    ])
+    expect(outsideWhitelist(mounts, ['components/shell/ChatDock.vue'])).toEqual(['views/FakeView.vue:2（未在白名单）'])
   })
 
   it('裸 beta 判据：CollapseSection 的裸 beta 算挂点，带值/带冒号/引号内文本不算', () => {

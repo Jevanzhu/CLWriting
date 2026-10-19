@@ -87,12 +87,22 @@ const routerMock = vi.hoisted(() => ({ replace: vi.fn() }))
 vi.mock('vue-router', async () => {
   const { reactive } = await import('vue')
   routeHolder.route = reactive({ params: { name: '书A' } })
-  return { useRoute: () => routeHolder.route, useRouter: () => routerMock, onBeforeRouteUpdate: vi.fn(), onBeforeRouteLeave: vi.fn() }
+  return {
+    useRoute: () => routeHolder.route,
+    useRouter: () => routerMock,
+    onBeforeRouteUpdate: vi.fn(),
+    onBeforeRouteLeave: vi.fn(),
+  }
 })
 vi.mock('../../../../src/studio/web-next/node_modules/vue-router', async () => {
   const { reactive } = await import('vue')
   routeHolder.route = routeHolder.route ?? reactive({ params: { name: '书A' } })
-  return { useRoute: () => routeHolder.route, useRouter: () => routerMock, onBeforeRouteUpdate: vi.fn(), onBeforeRouteLeave: vi.fn() }
+  return {
+    useRoute: () => routeHolder.route,
+    useRouter: () => routerMock,
+    onBeforeRouteUpdate: vi.fn(),
+    onBeforeRouteLeave: vi.fn(),
+  }
 })
 
 import Book from '../../../../src/studio/web-next/src/pages/Book.vue'
@@ -244,13 +254,11 @@ describe('R71-6→R44-2: Book.vue 关窗/刷新统一兜底（异步 flush + 落
   })
 })
 
-
 describe('关窗钩子必须覆盖离书态（应用级在册 + 等卸载期在途冲刷）', () => {
   it('Book 侧卸载后钩子仍在（App 级持有），App 卸载才摘', async () => {
     const { defineComponent } = await import('vue')
-    const { useAppCloseFlush, useUnloadFlush } = await import(
-      '../../../../src/studio/web-next/src/composables/useUnloadFlush'
-    )
+    const { useAppCloseFlush, useUnloadFlush } =
+      await import('../../../../src/studio/web-next/src/composables/useUnloadFlush')
     type HookWindow = Window & { __clwFlushBeforeClose?: () => Promise<{ failed: string[]; conflict: string[] }> }
     const AppHolder = defineComponent({
       setup() {

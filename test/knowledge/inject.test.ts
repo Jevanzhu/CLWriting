@@ -14,7 +14,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { assembleKnowledge, titleOf, knowledgeReportOf, summarizeDropped } from '../../src/knowledge/inject.js'
-import { bundledCorpusIntegrityReport, checkBundledCorpus, ensureBundledCorpusChecked } from '../../src/knowledge/corpus.js'
+import {
+  bundledCorpusIntegrityReport,
+  checkBundledCorpus,
+  ensureBundledCorpusChecked,
+} from '../../src/knowledge/corpus.js'
 import { clipWithNotice } from '../../src/shared/text.js'
 
 let dir: string

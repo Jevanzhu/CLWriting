@@ -152,7 +152,6 @@ describe('重审-15 · 重放仍 401/403 统一友好文案（status/code 保留
   })
 })
 
-
 describe('未重放面 401 同样走统一人话并补重试指引', () => {
   it('token 未变（re-boot 未换新枚）的 401 → 统一文案 + 重试指引，不再透传信封工程串', async () => {
     const c = await freshClient()
@@ -174,9 +173,8 @@ describe('未重放面 401 同样走统一人话并补重试指引', () => {
 
 describe('本地服务未连接文案按形态分流（生产形态无开发者指令）', () => {
   it('非 DEV 形态不含 npm 开发者指令，DEV 形态保留启动指引', async () => {
-    const { localApiDownMessage, LOCAL_API_DOWN_MESSAGE } = await import(
-      '../../../src/studio/web-next/src/shared/local-api'
-    )
+    const { localApiDownMessage, LOCAL_API_DOWN_MESSAGE } =
+      await import('../../../src/studio/web-next/src/shared/local-api')
     expect(localApiDownMessage(false)).toBe(LOCAL_API_DOWN_MESSAGE)
     expect(localApiDownMessage(false)).not.toContain('npm run dev:api')
     expect(localApiDownMessage(true)).toContain('npm run dev:api')

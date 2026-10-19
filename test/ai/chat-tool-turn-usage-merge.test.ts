@@ -144,10 +144,11 @@ describe('D1-01：两类一次性重发的首发用量并入回合封套（账�
       store.close()
       const assts = evs.filter((e) => e.type === 'assistant/message')
       // 修复前只有收缩重试段（{100,50}）——首发段的 {10,1} 只进账本不进封套
-      expect(assts.some((e) => JSON.stringify(e.data['usage']) === JSON.stringify({ inputTokens: 110, outputTokens: 51 }))).toBe(
-        true,
-      )
-      const done = events.find((e) => e.type === 'chat_done') as { inputTokens?: number; outputTokens?: number } | undefined
+      expect(
+        assts.some((e) => JSON.stringify(e.data['usage']) === JSON.stringify({ inputTokens: 110, outputTokens: 51 })),
+      ).toBe(true)
+      const done = events.find((e) => e.type === 'chat_done') as
+        { inputTokens?: number; outputTokens?: number } | undefined
       expect(done?.inputTokens).toBe(110)
       expect(done?.outputTokens).toBe(51)
 
@@ -228,25 +229,17 @@ describe('D1-05（spec 侧）：requireTool 派生 toolChoice 随 llm/call 落�
     return evs.map((e) => e.data as Record<string, unknown>)
   }
 
-  it(
-    'named 家族：requireTool 派生 toolChoice=tool（指名）随 llm/call 落库',
-    { timeout: 20_000 },
-    async () => {
-      const [call] = await runToolSpec('gpt-5')
-      expect(call!['toolChoice']).toBe('tool')
-      expect(call!['requireTool']).toBe(true)
-    },
-  )
+  it('named 家族：requireTool 派生 toolChoice=tool（指名）随 llm/call 落库', { timeout: 20_000 }, async () => {
+    const [call] = await runToolSpec('gpt-5')
+    expect(call!['toolChoice']).toBe('tool')
+    expect(call!['requireTool']).toBe(true)
+  })
 
-  it(
-    'required 家族：requireTool 派生 toolChoice=any（不指名）随 llm/call 落库',
-    { timeout: 20_000 },
-    async () => {
-      const [call] = await runToolSpec('deepseek-v4')
-      expect(call!['toolChoice']).toBe('any')
-      expect(call!['requireTool']).toBe(true)
-    },
-  )
+  it('required 家族：requireTool 派生 toolChoice=any（不指名）随 llm/call 落库', { timeout: 20_000 }, async () => {
+    const [call] = await runToolSpec('deepseek-v4')
+    expect(call!['toolChoice']).toBe('any')
+    expect(call!['requireTool']).toBe(true)
+  })
 })
 
 describe('R35-2：checkpoint 摘要调用的 usage/stopReason 进账本与 llm/call', () => {

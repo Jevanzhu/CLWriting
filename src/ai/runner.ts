@@ -647,9 +647,7 @@ async function prepareRun<T>(opts: RunTaskOpts<T>): Promise<RunPrep<T>> {
         // tool_choice 参数面（铁律②重放口径）：成功 attempt 取实发生效值（p.toolChoice），
         // 失败 attempt 无 run 回传可读 → 回落调用方声明（opts.toolChoice）；requireTool
         // 意图面恒按调用方声明登记（派生结果可据模型表 + quirksVersion 精确重建）
-        ...((p.toolChoice ?? opts.toolChoice) !== undefined
-          ? { toolChoice: p.toolChoice ?? opts.toolChoice }
-          : {}),
+        ...((p.toolChoice ?? opts.toolChoice) !== undefined ? { toolChoice: p.toolChoice ?? opts.toolChoice } : {}),
         ...(opts.requireTool ? { requireTool: true } : {}),
         ...(ctx.resolvedChunkStallTimeoutMs !== undefined
           ? { firstByteTimeoutMs: ctx.resolvedChunkStallTimeoutMs }

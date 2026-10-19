@@ -92,9 +92,8 @@ describe('D3：health/style + analyze-style 全书扫描 5s TTL 缓存', () => {
   // 超阈标记与阈值原值同源于 store-retention 的阈值导出（单源）。
   it('事件库体积读数：无库文件 → bytes=null 且不建库；文件在位 → 尺寸即读数、超阈按阈值单源', async () => {
     const { sessionDbPath } = await import('../../../src/events/store.js')
-    const { __setEventStoreBytesWarnThresholdForTest, getEventStoreBytesWarnThreshold } = await import(
-      '../../../src/events/store-retention.js'
-    )
+    const { __setEventStoreBytesWarnThresholdForTest, getEventStoreBytesWarnThreshold } =
+      await import('../../../src/events/store-retention.js')
     interface Reading {
       bytes: number | null
       overThreshold: boolean

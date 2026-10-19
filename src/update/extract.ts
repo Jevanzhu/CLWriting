@@ -103,11 +103,7 @@ async function extractEntry(zip: ZipFile, entry: Entry, destDir: string): Promis
  * 解压流长度与声明一致（不符即抛），故声明值即实际写入量的上界；超限条目在落盘前就被
  * 拦下（不会先写满盘再报错）。
  */
-export async function extractZipTo(
-  zipPath: string,
-  destDir: string,
-  limits?: Partial<ExtractLimits>,
-): Promise<void> {
+export async function extractZipTo(zipPath: string, destDir: string, limits?: Partial<ExtractLimits>): Promise<void> {
   const cap = resolveExtractLimits(limits)
   const zip = await openPromise(zipPath, { lazyEntries: true, decodeStrings: true, validateEntrySizes: true })
   let entries = 0

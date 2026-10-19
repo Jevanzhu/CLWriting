@@ -194,11 +194,13 @@ describe('OverviewView 创作天数：created_at 缺失/非法一律走空态', 
   })
 })
 
-
 const isoDay = (d: Date): string =>
   d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
 
-function overviewOf(timeline: { date: string; count: number }[], recentDoc: { no: number; path: string } | null = null) {
+function overviewOf(
+  timeline: { date: string; count: number }[],
+  recentDoc: { no: number; path: string } | null = null,
+) {
   return {
     identity: { kind: 'long', name: '书', title: '书', genre: '', created_at: '' },
     progress: { chapters: 1, words: 100, percent: 1, targetWords: null },

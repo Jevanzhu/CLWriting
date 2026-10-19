@@ -95,11 +95,11 @@ const TABLE_MAX = 256
  *  （产品数据依旧只能由作者点「清空对话 / 清除事件史 / 删书」回收）。行数以 MAX(seq)
  *  近似（seq 是 INTEGER PRIMARY KEY 且单调递增，清库后重置）：O(log n) 索引探测，
  *  不为观测在维护路径上扫全表。 */
-export const [getEventStoreRowWarnThreshold, __setEventStoreRowWarnThresholdForTest] =
-  testableConst(200_000)
+export const [getEventStoreRowWarnThreshold, __setEventStoreRowWarnThresholdForTest] = testableConst(200_000)
 /** 事件库体积观测阈值（主库页数 × 页大小）——与行数阈同款处理。 */
-export const [getEventStoreBytesWarnThreshold, __setEventStoreBytesWarnThresholdForTest] =
-  testableConst(1024 * 1024 * 1024)
+export const [getEventStoreBytesWarnThreshold, __setEventStoreBytesWarnThresholdForTest] = testableConst(
+  1024 * 1024 * 1024,
+)
 /** 观测留痕的按库节流（同一库路径只 warn 一次；条目为时刻，FIFO 上限纯防御）。 */
 const footprintWarnedAt = new Map<string, number>()
 
@@ -119,14 +119,12 @@ export interface EventStoreFootprint {
 export function observeEventStoreSize(db: DatabaseSync, dbPath: string): EventStoreFootprint {
   let rows = -1
   try {
-    rows =
-      (db.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM events').get() as { m?: number } | undefined)?.m ?? -1
+    rows = (db.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM events').get() as { m?: number } | undefined)?.m ?? -1
   } catch {
     /* 表不在位/库不可读：按未超阈处理 */
   }
   const pages = pageStats(db).pages
-  const pageSize =
-    (db.prepare('PRAGMA page_size').get() as { page_size?: number } | undefined)?.page_size ?? 4096
+  const pageSize = (db.prepare('PRAGMA page_size').get() as { page_size?: number } | undefined)?.page_size ?? 4096
   const bytes = pages < 0 ? -1 : pages * pageSize
   const overRows = rows >= 0 && rows >= getEventStoreRowWarnThreshold()
   const overBytes = bytes >= 0 && bytes >= getEventStoreBytesWarnThreshold()

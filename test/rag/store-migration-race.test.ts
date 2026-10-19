@@ -4,7 +4,7 @@
  * 会在旧路径重新开出空库（会话白跑 + 孤儿库残留）。修复后先复查 dbPath：存在 ⇒
  * 改道新库；仍不存在才回退旧路径。
  */
-import { test, expect, describe, it} from 'vitest'
+import { test, expect, describe, it } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { rmSync, mkdirSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'

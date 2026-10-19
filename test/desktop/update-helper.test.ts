@@ -16,7 +16,15 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 import { buildZipStore } from '../../src/diagnostics/zip.js'
-import { readUpdateAttemptNote, takeUpdateAttemptNote, updateCacheDir, updateCacheRoot, updateResultPath, writeUpdateAttemptNote, type UpdateAttemptNote } from '../../src/update/cache.js'
+import {
+  readUpdateAttemptNote,
+  takeUpdateAttemptNote,
+  updateCacheDir,
+  updateCacheRoot,
+  updateResultPath,
+  writeUpdateAttemptNote,
+  type UpdateAttemptNote,
+} from '../../src/update/cache.js'
 import { type ExtractLimits } from '../../src/update/extract.js'
 import {
   EXTRACT_BYTES_FACTOR,
@@ -586,7 +594,9 @@ describe('包内恢复脚本与源码常量同源（任一侧改名即脚本失�
   })
 
   it('electron-builder 把脚本放进 win 便携包根目录（extraFiles；extraResources 会落进 resources/ 看不见）', () => {
-    const lines = readFileSync(fileURLToPath(new URL('../../electron-builder.yml', import.meta.url)), 'utf8').split('\n')
+    const lines = readFileSync(fileURLToPath(new URL('../../electron-builder.yml', import.meta.url)), 'utf8').split(
+      '\n',
+    )
     const start = lines.findIndex((line) => /^win:\s*$/.test(line))
     expect(start).toBeGreaterThanOrEqual(0) // win 是出货平台，配置块缺席即红
     const block: string[] = []

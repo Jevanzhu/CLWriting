@@ -196,7 +196,9 @@ describe('extractZipTo 上限（解压炸弹面：包是远端输入，条目数
 
   it('调用方限额只能收紧：超出绝对上限的入参被压回红线', async () => {
     const { EXTRACT_MAX_TOTAL_BYTES, resolveExtractLimits } = await import('../../src/update/extract.js')
-    expect(resolveExtractLimits({ maxTotalBytes: EXTRACT_MAX_TOTAL_BYTES * 2 }).maxTotalBytes).toBe(EXTRACT_MAX_TOTAL_BYTES)
+    expect(resolveExtractLimits({ maxTotalBytes: EXTRACT_MAX_TOTAL_BYTES * 2 }).maxTotalBytes).toBe(
+      EXTRACT_MAX_TOTAL_BYTES,
+    )
     expect(resolveExtractLimits({ maxEntries: 3 }).maxEntries).toBe(3)
     expect(resolveExtractLimits().maxEntries).toBeGreaterThan(3)
   })

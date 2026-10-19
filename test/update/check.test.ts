@@ -80,7 +80,11 @@ const RELEASES = [
         size: 4096,
       },
       // 清单地址故意给成非规范形态：结果里的地址必须来自 tag 派生（不回声响应）
-      { name: 'SHA256SUMS.txt', browser_download_url: 'https://objects.githubusercontent.com/SHA256SUMS.txt', size: 120 },
+      {
+        name: 'SHA256SUMS.txt',
+        browser_download_url: 'https://objects.githubusercontent.com/SHA256SUMS.txt',
+        size: 120,
+      },
     ],
   },
   { tag_name: 'nightly', draft: false },
@@ -156,8 +160,7 @@ describe('runUpdateCheckOnce 正常路径', () => {
           },
           {
             name: 'SHA256SUMS.txt',
-            browser_download_url:
-              'https://github.com/attacker/CLWriting/releases/download/v1.0.0/SHA256SUMS.txt',
+            browser_download_url: 'https://github.com/attacker/CLWriting/releases/download/v1.0.0/SHA256SUMS.txt',
           },
         ],
       },

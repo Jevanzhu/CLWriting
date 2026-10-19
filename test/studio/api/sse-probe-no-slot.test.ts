@@ -201,9 +201,8 @@ describe('RC 源码重审 B-3: 探测不建流、不占名额', () => {
 // ── A8：进程级 SSE 总名额（跨书）──────────────
 
 it('进程级总名额：跨书合计超限 → 429（只判定不登记；建流与探测两处判点同源）', async () => {
-  const { __setSseTotalMaxForTest, MAX_SSE_TOTAL } = await import(
-    '../../../src/studio/server/api/stream-sse-connect.js'
-  )
+  const { __setSseTotalMaxForTest, MAX_SSE_TOTAL } =
+    await import('../../../src/studio/server/api/stream-sse-connect.js')
   const { readFileSync } = await import('node:fs')
   const total = (): number => [...__getSseConnections().values()].reduce((a, b) => a + b, 0)
   const before = total()

@@ -278,7 +278,10 @@ export async function downloadUpdateZip(opts: UpdateDownloadOptions): Promise<Up
   if (opts.checksumsUrl && !isAcceptedReleaseUrl(opts.checksumsUrl, releaseChecksumsUrl(opts.tag))) {
     return {
       ok: false,
-      failure: { reason: 'network', detail: `校验清单地址与发布仓规范地址不符（${hostOf(opts.checksumsUrl)}），已拒绝` },
+      failure: {
+        reason: 'network',
+        detail: `校验清单地址与发布仓规范地址不符（${hostOf(opts.checksumsUrl)}），已拒绝`,
+      },
     }
   }
 
