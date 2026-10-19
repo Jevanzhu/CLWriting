@@ -405,11 +405,13 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
         get: (c) => c.budget.summary_volume_max,
       },
       {
-        // chat 任务按书预算键——设了才输出；无 get 面（不入 PATCH 白名单，
-        // 手编 book.yaml 面；入白名单须同步 yaml-schema-snapshot 清单锁，此处最小触达不动）
+        // chat 任务按书预算键——设了才输出。入 PATCH 白名单：PUT /config 改该键必须落盘
+        // （无 get 的键在补丁面被整键丢弃，接口却仍回 ok:true）。坏值一律 fail-closed 归 0
+        // 的语义在 parse 面（failClosedNumParse），与「未设 = 不限」区分。
         key: 'chat_max_calls',
         parse: failClosedNumParse('budget', 'chat_max_calls'),
         emit: scalarLeafEmit('chat_max_calls', (c) => c.budget.chat_max_calls),
+        get: (c) => c.budget.chat_max_calls,
       },
     ],
   },

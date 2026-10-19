@@ -225,6 +225,40 @@ describe('R1010c-COV-1：config 端点校验与回退分支', () => {
     expect(after.json.revision).toBe(put.json.revision)
   })
 
+  // 补丁白名单的「写口 ⊆ 端点校验面」对账：端点把 chat_max_calls 列入数值校验，补丁面
+  // 却曾把它整键丢弃（回 ok:true 而盘上不变）。本用例按「改键必须落盘」钉死，
+  // 对照组同请求里再改一个既有白名单键，确认两键都落。
+  it('PUT 改 budget.chat_max_calls 真落盘（补丁白名单覆盖端点校验面）', async () => {
+    const root = makeBook(
+      '配置预算键书',
+      'spec_version: 1\nkind: long\nbook:\n  title: 预算书\nbudget:\n  calls_per_chapter: 3\n  chat_max_calls: 20\n',
+    )
+    const p = `/api/books/${encodeURIComponent('配置预算键书')}/config`
+    const put = await req({
+      method: 'PUT',
+      path: p,
+      body: {
+        config: {
+          spec_version: 1,
+          book: { title: '预算书' },
+          leads: { enabled: [] },
+          budget: { calls_per_chapter: 7, chat_max_calls: 99 },
+          growth: {},
+        },
+      },
+    })
+    expect(put.status).toBe(200)
+    expect(put.json.ok).toBe(true)
+    // 盘上原文：两键都改到（不靠 GET 回读，直接看字节）
+    const raw = readFileSync(join(root, 'book.yaml'), 'utf8')
+    expect(raw).toContain('calls_per_chapter: 7')
+    expect(raw).toContain('chat_max_calls: 99')
+    // 回读同源（GET 走解析面，确认 fail-closed 的 0 归一口径未被误触发）
+    const got = await req({ method: 'GET', path: p })
+    expect(got.json.config.budget.calls_per_chapter).toBe(7)
+    expect(got.json.config.budget.chat_max_calls).toBe(99)
+  })
+
   it('PUT 现文件不可解析 → 回落全量重生成，保存后 book.yaml 修复为合法（200 + 可读回）', async () => {
     makeBook('配置损坏书', 'kind: long\n  孤儿子行\n')
     const p = `/api/books/${encodeURIComponent('配置损坏书')}/config`
