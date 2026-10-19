@@ -672,6 +672,21 @@ export const useDocStore = defineStore('doc', () => {
     if (!bookName.value) return false
     // 入口快照——定稿在途切书后 load/toast 用重读书名会落 B 书界面
     const book = bookName.value
+    // 定稿按盘上字节结算 → 先落盘（见 flushBeforeSettle 头注）；落不下去即中止，不发请求。
+    // 前置段包信封：本函数对外承诺「失败走 toast 不外抛」，落盘链的异常同样不得穿出。
+    let flushed = false
+    try {
+      flushed = await flushBeforeSettle(docId)
+    } catch {
+      flushed = false
+    }
+    if (!flushed) {
+      if (bookName.value === book) {
+        useUiStore().toast('有未保存的修改无法自动落盘（保存失败或版本冲突），请先处理后再定稿', 'error')
+      }
+      return false
+    }
+    if (bookName.value !== book) return false // 落盘在途切书：docId 属旧书，不发跨书定稿
     try {
       const r = await finalizeDoc(book, docId)
       if (r.ok) {
@@ -721,6 +736,27 @@ export const useDocStore = defineStore('doc', () => {
       if (!p) return
       await p.catch(() => {})
     }
+  }
+
+  /** 按盘上内容结算类动作的前置落盘（定稿族共用唯一实现）。
+   *
+   *  约束：服务端定稿按**盘上字节**算基线指纹并留底版本，而编辑器正文回写有 200ms 合并窗、
+   *  窗尾到 autosave 落盘又最多隔一个节拍——不先落盘就发定稿请求，定稿版本会缺最后一段键入，
+   *  随后 autosave 把章状态从 final 静默降级为 revision（作者已收到「已定稿」，树里却回到
+   *  待定稿）。同 shared/body-writeback.ts 不变量 2b 的决策点纪律。
+   *
+   *  返回 false = 落不下去（冲突未决或保存失败），调用方须中止按盘结算并提示，不得放行。 */
+  async function flushBeforeSettle(docId: string): Promise<boolean> {
+    // 先落编辑器防抖尾——窗内键入只登记未落回 store，此时 dirty 可能是 false
+    flushBodyWriteback()
+    await waitInflightSave(docId)
+    const cur = docs.value.get(docId)
+    if (!cur) return true // 条目不在缓存（未打开/已驱逐）：无本地内容可落
+    if (cur.conflict) return false
+    if (!cur.dirty) return true
+    await save(docId, 'autosave')
+    // 保存成功即清 dirty；仍脏（保存在途竞态/失败）按落不下去处理
+    return !(docs.value.get(docId)?.dirty ?? false)
   }
 
   /** 切书前批量保存所有 dirty 文档（await 全部完成，防 setBook 清缓存致 <autosaveInterval 的编辑静默丢失）。
@@ -835,6 +871,7 @@ export const useDocStore = defineStore('doc', () => {
     clearConflict,
     save,
     waitInflightSave,
+    flushBeforeSettle,
     reloadFromRemote,
     overwriteRemote,
     refresh,
