@@ -280,6 +280,7 @@ describe('脏路由离书（/book/A → /shelf）与切书同口径：未落盘�
     await flushPromises()
     await flushPromises()
 
+    expect(visitOrder).toEqual(['书A']) // 决断发生在导航提交之前（离书守卫，非提交后兜底）
     expect(askSpy).toHaveBeenCalledTimes(1)
     expect(askSpy.mock.calls[0]![0].title).toContain('保存失败')
     expect(router.currentRoute.value.path).toBe(bookPath('书A'))
@@ -293,6 +294,7 @@ describe('脏路由离书（/book/A → /shelf）与切书同口径：未落盘�
     await seedDirty('d1')
     mocks.saveContent.mockRejectedValue(new Error('网络断了'))
     askAt(ui, true)
+    const sessionA = currentBookSession()!
 
     await router.push('/shelf')
     await flushPromises()
@@ -301,10 +303,15 @@ describe('脏路由离书（/book/A → /shelf）与切书同口径：未落盘�
     expect(router.currentRoute.value.path).toBe('/shelf')
     expect(doc.bookName).toBe('')
     expect(doc.get('d1')).toBeUndefined()
+    // 离书状态转移单源（leaveBook）：会话作废——否则离书后仍持旧书信号，在途本书写请求
+    // 不会被 abort，再进书时「上一个会话」的判定也随之错位
+    expect(sessionA.stillIn()).toBe(false)
+    expect(currentBookSession()).toBeNull()
   })
 
   it('无脏无冲突 → 不弹窗直接离书（冷启动不误伤）', async () => {
     const ui = useUiStore()
+    const doc = useDocStore()
     const askSpy = vi.spyOn(ui, 'ask')
 
     await router.push('/shelf')
@@ -312,6 +319,32 @@ describe('脏路由离书（/book/A → /shelf）与切书同口径：未落盘�
 
     expect(askSpy).not.toHaveBeenCalled()
     expect(router.currentRoute.value.path).toBe('/shelf')
+    expect(doc.bookName).toBe('') // 干净离书同样走离书状态转移
+  })
+})
+
+/**
+ * 离书守卫的**登记锚**——上组用例在「Book 直挂、路由切换不卸载」的 harness 里跑，
+ * 缺了离书守卫时提交后 watch 的脏路由分支仍会兜住（行为断言不红）。故本组直接锚路由
+ * 记录上的守卫集合：生产路径真正生效的是 onBeforeRouteLeave（Book 卸载后 watch 已停，
+ * watch 分支收不到），摘掉该登记即红——这是本修复唯一的「回退即变红」机器判据。
+ * 真实导航面（含镜像保留/清除）见 test/e2e/unsaved-leave-guard.spec.ts。
+ */
+describe('离书守卫登记（生产路径唯一真源 = 提交前的 onBeforeRouteLeave）', () => {
+  it('Book 在册期间 /book/:name 记录上登记离书守卫；卸载后摘除', async () => {
+    interface RecordWithGuards {
+      leaveGuards: Set<unknown>
+      updateGuards: Set<unknown>
+    }
+    const record = router.currentRoute.value.matched[0] as unknown as RecordWithGuards
+    expect(record).toBeDefined()
+    expect(record.leaveGuards.size).toBeGreaterThan(0)
+    // 切书（同记录参数更新）与离书是两条不同的登记面，勿混淆
+    expect(record.updateGuards.size).toBeGreaterThan(0)
+
+    w.unmount()
+    // registerGuard 的 onUnmounted 清理：卸载后同一记录的守卫集合归空
+    expect(record.leaveGuards.size).toBe(0)
   })
 })
 
