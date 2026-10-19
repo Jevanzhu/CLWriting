@@ -391,6 +391,8 @@ export function listVersions(versionsDir: string, docId: string): VersionInfo[] 
   if (!safeDocId(docId)) return []
   const out: VersionInfo[] = []
   const seen = new Set<string>()
+  // 非 ULID 文件名（外部工具/同步盘/手搬写入）——不列表，末尾统一留痕
+  const foreign: string[] = []
   for (const dir of docVersionDirs(versionsDir, docId)) {
     if (!existsSync(dir)) continue
     // existsSync→readdirSync 之间并发 purge 落间则 readdir 裸抛，
@@ -407,11 +409,26 @@ export function listVersions(versionsDir: string, docId: string): VersionInfo[] 
       // 下方 slice(0, -3) 剥 '.MD' 同为 3 字符，无需改。
       if (name.startsWith('._') || !isMdFileName(name)) continue
       const id = name.slice(0, -3)
+      // id 白名单（与 readVersion/readVersionMeta/readVersionRaw 同款）：ULID 是 26 位
+      // Crockford base32，不含路径分隔符与点。列表是 id 的唯一派生点，校验前移到此——
+      // `.版本/<docId>/` 是外部可写盘面：`x/../../y.md` 形态（posix 合法）剥出的 id 参与
+      // join(dir, id + '.md') 会定位到目录外；小写/长名件还会按字节序抢占「最新版本」位，
+      // 令写侧去重与节流锚错版本。
+      if (!/^[0-9A-HJKMNP-TV-Z]{26}$/.test(id)) {
+        foreign.push(name)
+        continue
+      }
       // 同 id 理论上只在一侧（写入恒编码）；防手搬/复制出双份时重复列
       if (seen.has(id)) continue
       seen.add(id)
       out.push({ id, path: join(dir, name) })
     }
+  }
+  if (foreign.length > 0) {
+    log.warn(
+      'version',
+      `版本目录含非 ULID 文件名档案 ${foreign.length} 个（不列表）：${foreign.slice(0, 3).join('、')}${foreign.length > 3 ? ' 等' : ''}`,
+    )
   }
   // localeCompare → 字节序比较（比较器已上提
   // compareVersionIdDesc 单源，注释随迁）。降序语义不变。

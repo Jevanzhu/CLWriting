@@ -627,8 +627,14 @@ export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeRes
         readTrashManifestStrict(bookRoot).filter((e) => e.id !== id),
       ) // RMW strict 读（读失败走本 best-effort catch，warn 保旧清单）
     })
-  } catch {
-    /* 条目残留：下次对该 id 操作报 NOT_FOUND，自愈 */
+  } catch (e) {
+    // 主文件已物理删除（不可逆动作已成），写失败不改变 ok 信封；但条目残留须留痕
+    //（口径同本文件恢复链的清单登记失败）——否则作者只看到「已永久删除」，条目却仍在册。
+    log.warn(
+      'trash',
+      `永久删 ${id} 后回收站清单条目移除失败（主文件已物理删除）：${errMsg(e)}——条目残留，下次对该 id 操作报 NOT_FOUND 自愈`,
+      e instanceof Error ? e : undefined,
+    )
   }
   return { ok: true, id }
 }

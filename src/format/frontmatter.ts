@@ -185,10 +185,17 @@ export function isValidFmKey(key: string): boolean {
 // stripComment 同一函数，防循环 import 顾虑已随 core 拆出不成立），语义逐字不变。
 // 注意：yaml.ts 读改写同样丢注释，故写侧注释丢失口径一致、可接受，测试锁定「注释不进值」。
 
+/** fm 文本按行切分并剥行尾 `\r`——读侧行尾归一的唯一入口（CRLF 档案：外部编辑器/
+ *  同步盘写入的 `---\r\n`，split('\n') 会保留行尾 CR）。只剥行尾单个 `\r`，不动行内
+ *  空白与缩进；键行/平铺值/块标量行共用同一份归一结果（写侧恒 LF，此处为容错读）。 */
+function splitFmLines(fmRaw: string): string[] {
+  return fmRaw.split('\n').map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l))
+}
+
 /** 平铺 front matter → 有序 Map（保留插入顺序；支持块标量 `key: |`/`>` 多行值） */
 export function parseFlat(fmRaw: string): Map<string, unknown> {
   const result = new Map<string, unknown>()
-  const lines = fmRaw.split('\n')
+  const lines = splitFmLines(fmRaw)
   let i = 0
   while (i < lines.length) {
     const line = lines[i]!
@@ -226,22 +233,20 @@ export function parseFlat(fmRaw: string): Map<string, unknown> {
       const indents: number[] = [] // E-9d：记录非空行缩进，供最小缩进去缩进
       i++
       while (i < lines.length) {
+        // 行尾 \r 已由 splitFmLines 剥除——块行原样入值会把 CR 带进多行值本体
         const bl = lines[i]!
         if (bl.trim() === '') {
           // 纯空白行不再一律归一真空行——literal 保留原貌
           //（去缩进按 minIndent 截断，行内缩进空白不丢）；folded 的空白行按 YAML
           // 语义仍是段落边界（foldSegs 以真空行分段），维持 ''。
-          block.push(folded ? '' : bl.endsWith('\r') ? bl.slice(0, -1) : bl)
+          block.push(folded ? '' : bl)
           i++
           continue
         }
         const indent = bl.length - bl.trimStart().length
         if (indent === 0) break // 回到平铺层（新 key）
         indents.push(indent)
-        // 剥 CRLF 行尾 \r——split('\n') 保留 \r 尾，块行原样入值会
-        // 让多行值每行尾嵌 \r（平铺值行有 trim 无此问题，仅块标量中招），写回后形成
-        // 混合行尾文件且值本体被污染
-        block.push(bl.endsWith('\r') ? bl.slice(0, -1) : bl)
+        block.push(bl)
         i++
       }
       // E-9d：以块内非空行**最小缩进**为基准去缩进——此前按每行自身

@@ -490,6 +490,24 @@ describe('purgeTrash 条目写回 best-effort', () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+
+  // A-7：不可逆动作（主文件已物理删除）后的条目残留此前零留痕——补 warn 后
+  // 「已永久删除但条目仍在册」可诊断（口径同恢复链的清单登记失败）。
+  test('条目写回失败 → warn 留痕（不可逆动作已成，须可诊断）', async () => {
+    const { log } = await import('../../src/log/index.js')
+    const warn = vi.spyOn(log, 'warn')
+    ATOMIC_FAIL.failNextTrashWrite = true
+    const root = makeTrashedBook()
+    try {
+      const r = await purgeTrash(root, 'doc_a')
+      expect(r.ok).toBe(true) // best-effort 语义不变：写失败不上抛
+      expect(warn.mock.calls.flat().map(String).join(' ')).toContain('清单条目移除失败')
+    } finally {
+      warn.mockRestore()
+      ATOMIC_FAIL.failNextTrashWrite = false
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })
 
 // ── 章纲随迁批：无主章纲能力例外（判据 = 章号 ∈ 并入引用 ∪ 回收站正文章号集，
