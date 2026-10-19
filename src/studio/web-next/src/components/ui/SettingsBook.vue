@@ -15,6 +15,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { useDocStore } from '../../stores/doc'
 import { renameBook } from '../../api/books'
+import { getEventStoreFootprint, type EventStoreFootprint } from '../../api/health'
 import { notifyCrossWindow } from '../../shared/cross-window'
 import { friendlyError } from '../../shared/error'
 import { migrateBookKeyedState } from '../../composables/useShelf' // 改名迁移渲染层按书键控状态——删除链（useShelf deleteBooks）
@@ -74,6 +75,24 @@ function onAsNumChange(e: Event): void {
 const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
 const hasBook = computed(() => !!ws.bookName)
 
+/** 事件库体积读数（health/event-store）：null = 数据目录未配置 / 库不在位 / 读取失败——渲染缺省值 */
+const eventStore = ref<EventStoreFootprint | null>(null)
+
+/** 字节数人性化（口径同 SettingsBookRetention 的占用显示）。 */
+function formatBytes(n: number): string {
+  if (!n) return '0 B'
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+const eventStoreText = computed(() => {
+  const bytes = eventStore.value?.bytes
+  return bytes == null ? '—' : formatBytes(bytes)
+})
+/** 超阈指引里的阈值文案：只渲染服务端给的阈值原值，前端不另算超阈判据。 */
+const eventStoreThresholdText = computed(() => formatBytes(eventStore.value?.warnThresholdBytes ?? 0))
+
 const bookTitle = ref('')
 /** 打开设置时读到的书名基线：判断是否真的改了名（防同名重存触发无谓改名）。 */
 const titleBaseline = ref('')
@@ -103,6 +122,7 @@ watch(
     if (!name) {
       bookTitle.value = ''
       titleBaseline.value = ''
+      eventStore.value = null
       return
     }
     try {
@@ -110,11 +130,20 @@ watch(
       // 读不到（error 面）与失败同口径——书名留空展示
       const r = await ws.loadBookConfig(name)
       if (loadGen.stale(gen) || ws.bookName !== name) return // 双复检：代 + 书名
-      if (r.error) return
-      bookTitle.value = r.config.book?.title ?? ''
-      titleBaseline.value = bookTitle.value
+      if (!r.error) {
+        bookTitle.value = r.config.book?.title ?? ''
+        titleBaseline.value = bookTitle.value
+      }
     } catch {
       /* 读不到书名就留空展示 */
+    }
+    // 事件库体积读数：与书名同代守卫（在途旧书的迟到读数不落新书面板）；只读探测失败按缺省值
+    try {
+      const f = await getEventStoreFootprint(name)
+      if (loadGen.stale(gen) || ws.bookName !== name) return
+      eventStore.value = f.bytes == null ? null : f
+    } catch {
+      if (!loadGen.stale(gen) && ws.bookName === name) eventStore.value = null
     }
   },
   { immediate: true },
@@ -272,14 +301,24 @@ async function doBookTitleChange(): Promise<void> {
       <SettingsBookAnalysis />
       <SettingsBookRetention />
 
-      <template v-if="hasDesktop">
-        <div class="cfg-card-head">存储</div>
-        <section class="cfg-card">
-          <SettingItem name="书库目录" desc="在文件管理器中打开">
-            <button class="link-btn" @click="openBookDir">打开</button>
-          </SettingItem>
-        </section>
-      </template>
+      <!-- 存储：体积面健康项对作者可见（浏览器版也渲染——体积读数不依赖桌面 IPC），
+           仅「书库目录」需要桌面通道在文件管理器里打开 -->
+      <div class="cfg-card-head">存储</div>
+      <section class="cfg-card">
+        <SettingItem name="事件库">
+          <template #desc>
+            <span v-if="eventStore?.overThreshold" data-testid="event-store-hint">
+              已达提示阈值（{{ eventStoreThresholdText }}）：对话、审计与机检历史只增不减——可在「审计」页「清除事件史」、
+              或在对话面板「清空对话」回收这部分空间。
+            </span>
+            <span v-else>对话、审计与机检历史的数据库，不自动清理。</span>
+          </template>
+          <span class="backup-summary" data-testid="event-store-size">{{ eventStoreText }}</span>
+        </SettingItem>
+        <SettingItem v-if="hasDesktop" name="书库目录" desc="在文件管理器中打开">
+          <button class="link-btn" @click="openBookDir">打开</button>
+        </SettingItem>
+      </section>
     </template>
     <div v-else class="empty-tab">
       <BookOpen :size="28" />

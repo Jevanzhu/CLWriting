@@ -20,11 +20,16 @@ const mocks = vi.hoisted(() => ({
   renameBook: vi.fn(),
   routerReplace: vi.fn(),
   saveConfig: vi.fn(),
+  getEventStoreFootprint: vi.fn(),
 }))
 
 vi.mock('../../../../src/studio/web-next/src/api/books', () => ({
   getConfig: mocks.getConfig,
   renameBook: mocks.renameBook,
+}))
+
+vi.mock('../../../../src/studio/web-next/src/api/health', () => ({
+  getEventStoreFootprint: mocks.getEventStoreFootprint,
 }))
 
 vi.mock('../../../../src/studio/web-next/node_modules/vue-router', () => ({
@@ -61,6 +66,8 @@ beforeEach(() => {
     kind: 'long',
     book: { title: '旧名' },
   } satisfies BookConfig)
+  // 体积读数缺省 = 空态（库不在位/数据目录未配置）；体积相关用例各自覆盖
+  mocks.getEventStoreFootprint.mockResolvedValue({ bytes: null, overThreshold: false, warnThresholdBytes: 0 })
 })
 
 describe('SettingsBook 书名全量改名', () => {
@@ -259,5 +266,33 @@ describe('SettingsBook 编辑排版覆盖组（纸张宽度/自动保存 书级�
     await wrapper.find('input[aria-label="本书独立设定自动保存"]').setValue(false)
     expect(prefs.bookAutosaveInterval).toBeNull()
     expect(prefs.get('autosaveInterval')).toBe(60) // 关闭不动全局
+  })
+})
+
+describe('D8：存储组事件库体积（health/event-store 只读读数）', () => {
+  it('未超阈 → 显示体积；无清理指引（超阈标记由服务端给，前端不另算）', async () => {
+    mocks.getEventStoreFootprint.mockResolvedValue({
+      bytes: 12 * 1024 * 1024,
+      overThreshold: false,
+      warnThresholdBytes: 1024 * 1024 * 1024,
+    })
+    const wrapper = await mountOpen()
+    expect(mocks.getEventStoreFootprint).toHaveBeenCalledWith('旧名')
+    expect(wrapper.find('[data-testid="event-store-size"]').text()).toBe('12.0 MB')
+    expect(wrapper.find('[data-testid="event-store-hint"]').exists()).toBe(false)
+  })
+
+  it('超阈 → 体积 + 「清除事件史/清空对话」人话指引（阈值文案取服务端原值）', async () => {
+    mocks.getEventStoreFootprint.mockResolvedValue({
+      bytes: 1500 * 1024 * 1024,
+      overThreshold: true,
+      warnThresholdBytes: 1024 * 1024 * 1024,
+    })
+    const wrapper = await mountOpen()
+    expect(wrapper.find('[data-testid="event-store-size"]').text()).toBe('1500.0 MB')
+    const hint = wrapper.find('[data-testid="event-store-hint"]').text()
+    expect(hint).toContain('1024.0 MB') // 阈值原值即服务端那一份，前端不另算数字
+    expect(hint).toContain('清除事件史')
+    expect(hint).toContain('清空对话')
   })
 })

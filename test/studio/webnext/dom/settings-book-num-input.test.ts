@@ -16,6 +16,10 @@ import { usePrefsStore } from '../../../../src/studio/web-next/src/stores/prefs'
 import { createLocalStorage } from '../../../helpers/local-storage.js'
 
 const mocks = vi.hoisted(() => ({ getConfig: vi.fn(), renameBook: vi.fn() }))
+// 事件库体积读数（health/event-store）：SettingsBook 挂载即拉——本文件给缺省空态，不落真 fetch 噪音
+vi.mock('../../../../src/studio/web-next/src/api/health', () => ({
+  getEventStoreFootprint: vi.fn(async () => ({ bytes: null, overThreshold: false, warnThresholdBytes: 0 })),
+}))
 vi.mock('../../../../src/studio/web-next/src/api/books', () => ({
   getConfig: mocks.getConfig,
   renameBook: mocks.renameBook,
