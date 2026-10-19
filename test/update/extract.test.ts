@@ -171,3 +171,33 @@ describe('extractZipTo（解压主流程）', () => {
     await expect(extractZipTo(zip, s.dest)).rejects.toThrow()
   })
 })
+
+describe('extractZipTo 上限（解压炸弹面：包是远端输入，条目数与总字节都有红线）', () => {
+  it('条目数超上限 → 抛错，超限条目零写入', async () => {
+    const s = scene()
+    const zip = s.zipOf([
+      { name: 'a.txt', data: 'a' },
+      { name: 'b.txt', data: 'b' },
+      { name: 'c.txt', data: 'c' },
+    ])
+    await expect(extractZipTo(zip, s.dest, { maxEntries: 2 })).rejects.toThrow(/条目数/)
+    expect(existsSync(join(s.dest, 'c.txt'))).toBe(false)
+  })
+
+  it('解压总字节超上限 → 抛错（按声明解压尺寸累计，超限条目落盘前拦下）', async () => {
+    const s = scene()
+    const zip = s.zipOf([
+      { name: 'a.bin', data: 'a'.repeat(100) },
+      { name: 'b.bin', data: 'b'.repeat(100) },
+    ])
+    await expect(extractZipTo(zip, s.dest, { maxTotalBytes: 150 })).rejects.toThrow(/总字节/)
+    expect(existsSync(join(s.dest, 'b.bin'))).toBe(false)
+  })
+
+  it('调用方限额只能收紧：超出绝对上限的入参被压回红线', async () => {
+    const { EXTRACT_MAX_TOTAL_BYTES, resolveExtractLimits } = await import('../../src/update/extract.js')
+    expect(resolveExtractLimits({ maxTotalBytes: EXTRACT_MAX_TOTAL_BYTES * 2 }).maxTotalBytes).toBe(EXTRACT_MAX_TOTAL_BYTES)
+    expect(resolveExtractLimits({ maxEntries: 3 }).maxEntries).toBe(3)
+    expect(resolveExtractLimits().maxEntries).toBeGreaterThan(3)
+  })
+})

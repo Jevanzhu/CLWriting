@@ -146,7 +146,7 @@ function serveRelease(): void {
             assets: [
               {
                 name: ASSET_NAME,
-                browser_download_url: 'https://objects.test/z.zip',
+                browser_download_url: 'https://objects.githubusercontent.com/z.zip',
                 size: ZIP_BYTES.length,
                 digest: `sha256:${ZIP_SHA}`,
               },

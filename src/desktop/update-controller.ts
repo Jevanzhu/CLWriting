@@ -34,8 +34,8 @@ import {
   UPDATE_RESULT_MESSAGE_TYPE,
   type LatestReleaseOutcome,
 } from '../update/check.js'
-import { pickChecksumsUrl, pickPortableAsset, type UpdateAsset } from '../update/asset.js'
-import { downloadUpdateZip, sha256OfFile } from '../update/download.js'
+import { pickPortableAsset, type UpdateAsset } from '../update/asset.js'
+import { downloadUpdateZip, releaseChecksumsUrl, sha256OfFile } from '../update/download.js'
 import { UPDATE_RESULT_FILENAME, updateCacheDir, updateCacheRoot } from '../update/cache.js'
 import { currentWorkDir, isRelaunchPending } from './workdir-controller.js'
 import { APPLY_UPDATE_FLAG, otherInstancesRunning, PORTABLE_EXE_NAME, spawnDetachedProcess } from './update-helper.js'
@@ -178,7 +178,9 @@ export async function startUpdateDownload(opts: {
       fileName: asset.name,
       size: asset.size,
       sha256: asset.sha256,
-      checksumsUrl: pickChecksumsUrl(release.assets),
+      // 校验清单地址由编译期仓常量与 tag 派生（不取本次发布响应里的地址）：校验值不得与
+      // 被校验对象同出自一次可被篡改的响应，见 update/download 头注
+      checksumsUrl: releaseChecksumsUrl(release.tag),
       fetchImpl: netFetch,
       signal: controller.signal,
       onProgress: opts.onProgress,
@@ -218,6 +220,13 @@ export function prepareUpdateApply(opts: { version: string }): UpdateIpcResult {
   const pending = getPending()
   if (!pending) return { ok: false, reason: '更新包尚未就绪，请先下载' }
   if (pending.toVersion !== opts.version.replace(/^v/, '')) return { ok: false, reason: '版本已变化，请重新检查更新' }
+  // fail-closed 防降级：与检查链（update/check.ts 的 `tag <= current` 直接返回）同向断言。
+  // 不依赖上游纪律——前端传参、内存态残留、未来接线任一环漂移都不得把旧版本装回。
+  const fromVersion = app.getVersion()
+  const cmp = compareSemver(pending.toVersion, fromVersion)
+  if (!Number.isFinite(cmp) || cmp <= 0) {
+    return { ok: false, reason: `只能安装更高的版本（当前 ${fromVersion}，目标 ${pending.toVersion}），已拒绝` }
+  }
   if (isRelaunchPending()) return { ok: false, reason: '应用正在切换书库，请稍后再试' }
   if (otherInstancesRunning(appDataHomeDir(), currentInstanceKey())) {
     return { ok: false, reason: '还有其他书库的窗口在运行，请先关闭它们再更新' }

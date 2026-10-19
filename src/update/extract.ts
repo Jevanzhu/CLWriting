@@ -7,7 +7,9 @@
  *  - 条目名一律按 `/` 与 `\` 双分隔符切段，含 `..` 段 / 盘符形态 / 空名 → 整体失败；
  *  - 符号链接条目（unix 模式位 S_IFLNK）→ 整体失败，不跟随；
  *  - 落盘前再按解析后的绝对路径复核一次「在目标目录内」（双保险，防归一化绕过）；
- *  - 只放行常规文件与目录；加密条目与非常规压缩方法（只支持 0 与 8）→ 整体失败。
+ *  - 只放行常规文件与目录；加密条目与非常规压缩方法（只支持 0 与 8）→ 整体失败；
+ *  - **条目数与解压总字节有上限**（`resolveExtractLimits`）：「包有多大」由远端说了算，
+ *    无上限等于把磁盘交给对方（高压缩比包 = 解压炸弹）。上限是红线，调用方只能收紧。
  *
  * 失败一律抛错并**不清理**目标目录：调用方（更新助手）按 `extract-failed` 收口时
  * 会整目录删掉半成品。
@@ -23,6 +25,29 @@ const S_IFMT = 0o170000
 const S_IFLNK = 0o120000
 const S_IFREG = 0o100000
 const S_IFDIR = 0o040000
+
+/** 绝对上限：条目数（正常 Electron 便携包数千条目） */
+export const EXTRACT_MAX_ENTRIES = 20_000
+/** 绝对上限：解压后总字节（正常便携包解压后与包体同量级） */
+export const EXTRACT_MAX_TOTAL_BYTES = 3 * 1024 ** 3
+
+export interface ExtractLimits {
+  maxEntries: number
+  maxTotalBytes: number
+}
+
+/**
+ * 合并调用方限额与绝对上限：逐项取小——上限是红线，调用方只能在红线之下收紧。
+ * 非正 / 非有限值按绝对上限处理，避免 `0` 这类退化入参把正常包全判失败。
+ */
+export function resolveExtractLimits(limits?: Partial<ExtractLimits>): ExtractLimits {
+  const pick = (given: number | undefined, hard: number): number =>
+    typeof given === 'number' && Number.isFinite(given) && given > 0 ? Math.min(given, hard) : hard
+  return {
+    maxEntries: pick(limits?.maxEntries, EXTRACT_MAX_ENTRIES),
+    maxTotalBytes: pick(limits?.maxTotalBytes, EXTRACT_MAX_TOTAL_BYTES),
+  }
+}
 
 /** 条目 unix 模式位（宿主非 unix 造的包没有可信模式位 → null = 按常规文件对待） */
 function unixModeOf(entry: Entry): number | null {
@@ -70,11 +95,33 @@ async function extractEntry(zip: ZipFile, entry: Entry, destDir: string): Promis
   await pipeline(src, createWriteStream(target, { mode: 0o644 }))
 }
 
-/** 把 zip 解压到 destDir（目录不存在则建）；任何条目不合规即抛错，已落盘的部分由调用方清理 */
-export async function extractZipTo(zipPath: string, destDir: string): Promise<void> {
+/**
+ * 把 zip 解压到 destDir（目录不存在则建）；任何条目不合规或**超出上限**即抛错，
+ * 已落盘的部分由调用方清理。
+ *
+ * 累计口径 = 条目的**声明解压尺寸**：`validateEntrySizes: true` 会让 yauzl 校验实际
+ * 解压流长度与声明一致（不符即抛），故声明值即实际写入量的上界；超限条目在落盘前就被
+ * 拦下（不会先写满盘再报错）。
+ */
+export async function extractZipTo(
+  zipPath: string,
+  destDir: string,
+  limits?: Partial<ExtractLimits>,
+): Promise<void> {
+  const cap = resolveExtractLimits(limits)
   const zip = await openPromise(zipPath, { lazyEntries: true, decodeStrings: true, validateEntrySizes: true })
+  let entries = 0
+  let totalBytes = 0
   try {
     for await (const entry of zip.eachEntry()) {
+      entries += 1
+      if (entries > cap.maxEntries) {
+        throw new Error(`包内条目数超过上限（${cap.maxEntries}），已中止解压`)
+      }
+      totalBytes += entry.uncompressedSize
+      if (totalBytes > cap.maxTotalBytes) {
+        throw new Error(`包内解压总字节超过上限（${cap.maxTotalBytes}），已中止解压`)
+      }
       await extractEntry(zip, entry, destDir)
     }
   } finally {

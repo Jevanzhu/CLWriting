@@ -52,7 +52,7 @@ vi.mock('../../src/desktop/update-helper.js', async (importOriginal) => ({
 const ZIP_BYTES = Buffer.from('fake-portable-zip-payload')
 const ZIP_SHA = createHash('sha256').update(ZIP_BYTES).digest('hex')
 const ASSET_NAME = 'CLWriting-1.0.0-x64.zip'
-const ASSET_URL = 'https://objects.test/CLWriting-1.0.0-x64.zip'
+const ASSET_URL = 'https://objects.githubusercontent.com/CLWriting-1.0.0-x64.zip'
 
 const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')
 
@@ -70,6 +70,9 @@ let savedForce: string | undefined
 
 beforeEach(() => {
   M.isPackaged = true
+  // 安装闸的防降级断言比的是「当前版本 vs 目标版本」：闸用例的目标恒为 1.0.0，
+  // 故当前版本取更低值（真机上升级时旧版本也正是更低值）
+  M.appVersion = '0.9.0'
   M.netFetchCalls.length = 0
   M.netFetchResponse = null
   M.logWarns.length = 0
@@ -103,7 +106,7 @@ function releasesResponse(version: string, asset: Record<string, unknown> | null
         assets: asset
           ? [
               { name: ASSET_NAME, browser_download_url: ASSET_URL, size: ZIP_BYTES.length, ...asset },
-              { name: 'SHA256SUMS.txt', browser_download_url: 'https://objects.test/SHA256SUMS.txt' },
+              { name: 'SHA256SUMS.txt', browser_download_url: 'https://objects.githubusercontent.com/SHA256SUMS.txt' },
             ]
           : [],
       },
@@ -232,7 +235,63 @@ describe('startUpdateDownload（发布信息重取 + 流式下载 + 缓存复用
   })
 })
 
+describe('更新链地址信任面（白名单 + 校验清单派生）', () => {
+  it('地址白名单：发布域主机可信、其余不可信（非法 URL 亦不可信）', async () => {
+    const { isTrustedUpdateUrl } = await import('../../src/update/download.js')
+    expect(isTrustedUpdateUrl('https://github.com/Jevanzhu/CLWriting/releases/download/v1.0.0/a.zip')).toBe(true)
+    expect(isTrustedUpdateUrl('https://objects.githubusercontent.com/a.zip')).toBe(true)
+    expect(isTrustedUpdateUrl('https://api.github.com/repos/Jevanzhu/CLWriting/releases')).toBe(true)
+    expect(isTrustedUpdateUrl('https://evil.test/a.zip')).toBe(false)
+    expect(isTrustedUpdateUrl('https://github.com.evil.test/a.zip')).toBe(false)
+    expect(isTrustedUpdateUrl('not a url')).toBe(false)
+  })
+
+  it('校验清单地址由编译期仓常量与 tag 派生（不取发布响应里的地址）', async () => {
+    const { releaseChecksumsUrl } = await import('../../src/update/download.js')
+    expect(releaseChecksumsUrl('v1.0.0')).toBe(
+      'https://github.com/Jevanzhu/CLWriting/releases/download/v1.0.0/SHA256SUMS.txt',
+    )
+  })
+
+  it('资产地址不在发布域白名单 → 下载拒且零出站（不把「下哪个文件」交给可篡改的响应）', async () => {
+    setPlatform('win32')
+    M.netFetchResponse = (url: string) => {
+      if (url.includes('api.github.com')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          json: async () => [
+            {
+              tag_name: 'v1.0.0',
+              draft: false,
+              assets: [{ name: ASSET_NAME, browser_download_url: 'https://evil.test/x.zip', size: ZIP_BYTES.length }],
+            },
+          ],
+          body: { cancel: async () => {} },
+        }
+      }
+      return zipResponse(ZIP_BYTES)
+    }
+    const r = await startUpdateDownload({ version: '1.0.0', onProgress: () => {} })
+    expect(r.ok).toBe(false)
+    expect(String(r.reason)).toContain('下载失败')
+    expect(M.netFetchCalls.filter((u) => u.includes('evil.test'))).toEqual([])
+    expect(__getPendingUpdateForTest()).toBeNull()
+    expect(existsSync(join(updateCacheDir(M.userData, '1.0.0'), ASSET_NAME))).toBe(false)
+  })
+})
+
 describe('prepareUpdateApply（四道闸）', () => {
+  it('目标版本不高于当前版本 → 拒（fail-closed 防降级：全链任一环节漂移都不得把旧版装回）', () => {
+    setPlatform('win32')
+    M.appVersion = '2.0.0'
+    __setPendingUpdateForTest({ zipPath: '/tmp/z.zip', sha256: 'a'.repeat(64), toVersion: '1.0.0' })
+    const r = prepareUpdateApply({ version: '1.0.0' })
+    expect(r.ok).toBe(false)
+    expect(String(r.reason)).toContain('更高的版本')
+  })
+
   beforeEach(() => setPlatform('win32'))
 
   it('就绪态缺失 → 拒（先下载）', () => {

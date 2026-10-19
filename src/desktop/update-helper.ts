@@ -3,18 +3,30 @@
  * 一次性进程，在旧应用退出后把新版本目录换到位。
  *
  * 为什么必须是**独立进程**（而不是旧应用退出前自己换）：Windows 上运行中的 exe 被文件锁
- * 保护，自己所在的目录改名必然失败（见设计方案 §4.3 的前置验证项）。主进程入口在装配
- * 应用形态之前分流到本模块（main.ts 顶部），因此助手态**不请求单实例锁、不起 server、
- * 不开窗**——它就是一段等待 + 改名 + 拉起的顺序逻辑。
+ * 保护，自己所在的目录改名必然失败。主进程入口在装配应用形态之前分流到本模块（main.ts
+ * 顶部），因此助手态**不请求单实例锁、不起 server、不开窗**——它就是一段等待 + 改名 +
+ * 拉起的顺序逻辑。
  *
  * 失败面三态（结果条 `update/cache.ts` 的 outcome）：
  *  - `aborted`：一字节未动（预检不过 / 旧进程不退出 / 包体校验失败）——目标目录原样；
  *  - `rolled-back`：改名换到一半失败，已把旧目录还原（用户下次双击仍是旧版可用）；
  *  - `applied`：换新完成（唯一会拉起新 exe 的结局）。
  *
+ * 来源与方向校验（argv 是外部输入，本进程以用户权限运行，且**要改名与递归删目录**）：
+ *  - 目标目录只认两种形态——自身镜像所在目录（就地启动），或本应用装配的暂存副本位
+ *    `<home>/更新缓存/<目标版本>/helper`（控制器 `stageHelperDir` 同式；助手从暂存副本
+ *    运行是预设形态，见 update-controller 的装配注）；
+ *  - 包体只认共享根更新缓存内的文件；`--sha256` 缺失即拒绝（无锚包体不解压）；
+ *  - 版本方向 fail-closed：`compareSemver(to, from) > 0` 恒须成立（与检查链同向），
+ *    全链任一环漂移都不得把旧版装回。
+ *  三者任一不符即拒绝，且**不写结果条**——结果条落点同样是 argv 给的。
+ *
+ * 解压上限：包体字节 × `EXTRACT_BYTES_FACTOR` 下发到解压面（绝对上限由 `update/extract`
+ * 兜底），超限即整体失败并清掉半成品目录。
+ *
  * 中断自愈：本进程可能在「目标已改名、新版未就位」的窄窗内被杀（断电/任务管理器）。
  * 此时磁盘上只剩 `<target>.old-<旧版本>`，而快捷方式指向的 `<target>` 已不存在——用户
- * 下次双击会落空。还原触发点只有一处：**下一次助手启动**（`runUpdateHelper` 第 0 步的
+ * 下次双击会落空。还原触发点只有一处：**下一次助手启动**（`runUpdateHelper` 的
  * `recoverInterruptedSwap` 把最近残留改回 target，再走正常流程）——其他启动形态都不还原：
  * 启动维护在 target 缺席时只保留 `.old-*` 不擦除（见 update-controller），普通双击应用则
  * 根本起不来（应用目录缺席）。故该残留会一直留在盘上，直到下一次更新流程把助手拉起来；
@@ -22,15 +34,22 @@
  */
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, rmSync, statfsSync, statSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import { renameWithRetry } from '../fs/atomic.js'
 import { queryLockHeld } from '../fs/cross-process-lock.js'
 import { isProcessAlive } from '../fs/process-alive.js'
 import { APP_INSTANCE_LOCK_FILE } from './app-instance-guard.js'
 import { errMsg, log } from '../log/index.js'
-import { writeUpdateAttemptNote, type UpdateOutcome, type UpdateReason } from '../update/cache.js'
+import {
+  updateCacheDir,
+  updateCacheRoot,
+  writeUpdateAttemptNote,
+  type UpdateOutcome,
+  type UpdateReason,
+} from '../update/cache.js'
 import { sha256OfFile } from '../update/download.js'
-import { extractZipTo } from '../update/extract.js'
+import { compareSemver } from '../update/semver.js'
+import { extractZipTo, type ExtractLimits } from '../update/extract.js'
 
 /** 助手态判决旗（main.ts 顶部据此分流；只要 argv 含本旗就绝不按应用形态启动） */
 export const APPLY_UPDATE_FLAG = '--apply-update'
@@ -43,6 +62,9 @@ const WAIT_PID_POLL_MS = 250
 
 /** 空间预检的倍数（包体 × N）——解压产物通常与包体同量级，留一倍余量再叠旧目录占用 */
 const SPACE_FACTOR = 3
+
+/** 解压字节上限的倍数（包体 × N）——正常便携包解压后与包体同量级，留压缩比余量 */
+export const EXTRACT_BYTES_FACTOR = 10
 
 /** 便携包内 exe 名（electron-builder productName 口径；助手拉起新版的默认目标） */
 export const PORTABLE_EXE_NAME = 'CLWriting.exe'
@@ -62,7 +84,7 @@ export interface ApplyUpdateInvocation {
   relaunchArgs: string[]
   /** 新版 exe 绝对路径（缺省 `<targetDir>/CLWriting.exe`） */
   exePath: string | null
-  /** 包体期望 sha256（换代前复核；null = 不复核，仅测试/降级形态） */
+  /** 包体期望 sha256（换代前复核；null = 无锚——生产链路拒绝执行，见 refuseUntrustedInvocation） */
   sha256: string | null
   /** 结果条与维护日志落点（共享根；null = 不写结果条） */
   homeDir: string | null
@@ -110,13 +132,80 @@ export function parseApplyUpdateArgv(argv: readonly string[]): ApplyUpdateInvoca
   }
 }
 
-/** 目录删除（递归 + 静默）——失败残留交下次启动维护清扫，不反转主流程结局 */
-function rmDirQuietly(path: string): void {
+/** 目录删除（递归 + 静默，无 asar 叶处理——助手进程已 `process.noAsar = true`）；
+ *  与 update-controller 的 `rmDirQuietly`（asar 叶摘除 + 重试，应用进程口径）语义不同，
+ *  故分别命名，误引即「asar 目录删不掉」类缺陷复现。 */
+function rmDirQuietlyPlain(path: string): void {
   try {
     rmSync(path, { recursive: true, force: true })
   } catch {
     /* 瞬时占用/权限：残留不阻断（下次助手起手或启动维护再清） */
   }
+}
+
+/** 目录同一判定（win 盘符/大小写不敏感；两侧都按 resolve 归一化分隔符） */
+function sameDir(a: string, b: string): boolean {
+  const ra = resolve(a)
+  const rb = resolve(b)
+  return process.platform === 'win32' ? ra.toLowerCase() === rb.toLowerCase() : ra === rb
+}
+
+/** 暂存副本位（与 update-controller 的 `helperStageDir` 同式：`<home>/更新缓存/<版本>/helper`；
+ *  两处必须逐字一致——来源校验以它判定「助手确实是本应用装配的暂存副本」）。 */
+function stagedHelperDir(homeDir: string, toVersion: string): string {
+  return join(updateCacheDir(homeDir, toVersion), 'helper')
+}
+
+const SHA256_HEX_RE = /^[0-9a-f]{64}$/
+
+/** 路径是否落在某目录之内（win 大小写不敏感；先 resolve 归一化分隔符再比前缀） */
+function isInsideDir(path: string, dir: string): boolean {
+  const p = resolve(path)
+  const d = resolve(dir)
+  const hit = process.platform === 'win32' ? p.toLowerCase().startsWith(d.toLowerCase() + sep) : p.startsWith(d + sep)
+  return hit
+}
+
+/**
+ * 来源与版本方向校验（fail-closed；先于任何盘面动作，包括中断自愈的改名）。
+ * 返回拒绝原因（人话，只落日志），null = 放行。
+ */
+export function refuseUntrustedInvocation(
+  inv: ApplyUpdateInvocation,
+  opts: { execPath: string; allowUnanchoredPayload: boolean },
+): string | null {
+  const targetHasExe = existsSync(join(inv.targetDir, PORTABLE_EXE_NAME))
+  // 目标缺席是「已改名未就位」的中断现场（要还原的正是它）：此时认可 `.old-<旧版本>`
+  // 残留内的便携 exe——还原源仍是本应用目录的产物，不是随手可指的任意目录
+  const residueHasExe =
+    !existsSync(inv.targetDir) && existsSync(join(`${inv.targetDir}.old-${inv.fromVersion}`, PORTABLE_EXE_NAME))
+  if (!targetHasExe && !residueHasExe) {
+    return `目标目录内无 ${PORTABLE_EXE_NAME}（且无可还原的中断残留）：${inv.targetDir}`
+  }
+  const imageDir = dirname(opts.execPath)
+  const inPlace = sameDir(inv.targetDir, imageDir)
+  const staged = inv.homeDir !== null && sameDir(imageDir, stagedHelperDir(inv.homeDir, inv.toVersion))
+  if (!inPlace && !staged) {
+    return `目标目录 ${inv.targetDir} 既非助手镜像目录（${imageDir}），也非本应用装配的暂存副本位`
+  }
+  if (!inv.homeDir) return '缺少 --home：无法确认包体落在更新缓存内'
+  if (!isInsideDir(inv.payloadZip, updateCacheRoot(inv.homeDir))) {
+    return `包体不在更新缓存内：${inv.payloadZip}`
+  }
+  if (!opts.allowUnanchoredPayload) {
+    const given = inv.sha256?.trim().toLowerCase() ?? ''
+    if (!SHA256_HEX_RE.test(given)) return '包体缺少可用的 sha256 锚：拒绝解压不可校验的包'
+  }
+  let cmp: number
+  try {
+    cmp = compareSemver(inv.toVersion, inv.fromVersion)
+  } catch {
+    return `版本串无法比较：${inv.fromVersion} → ${inv.toVersion}`
+  }
+  if (!Number.isFinite(cmp) || cmp <= 0) {
+    return `目标版本不高于当前版本（${inv.fromVersion} → ${inv.toVersion}）：拒绝降级安装`
+  }
+  return null
 }
 
 /**
@@ -184,9 +273,13 @@ export interface UpdateHelperDeps {
   sleep?: (ms: number) => Promise<void>
   now?: () => number
   spawnDetached?: (exe: string, args: string[]) => Promise<boolean>
-  extract?: (zipPath: string, dir: string) => Promise<void>
+  extract?: (zipPath: string, dir: string, limits?: Partial<ExtractLimits>) => Promise<void>
   instancesRunning?: (homeDir: string) => boolean
   sha256Of?: (path: string) => Promise<string>
+  /** 助手自身镜像路径（来源校验基准；缺省 `process.execPath`）——测试注入 */
+  execPath?: string
+  /** 显式放行「无 sha256 锚的包体」（测试专项开关；生产恒 false = 拒绝） */
+  allowUnanchoredPayloadForTest?: boolean
 }
 
 function sleepMs(ms: number): Promise<void> {
@@ -243,6 +336,7 @@ async function waitForExit(
 /**
  * 预检：包体在位且复核一致 + 无其他实例在跑。返回不放行的原因（null = 通过）。
  * 只读不写——目标目录原样保留，调用方据此决定是否把旧应用还给用户。
+ * `sha256` 由来源校验保证有值（除测试开关放行形态），故此处复核恒被走到。
  */
 async function precheck(
   inv: ApplyUpdateInvocation,
@@ -258,7 +352,7 @@ async function precheck(
       log.warn('update', `包体复核失败（${inv.payloadZip}）：${errMsg(e)}`)
       return 'payload-missing'
     }
-    if (actual !== inv.sha256.toLowerCase()) return 'payload-corrupt'
+    if (actual !== inv.sha256.trim().toLowerCase()) return 'payload-corrupt'
   }
   if (inv.homeDir && instancesRunning(inv.homeDir)) {
     // 其他库的窗口还开着：换目录会抽掉它们的运行底座（同库不同库都一样——
@@ -270,7 +364,7 @@ async function precheck(
 
 /** 建新版目录 + 空间预检（半成品目录先清）；返回不放行的原因（null = 通过） */
 function prepareWorkDir(newDir: string, targetDir: string, payloadZip: string): UpdateReason | null {
-  rmDirQuietly(newDir) // 上次失败留下的半成品目录（存在即说明没换成）
+  rmDirQuietlyPlain(newDir) // 上次失败留下的半成品目录（存在即说明没换成）
   try {
     mkdirSync(newDir, { recursive: true })
   } catch {
@@ -279,7 +373,7 @@ function prepareWorkDir(newDir: string, targetDir: string, payloadZip: string): 
   const free = freeSpaceOf(dirname(targetDir))
   const zipSize = sizeOfFile(payloadZip)
   if (free !== null && zipSize > 0 && free < zipSize * SPACE_FACTOR) {
-    rmDirQuietly(newDir)
+    rmDirQuietlyPlain(newDir)
     return 'no-space'
   }
   return null
@@ -293,23 +387,23 @@ function prepareWorkDir(newDir: string, targetDir: string, payloadZip: string): 
  */
 function swapDirs(targetDir: string, newDir: string, oldDir: string): UpdateReason | null {
   try {
-    rmDirQuietly(oldDir) // 同版本历史残留（正常不该有；有则是上次同版本失败的重试）
+    rmDirQuietlyPlain(oldDir) // 同版本历史残留（正常不该有；有则是上次同版本失败的重试）
     renameWithRetry(targetDir, oldDir)
   } catch (e) {
     log.error('update', `应用目录改名失败（${targetDir} → ${oldDir}）：${errMsg(e)}`)
-    rmDirQuietly(newDir)
+    rmDirQuietlyPlain(newDir)
     return 'target-locked'
   }
   try {
     renameWithRetry(newDir, targetDir)
   } catch (e) {
-    // 回滚：把旧目录改回原位（新版目录留着——下次重试的 rmDirQuietly(newDir) 会清掉）
+    // 回滚：把旧目录改回原位（新版目录留着——下次重试的 rmDirQuietlyPlain(newDir) 会清掉）
     log.error('update', `新版目录就位失败，回滚：${errMsg(e)}`)
     try {
       renameWithRetry(oldDir, targetDir)
     } catch (rollbackErr) {
       // 双向失败：应用目录层面已无 target。`.old-` 留在盘上（启动维护在 target 缺席时
-      // 不再擦除它），留作下一次助手启动第 0 步 recoverInterruptedSwap 的还原源。
+      // 不再擦除它），留作下一次助手启动 recoverInterruptedSwap 的还原源。
       // 结果条仍按 rolled-back + 'swap-failed' 收口：该结局记「走了回滚链路」而非
       // 「已还原」的事实——本子例目录其实缺席，呈现层的「已还原」文案与现场的差口
       // 就在这里（还原要等下一次助手启动）。
@@ -323,7 +417,8 @@ function swapDirs(targetDir: string, newDir: string, oldDir: string): UpdateReas
 /**
  * 跑助手主流程（返回值即结局，供进程退出码）。
  * 出口纪律：**任何**结局都先写结果条（有 homeDir 时）再返回——结果条是新进程唯一的
- * 现场来源，写不进去（返回 false）时至少留一行日志。
+ * 现场来源，写不进去（返回 false）时至少留一行日志。例外只有一处：来源/方向校验拒绝的
+ * 形态（`refuseUntrustedInvocation`）不写结果条——那一支的结果条落点同样是不可信入参。
  */
 export async function runUpdateHelper(inv: ApplyUpdateInvocation, deps: UpdateHelperDeps = {}): Promise<UpdateOutcome> {
   const alive = deps.isProcessAlive ?? isProcessAlive
@@ -371,38 +466,50 @@ export async function runUpdateHelper(inv: ApplyUpdateInvocation, deps: UpdateHe
     return finish('aborted', reason)
   }
 
-  // 0. 中断自愈：target 缺席但有 .old- 残留 → 先还原（否则后续一切预检都建在废墟上）
+  // 0. 来源与方向校验（先于任何盘面动作；中断自愈的改名同样以 target 为轴，不得跑在校验前）
+  const refusal = refuseUntrustedInvocation(inv, {
+    execPath: deps.execPath ?? process.execPath,
+    allowUnanchoredPayload: deps.allowUnanchoredPayloadForTest === true,
+  })
+  if (refusal) {
+    log.error('update', `更新助手拒绝执行：${refusal}`)
+    return 'aborted'
+  }
+
+  // 1. 中断自愈：target 缺席但有 .old- 残留 → 先还原（否则后续一切预检都建在废墟上）
   recoverInterruptedSwap(targetDir)
   if (!existsSync(targetDir)) return finish('aborted', 'target-missing')
 
-  // 1. 等旧进程退出（含旧应用的渲染/保存链收尾——这是助手存在的前提）
+  // 2. 等旧进程退出（含旧应用的渲染/保存链收尾——这是助手存在的前提）
   if (!(await waitForExit(inv.pid, alive, sleep, now))) {
     // 旧应用还在前台：换掉它脚下的目录会把运行中的 exe 变孤儿——放弃且**不重启**
     //（用户面前已经有那个应用，再拉起一个只会双开）
     return finish('aborted', 'timeout')
   }
 
-  // 2. 预检（全部通过才动目标目录）
+  // 3. 预检（全部通过才动目标目录）
   const blocked = await precheck(inv, instancesRunning, sha256Of)
   if (blocked) return abortKeepingOld(blocked)
   const noRoom = prepareWorkDir(newDir, targetDir, inv.payloadZip)
   if (noRoom) return abortKeepingOld(noRoom)
 
-  // 3. 解压到 `-new-<版本>`（此步失败目标目录未动）
+  // 4. 解压到 `-new-<版本>`（此步失败目标目录未动）
   try {
-    await extract(inv.payloadZip, newDir)
+    const zipBytes = sizeOfFile(inv.payloadZip)
+    // 解压上限随包体收紧（见 update/extract 的绝对上限）：解压炸弹超限即整体失败
+    await extract(inv.payloadZip, newDir, zipBytes > 0 ? { maxTotalBytes: zipBytes * EXTRACT_BYTES_FACTOR } : undefined)
   } catch (e) {
     log.error('update', `解压失败：${errMsg(e)}`)
-    rmDirQuietly(newDir)
+    rmDirQuietlyPlain(newDir)
     return abortKeepingOld('extract-failed')
   }
 
-  // 4. 换目录（不可回头点）
+  // 5. 换目录（不可回头点）
   const swapReason = swapDirs(targetDir, newDir, oldDir)
   if (swapReason === 'swap-failed') return finish('rolled-back', 'swap-failed')
   if (swapReason) return abortKeepingOld(swapReason)
 
-  // 5. 拉起新版（换新已完成——拉起失败不影响结局，用户手动打开同样是新版）
+  // 6. 拉起新版（换新已完成——拉起失败不影响结局，用户手动打开同样是新版）
   const spawned = await relaunch(exePath)
   return finish('applied', spawned ? 'ok' : 'relaunch-failed')
 }

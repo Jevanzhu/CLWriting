@@ -1,12 +1,16 @@
 /**
  * 阶段 55：便携包下载（流式落盘 + 校验 + 原子改名）。
  *
- * 契约四则：
+ * 契约五则：
  *  - **先落 `.part`**：全程写 `<目标名>.part`，校验通过才 `rename` 成正式名——正式名
  *    存在 ⟺ 该文件已过校验，助手进程可据此免检复用（续传/断点不在本期）。
  *  - **不明字节不解压**：下载链与助手都要求 sha256 锚定。校验值优先用 GitHub API 的
  *    资产 `digest`，缺失时回落发布同批的 `SHA256SUMS.txt`；两者皆无 → **失败**（宁可
  *    停在「去下载」降级态，也不把不可校验的包交出去）。
+ *  - **地址过白名单**：包体地址与校验清单地址都在**任何出站之前**按主机白名单校验
+ *    （`isTrustedUpdateUrl`）——发布响应可被中间盒/代理篡改，凭它给的地址去取包等于
+ *    把「下哪个文件」的决定权交出去。清单地址另有独立获取路径：由编译期仓常量与 tag
+ *    派生（`releaseChecksumsUrl`），不取响应里的地址，免得校验值与被校验对象同源。
  *  - **失败/取消不留残迹**：`.part` 与半截文件一律删除（缓存目录不该越攒越脏）。
  *  - **出站走注入**：`fetchImpl` 缺省全局 fetch，主进程传 `net.fetch`（受系统代理，
  *    与 interface 一致），单测传桩——本模块自身不引入 Electron 依赖（可被 server 侧测试
@@ -18,13 +22,59 @@ import { mkdir, open, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { renameWithRetry } from '../fs/atomic.js'
 import { errMsg } from '../log/index.js'
-import { parseChecksums } from './asset.js'
+import { CHECKSUMS_ASSET_NAME, parseChecksums } from './asset.js'
 
 /** 进度回调节流（毫秒）——300MB 的包按 64KB 块约五千次回调，逐块过 IPC 是纯噪音 */
 const PROGRESS_THROTTLE_MS = 150
 
 /** 校验清单请求超时（毫秒；清单是小文件，等太久不如失败） */
 const CHECKSUMS_TIMEOUT_MS = 20000
+
+/** 发布仓（编译期常量）：下载地址与校验清单地址都由它派生，不取自发布响应 */
+export const UPDATE_REPO_SLUG = 'Jevanzhu/CLWriting'
+
+/** 下载地址白名单主机：GitHub 发布面（API 主机 / 网页与发布资产 / 资产 CDN） */
+export const UPDATE_URL_HOSTS: readonly string[] = [
+  'api.github.com',
+  'github.com',
+  'objects.githubusercontent.com',
+  'github-releases.githubusercontent.com',
+]
+
+/**
+ * 下载地址是否可信（fail-closed，非法 URL 一律不可信）。可信 = 白名单主机，或**回环地址
+ * 上的 http**（本机 http 桩与离线镜像；回环监听需要本机执行能力，远端篡改响应到不了这里）。
+ * 其余主机、非 http(s) 协议一律拒绝。
+ */
+export function isTrustedUpdateUrl(url: string): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return false
+  }
+  const host = parsed.hostname.toLowerCase()
+  if (UPDATE_URL_HOSTS.includes(host)) return true
+  return parsed.protocol === 'http:' && (host === '127.0.0.1' || host === 'localhost' || host === '[::1]')
+}
+
+/**
+ * 某 tag 的校验清单地址：`https://github.com/<仓>/releases/download/<tag>/SHA256SUMS.txt`。
+ * 发布步骤为每个 release 产同名资产（见 `asset.ts` 头注口径），故地址可由编译期仓常量
+ * 与 tag 直接派生——校验值的获取路径因此不依赖那次可被篡改的发布响应。
+ */
+export function releaseChecksumsUrl(tag: string): string {
+  return `https://github.com/${UPDATE_REPO_SLUG}/releases/download/${encodeURIComponent(tag)}/${CHECKSUMS_ASSET_NAME}`
+}
+
+/** 人话地址标识（拒绝文案用；非法 URL 不回声整个串，免得把注入内容带进日志） */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return '非法地址'
+  }
+}
 
 export interface UpdateDownloadProgress {
   received: number
@@ -33,7 +83,7 @@ export interface UpdateDownloadProgress {
 }
 
 export type UpdateDownloadFailureReason =
-  /** 请求失败/非 2xx/响应无体 */
+  /** 请求失败/非 2xx/响应无体/地址不可信 */
   | 'network'
   /** 无可用校验值，或校验不匹配 */
   | 'checksum'
@@ -61,7 +111,7 @@ export interface UpdateDownloadOptions {
   size?: number | null
   /** 期望 sha256（小写 hex；GitHub digest）；缺省时回落 checksumsUrl */
   sha256?: string | null
-  /** 校验清单地址（sha256 缺失时的来源） */
+  /** 校验清单地址（sha256 缺失时的来源；调用方用 `releaseChecksumsUrl` 派生） */
   checksumsUrl?: string | null
   fetchImpl?: typeof fetch
   signal?: AbortSignal
@@ -134,7 +184,7 @@ async function pumpBodyToPart(
   return received
 }
 
-/** 校验值解析：给定的 digest 优先，否则拉 SHA256SUMS.txt 解析；都没有 → null */
+/** 校验值解析：给定的 digest 优先，否则拉校验清单解析；都没有 → 错误 */
 async function resolveExpectedSha256(
   opts: UpdateDownloadOptions,
   fetchImpl: typeof fetch,
@@ -170,6 +220,7 @@ async function resolveExpectedSha256(
  * 下载便携包到 `destDir/fileName` 并校验。
  * 返回 `{ ok:true, zipPath, sha256 }`（sha256 = 实测值，供助手二次核验与复用锚）；
  * 失败三态见 `UpdateDownloadFailureReason`，任何失败路径都不留 `.part` 残迹。
+ * 两条地址都在任何 IO 之前过白名单：不可信即 `network` 失败（碎在出站之前）。
  */
 export async function downloadUpdateZip(opts: UpdateDownloadOptions): Promise<UpdateDownloadResult> {
   const fetchImpl = opts.fetchImpl ?? fetch
@@ -180,6 +231,19 @@ export async function downloadUpdateZip(opts: UpdateDownloadOptions): Promise<Up
       await rm(partPath, { force: true })
     } catch {
       /* 残留 .part 不影响正确性：下次下载起手即清 */
+    }
+  }
+
+  if (!isTrustedUpdateUrl(opts.url)) {
+    return {
+      ok: false,
+      failure: { reason: 'network', detail: `包体地址不在发布域白名单内（${hostOf(opts.url)}），已拒绝` },
+    }
+  }
+  if (opts.checksumsUrl && !isTrustedUpdateUrl(opts.checksumsUrl)) {
+    return {
+      ok: false,
+      failure: { reason: 'network', detail: `校验清单地址不在发布域白名单内（${hostOf(opts.checksumsUrl)}），已拒绝` },
     }
   }
 
