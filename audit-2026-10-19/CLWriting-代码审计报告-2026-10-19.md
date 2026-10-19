@@ -167,7 +167,7 @@
 ## 8. 无法判断项（合并，按「需要什么才能判」分类）
 
 **A. 需要运行时/真机实测（静态不可判）**
-1. ~~P1-01 的 `/book/A → /shelf` 真实导航时序与 `markRaw`/卸载竞态~~ → **已在 §11.6 实测判定**：`/book → /shelf` 是路由组件切换（Book 卸载），`useBookSwitchGuard` 的 `watch(bookName)` 随实例销毁，「脏路由」分支在该路径**不可达**；实际兜底 = 崩溃镜像保留（未执行 `setBook('')`）+ 再进书时的重挂决断。结论：**不永久丢失，但离书瞬间零提示**。
+1. ~~P1-01 的 `/book/A → /shelf` 真实导航时序与 `markRaw`/卸载竞态~~ → **已实测并修复**：该路径下 Book 卸载使 `watch(bookName)` 停止，「脏路由」分支**不可达**（原判「静默丢编辑」的机制描述不准确）；批1 已保证镜像不被清（不永久丢失），「零提示」残留由**提交前离书守卫**闭合（§11.6.1 / §11.7）。
 2. 关窗丢最后一段键入是否**必丢**（`useUnloadFlush.ts:90-110` 的卸载冲刷落定时机未逐行 + 未实测）。
 3. 真机平台语义：win `process.kill(pid,'SIGKILL')` 对 utilityProcess 效果、`EBUSY/EPERM` 在杀软占用下的分布、mac `app.relaunch` 时序、外置卷冻结残窗。
 4. C-03 的触发概率（`utimes` 瞬态失败频度）与 C-04 实际阻塞时长（等待档常量未读）。
@@ -319,13 +319,15 @@
 |---|---|
 | `/book/A → /shelf` 时走切书守卫的「脏路由」分支，`flushDirty` 失败仅 `console.warn` 后 `setBook('')` 清镜像 | **该分支在此路径不可达**：`/shelf` 与 `/book/:name` 是不同路由组件，Book 卸载 → 守卫的 `watch(bookName)` 随实例销毁，「脏路由」分支（要求 Book 仍挂载且 `bookName` 变 `''`）在真实导航下不执行 |
 
-**因此修复后的真实行为链（e2e 逐条钉住）**：
+**因此（修复前）的真实行为链**：
 
 1. 离书到 `/shelf`：**零决断窗**（可见面为零），但因未执行 `setBook('')`，**崩溃镜像保留**（`clw:dirty-mirror:<book>:<docId>` 仍在）→ 编辑**不永久丢失**；
 2. 再进任一本书：守卫按「重挂进书」路径运行，`prevBook` 取 doc store 权威书（应用级单例，离书时未被清）→ 检出保存失败 → 弹「有 N 个文档保存失败」；
 3. 选「留在本书」→ 回退原书路由，未落盘编辑仍在编辑器里（镜像 + 内存双兜底）。
 
-**判定**：P1-01 的「永久丢失」已被批1 闭合（镜像不再被清）；**「零提示」仍成立**——只是触发点从「离书时」后移到「再进书时」。若作者离书后不再进任何书、直接关应用，则全程只有 `console.warn`（`useUnloadFlush` 的 onUnmounted 留痕）+ 镜像兜底。此残留**未修复**（修法 = 给 Book.vue 加 `onBeforeRouteLeave` 异步守卫，属行为变更，待作者拍板）。
+**判定（修复前）**：P1-01 的「永久丢失」已被批1 闭合（镜像不再被清）；**「零提示」仍成立**——触发点从「离书时」后移到「再进书时」；若作者离书后不再进书直接关应用，全程只有 `console.warn` + 镜像兜底。
+
+**作者拍板「修」→ 已由 §11.7 闭合**（`onBeforeRouteLeave` 提交前离书守卫）。
 
 **e2e 计数变化**：35 spec / 59 用例 → **36 spec / 60 用例**（新增 spec 已按两步闸重拍 `spec-order.snapshot.txt`）。
 
@@ -352,6 +354,33 @@
 **复跑结果**：`vitest run --coverage --maxWorkers=2` **exit 0，阈值门全绿**——`src/knowledge` branches **85.88% → 86.8%**（门槛 86%），`corpus.ts` branches 78.46% → **83.07%**；全量 **1279 档通过 / 6 skipped；9850 例通过 / 77 skipped**（+5 条补测）。单测总数 9432 → **9437**（`check:counts` 口径）。
 
 **注**：本轮改动面为 `src/studio/server/**`（事件库体积端点）与 `src/knowledge/**`（补测），其中 `src/studio/server/**` 正属活账记的「已抬到规则上限的贴线桶」——本项即活账「触此四域先本地跑 coverage 自查」口径的落实。
+
+### 11.7 P1-01 残留修复：提交前离书守卫（作者拍板「修」后落地）
+
+**问题**（§11.6.1 实测确认）：`/book/A → /shelf` 时 Book 卸载、`watch(bookName)` 随实例停止，「脏路由」分支不可达 → 离书瞬间零提示，只有 `console.warn` + 镜像兜底。
+
+**修法**：`useBookSwitchGuard` 增加 `onBeforeRouteLeave`（与已有 `onBeforeRouteUpdate` 同族、同记录登记面分离），离书前复用同一 `flushAndAdjudicate` 完成冲刷与三段决断：
+
+| 分支 | 行为 |
+|---|---|
+| 无脏无冲突 | 不弹窗，直接落离书状态转移后放行 |
+| 冲刷失败 / 冲突未决 + 作者取消 | **返回 false 中止导航**——URL 与各 store 原封（零状态变更，故无需旧「先切后回滚」善后） |
+| 作者确认丢弃 | 先落离书状态转移（`leaveBook` 单源）再放行 |
+
+**配套重构**：把原先散在 watch 脏路由分支里的五行离书状态转移抽成 `leaveBook()` 单源（`lastBook=''` → `workbench.clear()` → `doc.setBook('')` → `ws.setBook('')` → 清六 store → `endBookSession()`），提交前守卫与 watch 兜底分支共用；转状态先归空 `lastBook`，使随后导航提交触发的 watch 命中「同书重入短路」，不二次执行。顺带清掉 watch 内那段「重挂进书 prevBook 近乎恒为 ''」的判定实验注释——离书守卫已把该前提变成确定事实。
+
+**验证**：
+
+| 面 | 结果 |
+|---|---|
+| 单测（真路由 + Book 挂载） | `book-switch-precommit-guard`：**10 例通过**，含新增登记锚（Book 在册期 `leaveGuards` 非空、卸载后归零）与会话作废断言 |
+| 落盘守卫面 | 受影响的 10 档测试桩补 `onBeforeRouteLeave` 后 **65 例通过** |
+| **变异验证** | ① 单测：把 `onBeforeRouteLeave` 调用点短路 → **2 例红**（行为例 + 登记锚）；② e2e：同样短路并重建产物 → e2e **红在「决断弹窗不出现」**。两处还原后 SHA256 一致 |
+| e2e（真实导航） | 改写后完整覆盖：离书弹窗 → 留在本书（URL/编辑/镜像全原封）→ 确认丢弃（离书 + 镜像清空）→ 再进书不二次追问；**单跑通过**，全量 **56 passed / exit 0** |
+| 全量终门 | `vitest run --maxWorkers=2`：**1279 档通过 / 6 skipped；9851 例通过 / 77 skipped**，exit 0；`tsc` / `vue-tsc` / `eslint --max-warnings 0` 全 0；九道门全绿 |
+| 计数 | 单测 9437 → **9438**（新增登记锚 1 例）；README 已对账 |
+
+**已知边界（诚实登记）**：`onBeforeRouteLeave` 只拦**路由内导航**。经命令面板「返回书架」、书架点击开书等客户端路由跳转均被覆盖；但**主进程关窗**（`before-quit`）不经过路由，仍由 `useUnloadFlush` 的关窗兜底链（`__clwFlushBeforeClose`）负责——该路径的可见提示由主进程原生确认框承担，不在本次改动面内。
 
 ---
 
