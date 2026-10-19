@@ -41,10 +41,25 @@ export function resolveDraftPath(
   // 1. 已有同章号 → 覆盖（已定稿章除外——覆盖定稿 = 静默摧毁作者已确认内容）
   if (existsSync(bodyDir)) {
     const { chapters, errors } = readChapterDir(bodyDir)
-    const hit = chapters.find((c) => c.章号 === chapter)
+    const hits = chapters.filter((c) => c.章号 === chapter && c._path)
+    // 同章号多份并存（跨卷重号/外部搬入的副本）：定位不唯一，覆盖写会按遍历序首个
+    // 改写另一份同号章（写盘基线与被写对象同源，revision 闸拦不住）。写路径 fail-loud
+    // （口径同 structure-merge 的跨卷重号拒合）；只读定位维持「取遍历序首个」原语义 + 留痕。
+    const hitPaths = [...new Set(hits.map((c) => slashRelative(bookRoot, c._path!)))]
+    const ambiguous = hitPaths.length > 1
+    const hit = hits[0]
     if (hit?._path) {
       const relPath = slashRelative(bookRoot, hit._path)
-      if (!opts?.forRead) ensureChapterNotFinalized(bookRoot, relPath, chapter)
+      if (!opts?.forRead) {
+        ensureChapterNotFinalized(bookRoot, relPath, chapter)
+        if (ambiguous) {
+          throw new Error(
+            `第 ${chapter} 章存在多份文件（${hitPaths.join('、')}），定位不唯一，拒绝保存覆盖；请先合并或删除重复章号文件`,
+          )
+        }
+      } else if (ambiguous) {
+        log.warn('draft', `第 ${chapter} 章存在多份文件（${hitPaths.join('、')}），只读定位取首个：${hitPaths[0]}`)
+      }
       return { relPath, existed: true }
     }
     // 同章号旧文件 fm **损坏**（fm 在但字段解析失败）时不再静默

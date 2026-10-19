@@ -23,6 +23,7 @@ import { withFakeProvider, tempUserData, makeDualTrackWorkdir, LONG_BOOK } from 
 import { runChat, clearChatHistory } from '../../src/ai/orchestrate/chat.js'
 import { histories } from '../../src/ai/orchestrate/chat/state.js'
 import { checkAiCallBudget } from '../../src/ai/calls.js'
+import { runSpec, type TaskSpec } from '../../src/ai/tasks/spec.js'
 import type { BookConfig } from '../../src/format/types.js'
 import type { ChatMsg } from '../../src/ai/provider/types.js'
 import type { DriverEvent } from '../../src/driver/types.js'
@@ -86,6 +87,164 @@ describe('R35-1：工具轮 assistant 事件 usage 与 chat_done 同用 attempts
       expect(assts[0]!.data['usage']).toEqual({ inputTokens: 110, outputTokens: 51 })
       // 末条 assistant（无工具完成轮，未重试）= 单 attempt 原值，口径不受影响
       expect(assts[1]!.data['usage']).toEqual({ inputTokens: 200, outputTokens: 60 })
+    },
+  )
+})
+
+describe('D1-01：两类一次性重发的首发用量并入回合封套（账本按次口径对齐）', () => {
+  let fake: FakeProvider
+  beforeAll(async () => {
+    fake = await createFakeProvider()
+  })
+  afterAll(async () => {
+    await fake.close()
+  })
+
+  it(
+    '超窗收缩重试：首发（截断 attempt + 超窗 attempt）与重试的用量合计进助理事件与 chat_done',
+    { timeout: 20_000 },
+    async () => {
+      const ud = tempUserData()
+      dirs.push(ud)
+      withFakeProvider(ud, fake.url)
+      const bookRoot = makeDualTrackWorkdir()
+      dirs.push(bookRoot)
+      const events: DriverEvent[] = []
+      // 肥历史给出可切边界（纯文本 user 边界）：首发超 20k 内预切并全量发出 → 400 超窗
+      const BIG = 'X'.repeat(6_000)
+      histories.set('d1-01-shrink-usage', [
+        { role: 'user', content: 'u0' + BIG },
+        { role: 'assistant', content: 'a0' },
+        { role: 'user', content: 'u1' + BIG },
+        { role: 'assistant', content: 'a1' },
+        { role: 'user', content: 'u2' + BIG },
+        { role: 'assistant', content: 'a2' },
+      ])
+      fake.setScript([
+        // 第 1 attempt：截断流（usage {10,1} 随 NETWORK 错上抛）→ runner 退避重试
+        { type: 'truncated', content: '半截', usage: { input: 10, output: 1 } },
+        // 第 2 attempt：超窗 400（零增量）→ runTask 终态失败，封套带 {10,1}
+        { type: 'error', status: 400, message: 'prompt is too long: 18015 tokens > 8000 maximum' },
+        // 收缩重试（第二次 runTask）：成功，usage {100,50}
+        { type: 'text', content: '收缩后回复。', usage: { input: 100, output: 50 } },
+      ])
+      await runChat({
+        driver: makeFakeDriver({ emitted: events }),
+        mainSession: { id: 's1', cwd: bookRoot, closed: false },
+        userDataPath: ud,
+        bookRoot,
+        bookName: 'd1-01-shrink-usage',
+        message: '继续',
+      })
+      // 线缆级证据：截断重试 attempt + 超窗首发 + 收缩重试恰三次
+      expect(fake.requestCount()).toBe(3)
+
+      const store = openSessionStore(ud, bookRoot)!
+      const evs = store.listEvents('d1-01-shrink-usage')
+      store.close()
+      const assts = evs.filter((e) => e.type === 'assistant/message')
+      // 修复前只有收缩重试段（{100,50}）——首发段的 {10,1} 只进账本不进封套
+      expect(assts.some((e) => JSON.stringify(e.data['usage']) === JSON.stringify({ inputTokens: 110, outputTokens: 51 }))).toBe(
+        true,
+      )
+      const done = events.find((e) => e.type === 'chat_done') as { inputTokens?: number; outputTokens?: number } | undefined
+      expect(done?.inputTokens).toBe(110)
+      expect(done?.outputTokens).toBe(51)
+
+      // D1-05：tool_choice 参数面随 llm/call 落库——成功 attempt 取实发值，失败 attempt
+      // 按调用方声明回落；本回合两次发送共三个 attempt（截断/超窗/收缩后成功）全记 'auto'
+      const ws = openSessionStore(ud, bookRoot)!
+      const llmCalls = ws.listEvents(bookHash(bookRoot)).filter((e) => e.type === 'llm/call')
+      ws.close()
+      expect(llmCalls).toHaveLength(3)
+      expect(llmCalls.every((e) => e.data['toolChoice'] === 'auto')).toBe(true)
+      histories.delete('d1-01-shrink-usage')
+    },
+  )
+})
+
+// D1-05 spec 侧：tool_choice 参数面的派生链端到端——
+// spec.tool → generateTool 按模型表把 requireTool 意图翻译为实发值 → SpecOutput.toolChoice
+// → runner extractToolChoice → llm/call.data.toolChoice。此回传断掉时，成功 attempt 的
+// llm/call 无值可落，事件里的实发参数面与真实请求静默分叉（重放不可精确重建）。
+describe('D1-05（spec 侧）：requireTool 派生 toolChoice 随 llm/call 落库', () => {
+  let fake: FakeProvider
+  beforeAll(async () => {
+    fake = await createFakeProvider()
+  })
+  afterAll(async () => {
+    await fake.close()
+  })
+
+  const TOOL_SPEC: TaskSpec = {
+    name: 'self-heal',
+    tierKind: 'creative',
+    genMode: 'tool',
+    systemPrompt: 's',
+    tool: { def: { name: 'submit_x', description: 'd', input_schema: { type: 'object' } }, name: 'submit_x' },
+  }
+
+  /** 写指向 stub 的 providers.json；模型列决定 requireTool 的派生档位
+   *（gpt 系列 named → 指名 / deepseek 系列 required → 不指名） */
+  function writeProviders(ud: string, model: string): void {
+    writeFileSync(
+      join(ud, 'providers.json'),
+      JSON.stringify({
+        providers: [
+          {
+            id: 'prov-spec-tc',
+            name: 'test',
+            protocol: 'openai',
+            auth: 'bearer',
+            baseUrl: fake.url,
+            apiKey: 'sk-test',
+            model,
+            caps: { connected: true, streaming: true },
+          },
+        ],
+        currentId: 'prov-spec-tc',
+        currentModel: model,
+      }),
+    )
+  }
+
+  /** 跑一次 tool 型 spec（真实 provider 路径）→ 返回落库的 llm/call data */
+  async function runToolSpec(model: string): Promise<Record<string, unknown>[]> {
+    const ud = mkdtempTracked(join(tmpdir(), 'clw-d105-spec-ud-'))
+    dirs.push(ud)
+    delete process.env.CLWRITING_DRIVER
+    writeProviders(ud, model)
+    const bookRoot = mkdtempTracked(join(tmpdir(), 'clw-d105-spec-book-'))
+    dirs.push(bookRoot)
+    mkdirSync(join(bookRoot, '.cache'), { recursive: true })
+    fake.setScript([{ type: 'tool', name: 'submit_x', input: { ok: 1 } }])
+    const out = await runSpec(TOOL_SPEC, { userDataPath: ud, bookRoot, userPrompt: '写' })
+    expect(out.ok).toBe(true)
+    expect(fake.requestCount()).toBe(1) // 线缆级证据：请求确曾打到 stub
+    const store = openSessionStore(ud, bookRoot)!
+    const evs = store.listEvents(bookHash(bookRoot)).filter((e) => e.type === 'llm/call')
+    store.close()
+    expect(evs).toHaveLength(1)
+    return evs.map((e) => e.data as Record<string, unknown>)
+  }
+
+  it(
+    'named 家族：requireTool 派生 toolChoice=tool（指名）随 llm/call 落库',
+    { timeout: 20_000 },
+    async () => {
+      const [call] = await runToolSpec('gpt-5')
+      expect(call!['toolChoice']).toBe('tool')
+      expect(call!['requireTool']).toBe(true)
+    },
+  )
+
+  it(
+    'required 家族：requireTool 派生 toolChoice=any（不指名）随 llm/call 落库',
+    { timeout: 20_000 },
+    async () => {
+      const [call] = await runToolSpec('deepseek-v4')
+      expect(call!['toolChoice']).toBe('any')
+      expect(call!['requireTool']).toBe(true)
     },
   )
 })

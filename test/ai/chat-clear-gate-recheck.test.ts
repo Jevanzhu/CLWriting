@@ -17,6 +17,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { clearChatHistory } from '../../src/ai/orchestrate/chat.js'
+import { histories } from '../../src/ai/orchestrate/chat/state.js'
+import type { ChatMsg } from '../../src/ai/provider/types.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const BOOK = '重验闸书'
@@ -55,6 +57,23 @@ describe('重评二轮-P3-2: clearChatHistory gate 清库前复查', () => {
     })
     expect(reason).toBe('本书有任务在跑（analyze），先等它完成后再清空对话')
     expect(counts(ud, bookRoot)).toEqual({ chat: 1, ws: 1 })
+  })
+
+  it('gate 拒绝 → 内存历史按快照回填，与事件库一起保持原状（409 语义自洽）', async () => {
+    const { ud, bookRoot } = seed()
+    const seeded: ChatMsg[] = [{ role: 'user', content: '未清的对话' }]
+    histories.set(BOOK, seeded)
+    try {
+      const reason = await clearChatHistory(BOOK, ud, bookRoot, {
+        gate: () => '本书有任务在跑（analyze），先等它完成后再清空对话',
+      })
+      expect(reason).toBe('本书有任务在跑（analyze），先等它完成后再清空对话')
+      // 修复前：内存四 Map 无条件先清，拒清返回 409 时内存已空（前端显示已清、服务端说未清）
+      expect(histories.get(BOOK)).toBe(seeded)
+      expect(counts(ud, bookRoot)).toEqual({ chat: 1, ws: 1 })
+    } finally {
+      histories.delete(BOOK)
+    }
   })
 
   it('gate 放行（null）→ 清库且返回 null', async () => {

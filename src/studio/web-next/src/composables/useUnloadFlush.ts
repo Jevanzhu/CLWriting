@@ -17,11 +17,51 @@ import { useDocStore } from '../stores/doc'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useUiStore } from '../stores/ui'
 import { hasPendingBodyWriteback } from '../shared/body-writeback'
+import { runCloseTasks } from '../shared/close-flush'
+
+/** 关窗钩子的返回面（与主进程 flushRendererBeforeClose 的契约）。 */
+type CloseFlushResult = { failed: string[]; conflict: string[] }
+type CloseFlushWindow = Window & { __clwFlushBeforeClose?: () => Promise<CloseFlushResult> }
+
+/** 卸载期在途冲刷句柄——组件已销毁后主进程关窗仍须等它落定，否则 destroy 会掐断在途保存。 */
+let pendingUnmountFlush: Promise<void> | null = null
+/** 关窗钩子在册者计数（App 常驻 1 份 + Book 在册 1 份）。离书态 App 仍在册 → 钩子留着。 */
+let closeHookHolders = 0
+
+/** 关窗兜底体（单源）：关窗待办（心跳释放等）→ 书级 prefs → 卸载期在途冲刷 → 文档冲刷。 */
+async function runCloseFlush(): Promise<CloseFlushResult> {
+  await runCloseTasks()
+  await useWorkspaceStore()
+    .flushPendingBookPrefs()
+    .catch(() => {})
+  if (pendingUnmountFlush) await pendingUnmountFlush.catch(() => {})
+  return useDocStore().flushBeforeClose()
+}
+
+/** 在册一份关窗钩子（同一钩子体；在册者互不覆盖）。 */
+function installCloseHook(): void {
+  closeHookHolders++
+  ;(window as CloseFlushWindow).__clwFlushBeforeClose = runCloseFlush
+}
+
+/** 注销一份在册（最后一位离册才摘钩子，且只摘自己装的那一枚）。 */
+function releaseCloseHook(): void {
+  closeHookHolders = Math.max(0, closeHookHolders - 1)
+  if (closeHookHolders === 0 && (window as CloseFlushWindow).__clwFlushBeforeClose === runCloseFlush) {
+    delete (window as CloseFlushWindow).__clwFlushBeforeClose
+  }
+}
+
+/** 应用级注册关窗兜底（App.vue 调）——钩子必须覆盖「已离书」态：Book 卸载即摘钩子会让
+ *  主进程拿不到可等待的钩子直接 destroy，掐断卸载期在途保存（叠加镜像清扫即丢编辑）。 */
+export function useAppCloseFlush(): void {
+  onMounted(installCloseHook)
+  onUnmounted(releaseCloseHook)
+}
 
 /** 注册关窗/刷新/卸载三条冲刷链（随组件实例挂载注册、卸载注销）。 */
 export function useUnloadFlush(): void {
   const doc = useDocStore()
-  const ws = useWorkspaceStore()
   const ui = useUiStore()
 
   // 关窗/刷新兜底改双路。①关窗：主进程在 close 拦截后经
@@ -66,27 +106,17 @@ export function useUnloadFlush(): void {
       ui.toast('有修改尚未安全落盘（保存失败或冲突未决），已阻止刷新——请在编辑器内处理后重试', 'warning')
     })
   }
-  type CloseFlushWindow = Window & {
-    __clwFlushBeforeClose?: () => Promise<{ failed: string[]; conflict: string[] }>
-  }
   onMounted(() => {
     window.addEventListener('beforeunload', flushOnUnload)
-    // 主进程 close/before-quit 拦截的调用面（钩子与页面同生命周期注册/注销；不在编辑页
-    // 时无 dirty 状态，主进程拿不到钩子即直接关，无兜底需求）
-    // 钩子首位并入书级 prefs 冲刷
-    // ——workspace store 的 500ms 防抖窗内末次布局态此前随关窗静默丢失（备案的
-    // 取舍，本批收口）；对齐 App.vue __clwFlushPrefs 为全局偏好做的事（同一
-    // executeJavaScript 表达式内先行冲刷的先例）。书级 prefs 只在进书（Book 挂载）后有
-    // 待写项，挂本页钩子即覆盖全部有丢失窗的时机；冲刷链内部消化失败（不 reject），
-    // 吞错兜底不阻断后续文档保存与关窗。
-    ;(window as CloseFlushWindow).__clwFlushBeforeClose = async () => {
-      await ws.flushPendingBookPrefs().catch(() => {})
-      return doc.flushBeforeClose()
-    }
+    // 主进程 close/before-quit 拦截的调用面：本页在册一份，App 级再在册一份（见
+    // useAppCloseFlush）——离书后 App 那份仍在，钩子不会随本页卸载消失；钩子体先冲刷
+    // 书级 prefs（500ms 防抖窗内的末次布局态），再等卸载期在途冲刷与文档保存链落定，
+    // 各段内部消化失败（不 reject），一段失败不阻断其余兜底。
+    installCloseHook()
   })
   onUnmounted(() => {
     window.removeEventListener('beforeunload', flushOnUnload)
-    delete (window as CloseFlushWindow).__clwFlushBeforeClose
+    releaseCloseHook()
   })
 
   // 路由离开 /book（组件卸载，watch(bookName) 不再触发）也 flush 脏文档——
@@ -96,7 +126,7 @@ export function useUnloadFlush(): void {
   // 无处再提示作者，至少留下可回溯的失败证据（.版本 快照是恢复底线）
   onUnmounted(
     () =>
-      void doc.flushDirty().then((failed) => {
+      void (pendingUnmountFlush = doc.flushDirty().then((failed) => {
         // 卸载路径无界面可弹——flush 等待窗口内落成的 conflict（不在
         // failed 口径）一并留痕，与卸载时的 failed 同口径（组件已销毁，快照是恢复底线）
         const conflict = doc.conflictedDirtyDocs()
@@ -105,6 +135,6 @@ export function useUnloadFlush(): void {
             `[Book] 卸载时 ${failed.length} 个文档保存失败（编辑未落盘）: ${failed.join(', ')}；${conflict.length} 个文档冲突未决: ${conflict.join(', ')}`,
           )
         }
-      }),
+      })),
   )
 }

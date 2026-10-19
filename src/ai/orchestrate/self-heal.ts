@@ -21,6 +21,7 @@ import { evaluateRetry, redSetKey, buildStrategyReminder } from '../../process/r
 import { prepareMaterials } from '../../process/materials.js'
 import { readOutlineLeads } from '../../check/outline-leads.js'
 import { atomicWriteFile } from '../../fs/atomic.js'
+import { readSafe } from '../../fs/read-safe.js'
 import { canonicalizeText } from '../../fs/text-canonical.js'
 import { getRedItems } from '../../check/types.js'
 // 建链段（openSessionStore/openSessionStoreAsync/bookHash → ChainRecorder）单源
@@ -249,6 +250,8 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     // default check 读 ctx.config（非批头 config 快照）——
     // 章边界重读刷新 ctx.config 后，机检随本章新配置走，与预算闸/字数（draftFirstChapter/
     // rewriteOnce 均读 ctx.config）同源；opts.check 注入替身路径不受影响。
+    // 自引用不变量：闭包体在**调用时**才解引用 ctx（延迟求值），故构造表达式内不得调用
+    // check（TDZ 报错）；活跃读取语义即「读当轮 ctx.config」，不得改写成构造期快照。
     // 默认机检复用本轮 db（循环内不重开），实现体按悬停让出事件循环。
     const ctx: ChapterCtx = {
       bookRoot,
@@ -402,14 +405,11 @@ async function orchestrateBatch(
     // 单章 escalate → 停后续章，报批量进度（done=已完成章数）
     if (run.outcome === 'escalate') {
       emit(opts, { type: 'self_heal_batch_progress', done: i, total, stoppedAt: ch })
-      recordPause(ch, 'escalate', (run.reds ?? []).join('；'))
-      // 删 ?? '' 死防御——ChapterRun 契约 docId/path 为必填
-      // string（见上方类型定义；单章路径本就直传同款），?? '' 恒不生效，
-      // 反而暗示「可能缺字段」误导读改方（下方 pass 分支同款一并删）
+      recordPause(ch, 'escalate', run.reds.join('；'))
       return {
         outcome: 'escalate',
         chapter: ch,
-        reds: run.reds ?? [],
+        reds: run.reds,
         docId: run.docId,
         path: run.path,
         attempts: run.attempts,
@@ -477,10 +477,19 @@ async function prepareChapterMaterials(
     // 清掉旧章残留材料（best-effort）——沿用旧材料文件会让
     // buildDraftPrompt 把上一章的材料注入本章 prompt（模型可见却无本次出处）。
     // 读不到材料文件 = prompt 无备料段，是设计内降级。
+    const materialAbs = join(ctx.bookRoot, '工作区', '本章写作材料.md')
     try {
-      rmSync(join(ctx.bookRoot, '工作区', '本章写作材料.md'), { force: true })
-    } catch {
-      // 清理失败（如权限/磁盘）忽略——降级路径不反向阻断写稿主线
+      rmSync(materialAbs, { force: true })
+    } catch (err) {
+      // 清理失败（权限/占用/磁盘）不反向阻断写稿主线，但必须留痕——盘上旧章材料仍在，
+      // 材料读得到时下方 buildDraftPrompt 照旧注入「备料」段（模型可见却零记录的可达形态）。
+      log.warn('self-heal', `旧写作材料清理失败，本章可能沿用上一章材料（降级继续写稿）：${errMsg(err)}`)
+      // 不变量：材料读得到 ⟺ 已登记——清理失败且材料仍读得到时同步并入 promptFiles，
+      // 使「注入备料段」与 llm/call promptMeta.files 登记同真同假。
+      // 判据与 buildDraftPrompt 的「备料」段同源（readSafe：缺席/读失败/空文件一律回空串，
+      // 空串即该段不入 prompt）。只判 stat 存在会在「stat 成功但读失败」时反向虚报：
+      // 登记了该路径，模型却读不到材料。
+      if (readSafe(materialAbs)) promptFiles = ['工作区/本章写作材料.md']
     }
   }
   return promptFiles

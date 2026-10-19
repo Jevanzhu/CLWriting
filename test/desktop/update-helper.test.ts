@@ -5,22 +5,34 @@
  * 判据锚在**盘面终态**上：applied ⟺ 目标目录内容已是新版且旧版整目录留在 `.old-`；
  * aborted ⟺ 目标目录逐字节未动；rolled-back ⟺ 目标目录恢复为旧版。结果条（跨进程
  * 信箱）与拉起调用面同批断言——它们是新进程唯一的现场来源。
+ *
+ * 来源校验（助手 argv 是外部输入）：夹具必须自洽——包体落在共享根更新缓存内，助手镜像
+ * 取当前场景应用目录内的 exe（就地形态）；不符形态与降级方向各有拒绝路径用例。
  */
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 import { buildZipStore } from '../../src/diagnostics/zip.js'
-import { readUpdateAttemptNote } from '../../src/update/cache.js'
+import { readUpdateAttemptNote, takeUpdateAttemptNote, updateCacheDir, updateCacheRoot, updateResultPath, writeUpdateAttemptNote, type UpdateAttemptNote } from '../../src/update/cache.js'
+import { type ExtractLimits } from '../../src/update/extract.js'
 import {
+  EXTRACT_BYTES_FACTOR,
+  PORTABLE_EXE_NAME,
+  RECOVER_UPDATE_FLAG,
+  isRecoverUpdateInvocation,
   otherInstancesRunning,
+  ownInstanceKeyOf,
   parseApplyUpdateArgv,
   recoverInterruptedSwap,
+  runRecoverUpdateCli,
   runUpdateHelper,
   type ApplyUpdateInvocation,
   type UpdateHelperDeps,
 } from '../../src/desktop/update-helper.js'
+import { instanceKeyForDir } from '../../src/fs/user-data-path.js'
 
 const OLD_VERSION = '1.0.0-rc.4'
 const NEW_VERSION = '1.0.0'
@@ -33,25 +45,36 @@ interface Scene {
   sha: string
 }
 
-/** 场景：旧应用目录（含假 exe）+ 便携包（含新版假 exe）+ 共享根 */
+/** 当前场景（`stubs` 取它拼助手镜像路径——每个用例都先 makeScene 再造桩） */
+let activeScene: Scene | null = null
+
+/** 场景：旧应用目录（含假 exe）+ 便携包（落在共享根更新缓存内）+ 共享根 */
 function makeScene(): Scene {
   const root = tempDirTracked('clw-upd-helper-')
   const appDir = join(root, 'app')
   mkdirSync(appDir, { recursive: true })
-  writeFileSync(join(appDir, 'CLWriting.exe'), 'old-exe')
+  writeFileSync(join(appDir, PORTABLE_EXE_NAME), 'old-exe')
   writeFileSync(join(appDir, 'resources.txt'), 'old-resources')
   const home = join(root, 'home')
-  mkdirSync(home, { recursive: true })
-  const zipPath = join(root, 'CLWriting-1.0.0-x64.zip')
+  const zipDir = updateCacheDir(home, NEW_VERSION)
+  mkdirSync(zipDir, { recursive: true })
+  const zipPath = join(zipDir, `CLWriting-${NEW_VERSION}-x64.zip`)
   writeFileSync(
     zipPath,
     buildZipStore([
-      { name: 'CLWriting.exe', data: 'new-exe' },
+      { name: PORTABLE_EXE_NAME, data: 'new-exe' },
       { name: 'resources/app.asar', data: 'new-asar' },
     ]),
   )
   const sha = createHash('sha256').update(readFileSync(zipPath)).digest('hex')
-  return { root, appDir, home, zipPath, sha }
+  const scene: Scene = { root, appDir, home, zipPath, sha }
+  activeScene = scene
+  return scene
+}
+
+/** 场景内更新缓存里的一个路径（校验只放行缓存内的包体） */
+function cachePathOf(s: Scene, name: string): string {
+  return join(updateCacheDir(s.home, NEW_VERSION), name)
 }
 
 function invocation(s: Scene, over: Partial<ApplyUpdateInvocation> = {}): ApplyUpdateInvocation {
@@ -71,7 +94,8 @@ function invocation(s: Scene, over: Partial<ApplyUpdateInvocation> = {}): ApplyU
   }
 }
 
-/** 缺省桩：旧进程已死、不真睡、拉起成功（记录调用面） */
+/** 缺省桩：旧进程已死、不真睡、拉起成功（记录调用面）；助手镜像缺省 = 当前场景应用目录内的
+ *  exe（就地形态——来源校验要求镜像目录与目标目录同源，假形态两不沾）。 */
 function stubs(over: Partial<UpdateHelperDeps> = {}): { deps: UpdateHelperDeps; spawned: string[][] } {
   const spawned: string[][] = []
   const deps: UpdateHelperDeps = {
@@ -81,13 +105,14 @@ function stubs(over: Partial<UpdateHelperDeps> = {}): { deps: UpdateHelperDeps; 
       spawned.push([exe, ...args])
       return true
     },
+    ...(activeScene ? { execPath: join(activeScene.appDir, PORTABLE_EXE_NAME) } : {}),
     ...over,
   }
   return { deps, spawned }
 }
 
 function exeOf(appDir: string): string {
-  return readFileSync(join(appDir, 'CLWriting.exe'), 'utf-8')
+  return readFileSync(join(appDir, PORTABLE_EXE_NAME), 'utf-8')
 }
 
 describe('parseApplyUpdateArgv（助手 argv 解析）', () => {
@@ -174,12 +199,12 @@ describe('recoverInterruptedSwap（中断自愈）', () => {
     const newer = join(root, 'app.old-1.0.0-rc.4')
     mkdirSync(older, { recursive: true })
     mkdirSync(newer, { recursive: true })
-    writeFileSync(join(newer, 'CLWriting.exe'), 'old-exe')
+    writeFileSync(join(newer, PORTABLE_EXE_NAME), 'old-exe')
     // mtime 显式置位：同毫秒落盘时排序平局会取 readdir 序，判据退化为「看运气」
     utimesSync(older, new Date('2026-01-01T00:00:00Z'), new Date('2026-01-01T00:00:00Z'))
     utimesSync(newer, new Date('2026-01-02T00:00:00Z'), new Date('2026-01-02T00:00:00Z'))
     expect(recoverInterruptedSwap(target)).toBe(true)
-    expect(readFileSync(join(target, 'CLWriting.exe'), 'utf-8')).toBe('old-exe')
+    expect(readFileSync(join(target, PORTABLE_EXE_NAME), 'utf-8')).toBe('old-exe')
     expect(existsSync(newer)).toBe(false) // 已改名回位
   })
 
@@ -201,16 +226,26 @@ describe('runUpdateHelper（换目录主流程）', () => {
     expect(exeOf(s.appDir)).toBe('new-exe')
     expect(readFileSync(join(s.appDir, 'resources/app.asar'), 'utf-8')).toBe('new-asar')
     const oldDir = `${s.appDir}.old-${OLD_VERSION}`
-    expect(readFileSync(join(oldDir, 'CLWriting.exe'), 'utf-8')).toBe('old-exe')
+    expect(readFileSync(join(oldDir, PORTABLE_EXE_NAME), 'utf-8')).toBe('old-exe')
     expect(existsSync(`${s.appDir}-new-${NEW_VERSION}`)).toBe(false) // 新版目录已被改名占位
     // 拉起的是目标目录内的 exe（新版）
-    expect(spawned).toEqual([[join(s.appDir, 'CLWriting.exe')]])
+    expect(spawned).toEqual([[join(s.appDir, PORTABLE_EXE_NAME)]])
     expect(readUpdateAttemptNote(s.home)).toMatchObject({
       outcome: 'applied',
       reason: 'ok',
       from: OLD_VERSION,
       to: NEW_VERSION,
     })
+  })
+
+  it('暂存副本形态（助手镜像在 <home>/更新缓存/<版本>/helper）同样放行——这是控制器的装配形态', async () => {
+    const s = makeScene()
+    const stageDir = join(updateCacheDir(s.home, NEW_VERSION), 'helper')
+    mkdirSync(stageDir, { recursive: true })
+    writeFileSync(join(stageDir, PORTABLE_EXE_NAME), 'staged-helper')
+    const { deps } = stubs({ execPath: join(stageDir, PORTABLE_EXE_NAME) })
+    expect(await runUpdateHelper(invocation(s), deps)).toBe('applied')
+    expect(exeOf(s.appDir)).toBe('new-exe')
   })
 
   it('重启参数随拉起透传（--dir 书库），exePath 注入优先', async () => {
@@ -249,7 +284,7 @@ describe('runUpdateHelper（换目录主流程）', () => {
     expect(outcome).toBe('applied')
     expect(polls).toBeGreaterThanOrEqual(3)
     expect(exeOf(s.appDir)).toBe('new-exe')
-    expect(spawned).toEqual([[join(s.appDir, 'CLWriting.exe')]])
+    expect(spawned).toEqual([[join(s.appDir, PORTABLE_EXE_NAME)]])
   })
 
   it('其他实例在跑 → aborted/other-instances：不动目标目录，把旧应用还给用户', async () => {
@@ -258,7 +293,7 @@ describe('runUpdateHelper（换目录主流程）', () => {
     const outcome = await runUpdateHelper(invocation(s), deps)
     expect(outcome).toBe('aborted')
     expect(exeOf(s.appDir)).toBe('old-exe')
-    expect(spawned).toEqual([[join(s.appDir, 'CLWriting.exe')]])
+    expect(spawned).toEqual([[join(s.appDir, PORTABLE_EXE_NAME)]])
     expect(readUpdateAttemptNote(s.home)).toMatchObject({ outcome: 'aborted', reason: 'other-instances' })
   })
 
@@ -275,7 +310,7 @@ describe('runUpdateHelper（换目录主流程）', () => {
   it('包体缺失 → aborted/payload-missing：不动目标目录', async () => {
     const s = makeScene()
     const { deps } = stubs()
-    const outcome = await runUpdateHelper(invocation(s, { payloadZip: join(s.root, 'missing.zip') }), deps)
+    const outcome = await runUpdateHelper(invocation(s, { payloadZip: cachePathOf(s, 'missing.zip') }), deps)
     expect(outcome).toBe('aborted')
     expect(exeOf(s.appDir)).toBe('old-exe')
     expect(readUpdateAttemptNote(s.home)).toMatchObject({ outcome: 'aborted', reason: 'payload-missing' })
@@ -300,16 +335,15 @@ describe('runUpdateHelper（换目录主流程）', () => {
 
   it('目标目录缺席 → aborted/target-missing（且先把 .old- 残留还原）', async () => {
     const s = makeScene()
-    const { rmSync, renameSync } = await import('node:fs')
+    const { renameSync } = await import('node:fs')
     // 造「已改名未就位」的中断现场
     renameSync(s.appDir, `${s.appDir}.old-${OLD_VERSION}`)
     const { deps } = stubs()
-    const outcome = await runUpdateHelper(invocation(s, { payloadZip: join(s.root, 'missing.zip') }), deps)
+    const outcome = await runUpdateHelper(invocation(s, { payloadZip: cachePathOf(s, 'missing.zip') }), deps)
     expect(outcome).toBe('aborted')
     // 还原发生了（旧版回了原位），随后因包体缺失中止
     expect(exeOf(s.appDir)).toBe('old-exe')
     expect(readUpdateAttemptNote(s.home)).toMatchObject({ outcome: 'aborted', reason: 'payload-missing' })
-    void rmSync
   })
 
   it('上次失败留下的 -new- 半成品目录在本次起手被清掉（不带旧内容混入新版）', async () => {
@@ -337,6 +371,20 @@ describe('runUpdateHelper（换目录主流程）', () => {
     expect(readUpdateAttemptNote(s.home)).toMatchObject({ outcome: 'aborted', reason: 'extract-failed' })
   })
 
+  it('解压上限随包体下发（解压炸弹面：绝对红线由 extract 兜底）', async () => {
+    const s = makeScene()
+    const seen: Array<Partial<ExtractLimits> | undefined> = []
+    const { deps } = stubs({
+      extract: async (_zip, dir, limits) => {
+        seen.push(limits)
+        mkdirSync(dir, { recursive: true })
+        writeFileSync(join(dir, PORTABLE_EXE_NAME), 'new-exe')
+      },
+    })
+    expect(await runUpdateHelper(invocation(s), deps)).toBe('applied')
+    expect(seen[0]?.maxTotalBytes).toBe(readFileSync(s.zipPath).length * EXTRACT_BYTES_FACTOR)
+  })
+
   it('拉起失败不影响 applied 结局（用户手动打开同样是新版），原因码如实标 relaunch-failed', async () => {
     const s = makeScene()
     const { deps } = stubs({ spawnDetached: async () => false })
@@ -344,6 +392,66 @@ describe('runUpdateHelper（换目录主流程）', () => {
     expect(outcome).toBe('applied')
     expect(exeOf(s.appDir)).toBe('new-exe')
     expect(readUpdateAttemptNote(s.home)).toMatchObject({ outcome: 'applied', reason: 'relaunch-failed' })
+  })
+})
+
+describe('runUpdateHelper 来源校验（argv 是外部输入：拒绝即一字节不动、不写结果条）', () => {
+  it('目标目录与助手镜像无关 → 拒（哪怕该目录内有同名 exe）', async () => {
+    const s = makeScene()
+    const victim = join(s.root, 'victim')
+    mkdirSync(victim, { recursive: true })
+    writeFileSync(join(victim, PORTABLE_EXE_NAME), 'victim-exe')
+    const { deps, spawned } = stubs()
+    const outcome = await runUpdateHelper(invocation(s, { targetDir: victim }), deps)
+    expect(outcome).toBe('aborted')
+    expect(exeOf(victim)).toBe('victim-exe') // 未改名、未搬走、未删
+    expect(spawned).toEqual([])
+    expect(readUpdateAttemptNote(s.home)).toBeNull()
+  })
+
+  it('目标目录内无便携 exe → 拒（非应用目录不得被改名/递归删）', async () => {
+    const s = makeScene()
+    const other = join(s.root, 'not-an-app')
+    mkdirSync(other, { recursive: true })
+    const { deps } = stubs({ execPath: join(other, PORTABLE_EXE_NAME) })
+    const outcome = await runUpdateHelper(invocation(s, { targetDir: other }), deps)
+    expect(outcome).toBe('aborted')
+    expect(existsSync(other)).toBe(true)
+    expect(readUpdateAttemptNote(s.home)).toBeNull()
+  })
+
+  it('包体不在更新缓存内 → 拒（解压与换目录的输入只认共享根内的包）', async () => {
+    const s = makeScene()
+    const outside = join(s.root, 'evil.zip')
+    writeFileSync(outside, readFileSync(s.zipPath))
+    const { deps, spawned } = stubs()
+    const outcome = await runUpdateHelper(invocation(s, { payloadZip: outside }), deps)
+    expect(outcome).toBe('aborted')
+    expect(exeOf(s.appDir)).toBe('old-exe')
+    expect(spawned).toEqual([])
+    expect(readUpdateAttemptNote(s.home)).toBeNull()
+  })
+
+  it('包体无 sha256 锚 → 拒；测试专项开关显式放行', async () => {
+    const s = makeScene()
+    const { deps } = stubs()
+    expect(await runUpdateHelper(invocation(s, { sha256: null }), deps)).toBe('aborted')
+    expect(exeOf(s.appDir)).toBe('old-exe')
+    expect(readUpdateAttemptNote(s.home)).toBeNull()
+
+    const allowed = stubs({ allowUnanchoredPayloadForTest: true })
+    expect(await runUpdateHelper(invocation(s, { sha256: null }), allowed.deps)).toBe('applied')
+    expect(exeOf(s.appDir)).toBe('new-exe')
+  })
+
+  it('目标版本不高于当前版本 → 拒（fail-closed 防降级：全链任一环漂移都不得把旧版装回）', async () => {
+    const s = makeScene()
+    const { deps, spawned } = stubs()
+    const outcome = await runUpdateHelper(invocation(s, { fromVersion: '2.0.0', toVersion: '2.0.0' }), deps)
+    expect(outcome).toBe('aborted')
+    expect(exeOf(s.appDir)).toBe('old-exe')
+    expect(spawned).toEqual([])
+    expect(readUpdateAttemptNote(s.home)).toBeNull()
   })
 })
 
@@ -379,9 +487,116 @@ describe('助手默认值兜底', () => {
         calls.push(exe)
         return true
       },
+      execPath: join(s.appDir, PORTABLE_EXE_NAME),
     }
     await runUpdateHelper(invocation(s, { exePath: null }), deps)
-    expect(calls[0]).toBe(join(s.appDir, 'CLWriting.exe'))
+    expect(calls[0]).toBe(join(s.appDir, PORTABLE_EXE_NAME))
     expect(vi.isMockFunction(deps.spawnDetached)).toBe(false)
+  })
+})
+
+describe('takeUpdateAttemptNote（一次性信箱：读后即删；删除失败仍返回本次内容）', () => {
+  const noteOf = (outcome: 'applied' | 'rolled-back'): UpdateAttemptNote => ({
+    at: '2026-01-01T00:00:00.000Z',
+    outcome,
+    from: OLD_VERSION,
+    to: NEW_VERSION,
+    reason: outcome === 'applied' ? 'ok' : 'swap-failed',
+  })
+
+  it('首次取到 → 文件已删 → 二次取为空（同一提示不重复出现）', () => {
+    const home = tempDirTracked('clw-upd-take-')
+    mkdirSync(updateCacheRoot(home), { recursive: true })
+    expect(writeUpdateAttemptNote(home, noteOf('rolled-back'))).toBe(true)
+    expect(takeUpdateAttemptNote(home)).toMatchObject({ outcome: 'rolled-back', reason: 'swap-failed' })
+    expect(existsSync(updateResultPath(home))).toBe(false)
+    expect(takeUpdateAttemptNote(home)).toBeNull()
+  })
+
+  it('删除失败（瞬时占用）→ 不抛出、仍返回本次内容，文件留待下次再取', () => {
+    const home = tempDirTracked('clw-upd-take2-')
+    mkdirSync(updateCacheRoot(home), { recursive: true })
+    expect(writeUpdateAttemptNote(home, noteOf('applied'))).toBe(true)
+    const taken = takeUpdateAttemptNote(home, {
+      rm: () => {
+        throw Object.assign(new Error('EBUSY: resource busy'), { code: 'EBUSY' })
+      },
+    })
+    // 回退即变红：删失败分支若改抛错或改返 null，「新版起不来」场景的唯一反馈通道即丢
+    expect(taken).toMatchObject({ outcome: 'applied', reason: 'ok' })
+    expect(existsSync(updateResultPath(home))).toBe(true)
+  })
+})
+
+describe('ownInstanceKeyOf 与实例在持判定（助手侧显式排除自身，与控制器侧对称）', () => {
+  it('本机 key 两路取法：--log-dir 的 instances/<key>/logs 段优先，其次 --dir 书库经单源算式', () => {
+    const s = makeScene()
+    expect(ownInstanceKeyOf(invocation(s, { logDir: join(s.home, 'instances', 'abc123', 'logs') }))).toBe('abc123')
+    expect(ownInstanceKeyOf(invocation(s, { relaunchArgs: ['--dir', 'D:/书库'] }))).toBe(instanceKeyForDir('D:/书库'))
+    expect(ownInstanceKeyOf(invocation(s))).toBeNull() // 两路皆无 → 不排除（多算即保守 abort）
+  })
+
+  it('预检把本机 key 传进「实例在持」判定：只有自身锁在持时不 abort', async () => {
+    const s = makeScene()
+    const seen: Array<string | null | undefined> = []
+    const { deps } = stubs({
+      // 判别式桩：excludeKey 命中本机 key 才算「无其他实例」；未传/不匹配即按在持计（多算保守）
+      instancesRunning: (_home, excludeKey) => {
+        seen.push(excludeKey)
+        return excludeKey !== 'abc123'
+      },
+    })
+    const outcome = await runUpdateHelper(invocation(s, { logDir: join(s.home, 'instances', 'abc123', 'logs') }), deps)
+    expect(seen).toEqual(['abc123']) // 回退即变红：单参调用形态下这里收到的是 undefined
+    expect(outcome).toBe('applied')
+  })
+})
+
+describe('runRecoverUpdateCli（不依赖应用启动的中断自愈还原入口）', () => {
+  it('旗判定：含旗即还原态（解析失败也不得落回应用形态）', () => {
+    expect(isRecoverUpdateInvocation(['CLWriting.exe', RECOVER_UPDATE_FLAG, '--target', 'C:/app'])).toBe(true)
+    expect(isRecoverUpdateInvocation(['CLWriting.exe', '--apply-update'])).toBe(false)
+  })
+
+  it('target 缺席 + .old- 残留 → 只做还原：目录回位并返回成功，不拉起进程、不写结果条', () => {
+    const s = makeScene()
+    renameSync(s.appDir, `${s.appDir}.old-${OLD_VERSION}`)
+    expect(runRecoverUpdateCli(['CLWriting.exe', RECOVER_UPDATE_FLAG, '--target', s.appDir])).toBe(true)
+    expect(exeOf(s.appDir)).toBe('old-exe')
+    expect(readUpdateAttemptNote(s.home)).toBeNull() // 还原出口不碰一次性信箱
+  })
+
+  it('无可还原残留 / 缺 --target → 返回失败（可观测出口，不静默装作已还原）', () => {
+    const s = makeScene()
+    expect(runRecoverUpdateCli(['CLWriting.exe', RECOVER_UPDATE_FLAG, '--target', join(s.root, 'gone')])).toBe(false)
+    expect(runRecoverUpdateCli(['CLWriting.exe', RECOVER_UPDATE_FLAG])).toBe(false)
+  })
+})
+
+describe('包内恢复脚本与源码常量同源（任一侧改名即脚本失效 → 回退即变红）', () => {
+  const batUrl = new URL('../../build/recover/恢复更新.bat', import.meta.url)
+
+  it('脚本硬编码的 exe 名 / 旗标 / 残留命名与源码常量逐字一致', () => {
+    const text = readFileSync(fileURLToPath(batUrl), 'utf8')
+    expect(text).toContain(PORTABLE_EXE_NAME)
+    expect(text).toContain(RECOVER_UPDATE_FLAG)
+    expect(text).toContain('.old-')
+    // 行尾须 CRLF：脚本用 goto 标签，cmd 对 LF 行的标签/跳转行为不可靠（.gitattributes 钉 *.bat eol=crlf）
+    expect(text).toContain('\r\n')
+  })
+
+  it('electron-builder 把脚本放进 win 便携包根目录（extraFiles；extraResources 会落进 resources/ 看不见）', () => {
+    const lines = readFileSync(fileURLToPath(new URL('../../electron-builder.yml', import.meta.url)), 'utf8').split('\n')
+    const start = lines.findIndex((line) => /^win:\s*$/.test(line))
+    expect(start).toBeGreaterThanOrEqual(0) // win 是出货平台，配置块缺席即红
+    const block: string[] = []
+    for (let i = start + 1; i < lines.length; i++) {
+      const line = lines[i]!
+      if (line.trim() !== '' && !/^\s/.test(line)) break // 下一个顶层键 = win 块结束
+      block.push(line)
+    }
+    const winBlock = block.join('\n')
+    expect(winBlock).toContain('extraFiles:')
+    expect(winBlock).toContain('build/recover')
   })
 })

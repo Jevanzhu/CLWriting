@@ -674,3 +674,13 @@ describe('题材参考：按本书题材召回题材卡', () => {
     expect(d.files).not.toContain('知识层(内置)/题材/都市脑洞.md')
   })
 })
+
+// ── A6：保存锁超时文案随档位插值（不再硬编码「5 秒」）──────────────
+
+describe('保存锁超时文案随档位取值', () => {
+  it('文案由 getDraftSaveLockTimeoutMs() 插值，硬编码档位值已删', () => {
+    const src = readFileSync(new URL('../../src/process/draft-pipeline.ts', import.meta.url), 'utf8')
+    expect(src).toContain('${getDraftSaveLockTimeoutMs() / 1000} 秒未让出')
+    expect(src).not.toContain('正在保存此文档（5 秒未让出）')
+  })
+})

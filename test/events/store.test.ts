@@ -1073,3 +1073,38 @@ describe('关闭路径事件流自检', () => {
     reopened!.close()
   })
 })
+
+// ── A1：事件库体积/行数只读观测 + 超阈告警（不改保留语义）──────────────
+
+describe('事件库体积观测', () => {
+  it('行数超阈 → warn 留痕；观测只读、幂等且不改任何保留语义', async () => {
+    const { observeEventStoreSize, __setEventStoreRowWarnThresholdForTest } = await import(
+      '../../src/events/store-retention.js'
+    )
+    const dbPath = join(tmpRoot(), 'footprint.db')
+    const db = new DatabaseSync(dbPath)
+    db.exec(
+      'CREATE TABLE events (seq INTEGER PRIMARY KEY, type TEXT NOT NULL, created_at INTEGER NOT NULL, payload TEXT NOT NULL)',
+    )
+    db.exec("INSERT INTO events VALUES (1, 'llm/call', 1, '{}'), (2, 'llm/call', 2, '{}')")
+    const spy = vi.spyOn(log, 'warn')
+    __setEventStoreRowWarnThresholdForTest(200_000)
+    try {
+      // 阈内：零留痕（观测不因读数本身说话）
+      expect(observeEventStoreSize(db, dbPath).rows).toBe(2)
+      expect(spy).not.toHaveBeenCalled()
+      __setEventStoreRowWarnThresholdForTest(1)
+      expect(observeEventStoreSize(db, dbPath).rows).toBe(2)
+      expect(spy.mock.calls.some((c) => String(c[1]).includes('体积/行数超阈'))).toBe(true)
+      // 幂等：同库不重复留痕（按库节流），且行仍在（只读观测不删数据）
+      const calls = spy.mock.calls.length
+      observeEventStoreSize(db, dbPath)
+      expect(spy.mock.calls.length).toBe(calls)
+      expect((db.prepare('SELECT COUNT(*) AS n FROM events').get() as { n: number }).n).toBe(2)
+    } finally {
+      __setEventStoreRowWarnThresholdForTest(200_000)
+      spy.mockRestore()
+      db.close()
+    }
+  })
+})

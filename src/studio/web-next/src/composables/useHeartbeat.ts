@@ -1,6 +1,7 @@
 import { ref, onUnmounted, watch } from 'vue'
 import { apiFetch, getToken } from '../api/client'
 import { bookUrl } from '../api/url'
+import { registerCloseTask } from '../shared/close-flush'
 
 // 协作心跳：进书后每 20s POST /heartbeat 续期；卸载（onUnmounted）DELETE 清除（单写者互斥）。
 // 切书不发 DELETE（依赖服务端过期回收）——L-注释校准：原「切书 DELETE」与实现不符。
@@ -34,6 +35,9 @@ export function useHeartbeat(getBookName: () => string | null): void {
   // 只能靠服务端过期回收）。清除动作面向的是「已登记心跳的书」，一律用捕获值；
   // 切书不 DELETE 的既有语义（L-）不变——watch 换书走 start 而非 leave。
   let beating: string | null = null
+  // 关窗兜底登记：卸载期 DELETE 是 fire-and-forget（onUnmounted 不能 await），主进程关窗
+  // 钩子会 await 本登记——否则同书标签页名额延迟释放，第 6 窗吃 429 指引
+  const unregisterClose = registerCloseTask(leave)
 
   async function beat(): Promise<void> {
     if (inFlight) return
@@ -116,6 +120,7 @@ export function useHeartbeat(getBookName: () => string | null): void {
     { immediate: true },
   )
   onUnmounted(() => {
+    unregisterClose()
     void leave()
   })
 }

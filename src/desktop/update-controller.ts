@@ -34,8 +34,8 @@ import {
   UPDATE_RESULT_MESSAGE_TYPE,
   type LatestReleaseOutcome,
 } from '../update/check.js'
-import { pickChecksumsUrl, pickPortableAsset, type UpdateAsset } from '../update/asset.js'
-import { downloadUpdateZip, sha256OfFile } from '../update/download.js'
+import { pickPortableAsset, type UpdateAsset } from '../update/asset.js'
+import { downloadUpdateZip, releaseChecksumsUrl, sha256OfFile } from '../update/download.js'
 import { UPDATE_RESULT_FILENAME, updateCacheDir, updateCacheRoot } from '../update/cache.js'
 import { currentWorkDir, isRelaunchPending } from './workdir-controller.js'
 import { APPLY_UPDATE_FLAG, otherInstancesRunning, PORTABLE_EXE_NAME, spawnDetachedProcess } from './update-helper.js'
@@ -173,12 +173,16 @@ export async function startUpdateDownload(opts: {
   activeDownload = controller
   try {
     const r = await downloadUpdateZip({
+      // tag 与资产名是规范地址的两半：下载链据此校验响应给的地址确实是本仓该 tag 的该资产
+      tag: release.tag,
       url: asset.url,
       destDir,
       fileName: asset.name,
       size: asset.size,
       sha256: asset.sha256,
-      checksumsUrl: pickChecksumsUrl(release.assets),
+      // 校验清单地址由编译期仓常量与 tag 派生（不取本次发布响应里的地址）：校验值不得与
+      // 被校验对象同出自一次可被篡改的响应，见 update/download 头注
+      checksumsUrl: releaseChecksumsUrl(release.tag),
       fetchImpl: netFetch,
       signal: controller.signal,
       onProgress: opts.onProgress,
@@ -218,6 +222,13 @@ export function prepareUpdateApply(opts: { version: string }): UpdateIpcResult {
   const pending = getPending()
   if (!pending) return { ok: false, reason: '更新包尚未就绪，请先下载' }
   if (pending.toVersion !== opts.version.replace(/^v/, '')) return { ok: false, reason: '版本已变化，请重新检查更新' }
+  // fail-closed 防降级：与检查链（update/check.ts 的 `tag <= current` 直接返回）同向断言。
+  // 不依赖上游纪律——前端传参、内存态残留、未来接线任一环漂移都不得把旧版本装回。
+  const fromVersion = app.getVersion()
+  const cmp = compareSemver(pending.toVersion, fromVersion)
+  if (!Number.isFinite(cmp) || cmp <= 0) {
+    return { ok: false, reason: `只能安装更高的版本（当前 ${fromVersion}，目标 ${pending.toVersion}），已拒绝` }
+  }
   if (isRelaunchPending()) return { ok: false, reason: '应用正在切换书库，请稍后再试' }
   if (otherInstancesRunning(appDataHomeDir(), currentInstanceKey())) {
     return { ok: false, reason: '还有其他书库的窗口在运行，请先关闭它们再更新' }
@@ -243,12 +254,12 @@ export function helperStageDir(homeDir: string, toVersion: string): string {
 /** 整棵应用目录 → 暂存落点（半成品先清）；成功返回暂存 exe 路径，失败留痕并返回 null */
 function stageHelperCopy(sourceDir: string, stageDir: string): string | null {
   try {
-    rmDirQuietly(stageDir)
+    rmDirQuietlyWithAsarRetry(stageDir)
     cpSync(sourceDir, stageDir, { recursive: true })
     return join(stageDir, PORTABLE_EXE_NAME)
   } catch (e) {
     log.error('update', `助手暂存副本复制失败（${sourceDir} → ${stageDir}）：${errMsg(e)}`)
-    rmDirQuietly(stageDir)
+    rmDirQuietlyWithAsarRetry(stageDir)
     return null
   }
 }
@@ -350,8 +361,10 @@ function detachAsarLeaves(dir: string): number {
 
 /** 删目录（best-effort；rm 可注入——测试用桩模拟 asar 层的 EPERM）。
  *  Electron 进程的 asar 层会绊住含 `resources/*.asar` 的递归删（见 detachAsarLeaves）：
- *  先摘叶再重试一次，两次仍失败交残留（下次启动维护再清），不阻断调用方。 */
-export function rmDirQuietly(path: string, opts?: { rm?: (p: string) => void }): void {
+ *  先摘叶再重试一次，两次仍失败交残留（下次启动维护再清），不阻断调用方。
+ *  命名带 `WithAsarRetry` 是为了与助手的 `rmDirQuietlyPlain`（纯 rm 吞错；助手进程已
+ *  `process.noAsar = true`）区分——同名跨文件语义不同，误引即「asar 目录删不掉」缺陷复现。 */
+export function rmDirQuietlyWithAsarRetry(path: string, opts?: { rm?: (p: string) => void }): void {
   const doRm = opts?.rm ?? ((p: string) => rmSync(p, { recursive: true, force: true }))
   try {
     doRm(path)
@@ -402,7 +415,7 @@ export function runUpdateMaintenance(opts: UpdateMaintenanceOptions): void {
       const isOld = name.startsWith(`${base}.old-`)
       if (isNew || (isOld && targetPresent)) {
         log.info('update', `清理更新残留目录：${join(parent, name)}`)
-        rmDirQuietly(join(parent, name))
+        rmDirQuietlyWithAsarRetry(join(parent, name))
       }
     }
   }
@@ -419,7 +432,7 @@ export function runUpdateMaintenance(opts: UpdateMaintenanceOptions): void {
     if (name === UPDATE_RESULT_FILENAME) continue
     const path = join(root, name)
     if (name.endsWith('.part')) {
-      rmDirQuietly(path)
+      rmDirQuietlyWithAsarRetry(path)
       continue
     }
     let isDir = false
@@ -433,7 +446,7 @@ export function runUpdateMaintenance(opts: UpdateMaintenanceOptions): void {
     const cmp = compareSemver(opts.currentVersion, name)
     if (cmp > 0) {
       log.info('update', `清理更新缓存：${path}`)
-      rmDirQuietly(path)
+      rmDirQuietlyWithAsarRetry(path)
     }
   }
 }

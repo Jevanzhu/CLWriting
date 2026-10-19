@@ -42,6 +42,16 @@ test('R36-3: CRLF front matter 的两套境界体系（名称+序列）完整解
   expect(systems[1]).toEqual({ 名称: '武者等级', 序列: ['后天', '先天'] })
 })
 
+test('R36-3: 行尾归一与行切分同源 splitFmLines——只剥行尾单个 \\r，不认孤 CR 作行分隔', () => {
+  // 归一原语 = 按 `\n` 切 + 逐行剥行尾单个 `\r`：CRLF 行尾必须剥净（回退到不归一则本断言红）；
+  // 同时孤 `\r`（旧 Mac 行分隔，本仓不支持）不参与切行——若改用 /\r?\n|\r/ 切或整段删 CR，
+  // 该段会被误解析出体系（本断言红）
+  const crlf = ['体系:', '  - 名称: 修真境界', '    序列: [炼气, 筑基, 金丹]', ''].join('\r\n')
+  const loneCr = '体系:\r  - 名称: 修真境界\r    序列: [炼气, 筑基]'
+  expect(parseRealmSystems(crlf)[0]).toEqual({ 名称: '修真境界', 序列: ['炼气', '筑基', '金丹'] })
+  expect(parseRealmSystems(loneCr)).toEqual([])
+})
+
 test('R36-3: CRLF 与 LF 的边界体系解析结果逐位一致（归一不改变 LF 语义）', () => {
   const fmRawLf = [
     '体系:',

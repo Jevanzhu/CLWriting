@@ -193,3 +193,58 @@ describe('OverviewView 创作天数：created_at 缺失/非法一律走空态', 
     w.unmount()
   })
 })
+
+
+const isoDay = (d: Date): string =>
+  d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+
+function overviewOf(timeline: { date: string; count: number }[], recentDoc: { no: number; path: string } | null = null) {
+  return {
+    identity: { kind: 'long', name: '书', title: '书', genre: '', created_at: '' },
+    progress: { chapters: 1, words: 100, percent: 1, targetWords: null },
+    timeline,
+    recentDoc,
+  }
+}
+
+describe('热力日历补零与继续写作重拉', () => {
+  it('时间线缺日 → 逐日补零为未定稿格（跨月边界同样补）', async () => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const back = (k: number) => new Date(today.getTime() - k * 86_400_000)
+    mocks.getOverview.mockResolvedValue(
+      overviewOf([
+        { date: isoDay(back(3)), count: 2 },
+        { date: isoDay(back(1)), count: 1 },
+      ]),
+    )
+
+    const w = mountView()
+    await flushPromises()
+
+    expect(w.findAll('.heat-cell')).toHaveLength(4) // today-3 … today，缺的两天补零
+    expect(w.findAll('.heat-cell.is-empty')).toHaveLength(2)
+    const titles = w.findAll('.heat-cell').map((c) => c.attributes('title') ?? '')
+    expect(titles.some((t) => t.includes(isoDay(back(2))))).toBe(true)
+    w.unmount()
+  })
+
+  it('继续写作：树未命中 → 先重拉树；重拉后仍无节点则不开 tab（不按旧树开）', async () => {
+    const { useWorkspaceStore } = await import('../../../../src/studio/web-next/src/stores/workspace')
+    const { useTreeStore } = await import('../../../../src/studio/web-next/src/stores/tree')
+    const ws = useWorkspaceStore()
+    const tree = useTreeStore()
+    const openSpy = vi.spyOn(ws, 'openTab')
+    const loadSpy = vi.spyOn(tree, 'load').mockResolvedValue(undefined)
+    mocks.getOverview.mockResolvedValue(overviewOf([], { no: 1, path: '第1卷/第1章.md' }))
+
+    const w = mountView()
+    await flushPromises()
+    await w.find('.btn-continue').trigger('click')
+    await flushPromises()
+
+    expect(loadSpy).toHaveBeenCalledWith('测试书', true)
+    expect(openSpy).not.toHaveBeenCalled()
+    w.unmount()
+  })
+})

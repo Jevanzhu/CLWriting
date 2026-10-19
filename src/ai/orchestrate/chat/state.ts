@@ -106,6 +106,13 @@ export async function clearChatHistory(
   bookRoot?: string,
   opts?: { gate?: () => string | null },
 ): Promise<string | null> {
+  // 拒清回填快照——四 Map 同生命周期，gate 拒清时按快照逐项还原（见 gate 分支）。
+  const snap = {
+    history: histories.get(bookName),
+    seqs: msgSeqMap.get(bookName),
+    branch: activeBranchByBook.get(bookName),
+    suppressed: compactionSuppressed.has(bookName),
+  }
   histories.delete(bookName)
   msgSeqMap.delete(bookName)
   activeBranchByBook.delete(bookName)
@@ -127,8 +134,9 @@ export async function clearChatHistory(
     // 清库前复查闸（回调由调用方注入，正本 = audit.ts chatClearGateReason 六闸）。窗口
     // 内新起的 chat/spawn/self-heal/三审/task-gate/后台收尾任务在旧形态下照清——任务
     // 收尾继续向已清 session 追加事件（清不彻底 + 事件复活）。拒清时返回理由由调用方
-    // 转 409；此处内存已清是良性前置：在途任务持数组引用续写不丢、重开面板从事件库
-    // （未清）重放，两侧自愈对齐。无 gate / 纯内存调用（books.ts 改名等）行为不变。
+    // 转 409——拒清即「未清库」，内存四 Map 按快照回填后才返回（在途回合持有的数组引用
+    // 即快照值本身，回填后续写继续可见），内存态与事件库一起保持原状。
+    // 无 gate / 纯内存调用（books.ts 改名等）行为不变。
     // 复查收进 clearBooks 的 try——store.close() 单点收敛
     //（原拒清分支手写 close 与 finally 重复），gate 回调纯谓词不抛（crossProcess 侧
     // readdirSync 已吞错），异常安全随 try 兜底。
@@ -136,7 +144,13 @@ export async function clearChatHistory(
     // 同款降级留痕：内存已清，事件库残留待修复后重清，重试可自愈
     try {
       const blocked = opts?.gate?.() ?? null
-      if (blocked) return blocked
+      if (blocked) {
+        if (snap.history !== undefined) histories.set(bookName, snap.history)
+        if (snap.seqs !== undefined) msgSeqMap.set(bookName, snap.seqs)
+        if (snap.branch !== undefined) activeBranchByBook.set(bookName, snap.branch)
+        if (snap.suppressed) compactionSuppressed.add(bookName)
+        return blocked
+      }
       store?.clearBooks([bookName, bookHash(bookRoot)])
     } catch (e) {
       log.warn('chat', `清史清除事件库行失败（内存已清、事件库待修复后重清）：${errMsg(e)}`)

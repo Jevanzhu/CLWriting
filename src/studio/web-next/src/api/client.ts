@@ -1,6 +1,7 @@
 // API 客户端：启动从 /api/boot 取 token，所有 /api/* 请求（boot 自身除外）自动注入 x-studio-token；
 // 错误信封统一 {error, code?}——非 2xx 一律抛 ApiError（error 人话 + code 机器码）。
 import { bookUrl } from './url'
+import { localApiDownMessage } from '../shared/local-api'
 
 // 显式约束：token 为「每个渲染进程一份」的模块级变量——多窗口
 //（主窗/书架/书库）各自 boot 独立取 token，互不共享；正确性依赖服务端多 token 并存
@@ -350,13 +351,18 @@ export async function apiJson<T>(
       // Origin/权限类）不在本分支——信封原样透传。friendlyError 对两形态均渲染统一文案：
       // 有信封 code → 结构化优先直出 message；无信封（LOCAL_API_DOWN）→ TECH_PATTERNS
       // 无命中原样透出。
-      if ((r.status === 401 || r.status === 403) && replayed.yes) {
-        throw new ApiError(AUTH_BROKEN_MESSAGE, r.status, hasEnvelope ? body.code : 'LOCAL_API_DOWN')
+      if (r.status === 401 || (r.status === 403 && replayed.yes)) {
+        // 401（token 失效）一律走统一人话：信封里的工程口径「token 无效」不上屏——重放仍
+        // 失败 = 登录态失效且自动恢复已尽力；未重放（token 未变/为 null）则 re-boot 已换好
+        // 新 token，重试一次即可。403 属权限/来源类，信封人话有信息量，只在重放面统一
+        const msg = r.status === 401 && !replayed.yes ? AUTH_BROKEN_MESSAGE + '（请重试一次）' : AUTH_BROKEN_MESSAGE
+        throw new ApiError(msg, r.status, hasEnvelope ? body.code : 'LOCAL_API_DOWN')
       }
-      // 有信封 → 沿用服务端人话/机器码；无信封 → 基础设施故障，给可行动提示（dev 提示先起 dev:api）
+      // 有信封 → 沿用服务端人话/机器码；无信封 → 基础设施故障，给可行动提示
+      // （文案按形态分流，生产形态不含开发者指令——见 shared/local-api 单源）
       const msg = hasEnvelope
         ? (body.error ?? body.code ?? `HTTP ${r.status}`)
-        : `本地服务未连接，请确认 API 服务已启动（dev 开发请先运行 npm run dev:api）`
+        : localApiDownMessage(import.meta.env.DEV)
       throw new ApiError(msg, r.status, hasEnvelope ? body.code : 'LOCAL_API_DOWN')
     }
     // 2xx + 非对象裸字面量体防御：r.json 对「null」体解析成功（不进 catch），信封判别

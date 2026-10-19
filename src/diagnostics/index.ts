@@ -76,6 +76,9 @@ export const CONTENT_BEARING_LOG_TAGS: ReadonlySet<string> = new Set([
   // batch-pause：坏暂停记录的留证副本路径是「<共享根>/instances 以外」的书库内绝对
   // 路径（改名后仍带书目录名）；与 check/metrics 同族理由收入名单
   'batch-pause',
+  // version：版本目录可被外部/同步盘写入，外来档案名与 docId 均取自书库侧（档案名可能
+  // 带书稿题名）；该 tag 的日志在诊断包里只留标签即可定位异常档案，故整支收入名单
+  'version',
 ])
 
 /**
@@ -112,6 +115,10 @@ export const CONTENT_GATE_EXCEPTIONS: ReadonlyMap<string, string> = new Map([
   [
     'skills@process/skills.ts#rel',
     '作业包引用篇缺件日志:该篇相对路径是定位缺失引用篇的唯一线索(随包语料文件名跨书恒定,与 knowledge 两族同口径)',
+  ],
+  [
+    'knowledge-corpus@knowledge/corpus.ts#i.rel',
+    '随包语料抽查缺口日志:该篇相对路径是定位缺口篇的唯一线索(随包语料文件名跨书恒定,与 knowledge-seed/inject 两族同口径)',
   ],
   ['prepare@process/prepare.ts#relative(bookRoot, r.path)', '备料失败日志：书内相对路径定位材料文件'],
   // 书库侧文件名/题名（basename 与章节事件标题）

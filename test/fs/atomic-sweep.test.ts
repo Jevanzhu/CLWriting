@@ -148,6 +148,25 @@ describe('Y-24: sweepAbandonedTmpFiles', () => {
     expect(existsSync(escaped)).toBe(false) // 自身 pid + 超 5min → 废弃清走
     expect(existsSync(inFlight)).toBe(true) // 年轻（<5min）→ 在途保护不动
   })
+
+  // A-6：pid 段守卫的兜底面。ABANDONED_TMP_RE 的 pid 段恒为数字，故「pid 不可解析」
+  // 的可达形态是**守卫判据不适用**（`0` 不满足 > 0；超长数字段解析失真/越出进程号范围），
+  // 此时只由年龄门裁决：超龄即清（在途大产物写入最坏是 rename 失败，不产生半截目标
+  // 文件，作者可重试）、年轻不动。钉死此预期，防「判据不适用即一律跳过」的改法收回清扫面。
+  it('A-6: pid 段不可解析/不适用时只由年龄门裁决：超龄清、年轻不动', () => {
+    const uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+    const stale = join(root, `.大产物.md.0.${uuid}.tmp`)
+    const fresh = join(root, `.大产物2.md.${'9'.repeat(40)}.${uuid}.tmp`)
+    writeFileSync(stale, '残留')
+    writeFileSync(fresh, '在途')
+    const now = Date.now()
+    utimesSync(stale, new Date(now - 30 * 60_000), new Date(now - 30 * 60_000))
+    utimesSync(fresh, new Date(now - 60_000), new Date(now - 60_000))
+    const removed = sweepAbandonedTmpFiles(root, { now })
+    expect(removed).toBe(1)
+    expect(existsSync(stale)).toBe(false) // 守卫不适用 → 年龄门判废弃
+    expect(existsSync(fresh)).toBe(true) // 年轻 → 年龄门内在途保护
+  })
 })
 
 // ── 应用级数据目录（共享根 + 实例目录）的 tmp 清扫 ─────────────────────────

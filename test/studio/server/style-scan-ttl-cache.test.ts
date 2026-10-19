@@ -8,14 +8,17 @@
  * - 失效：TTL 到期后重扫——盘上变更可见（count 变化、sourceHash 变化）。
  */
 import http from 'node:http'
-import { writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
 import { bootStudio, type StudioHarness } from '../../helpers/studio-server.js'
 
 const BOOK = 'D3测试书'
 let studio: StudioHarness
 let cachedStyleHash = '' // it1 建缓存时 analyze-style 的采样正文 hash（it2 断言变化用）
+// 事件库段用：APP 级数据目录由调用方创建与清理（bootStudio 只透传）
+let userDataPath = ''
 
 function req(method: string, path: string): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
@@ -62,8 +65,10 @@ beforeAll(async () => {
   // TTL+500=1.5s 真实墙钟（CI 慢机测试段被睡眠拖长，R0911-G-P1-1c macos 腿红族）。
   // TTL 注入值保持 1000ms 不变。
   vi.useFakeTimers({ toFake: ['Date'] })
+  userDataPath = mkdtempSync(join(tmpdir(), 'clwriting-d3-ttl-ud-'))
   studio = await bootStudio({
     book: BOOK,
+    userDataPath,
     prefix: 'clwriting-d3-ttl-',
     env: { CLWRITING_DRIVER: 'mock' },
     // R62-21/R76-37：两处 TTL 组装根注入短档 1000ms（原模块级 setter 已删，改
@@ -79,9 +84,53 @@ beforeAll(async () => {
 afterAll(async () => {
   vi.useRealTimers() // R0911-G-P1-1c：解除 Date fake，避免污染同进程后续时序
   await studio.close()
+  rmSync(userDataPath, { recursive: true, force: true }) // 数据目录由调用方自行清理
 })
 
 describe('D3：health/style + analyze-style 全书扫描 5s TTL 缓存', () => {
+  // D8：事件库体积进健康面——体积只 statSync 文件尺寸（不为显示体积开库连接），
+  // 超阈标记与阈值原值同源于 store-retention 的阈值导出（单源）。
+  it('事件库体积读数：无库文件 → bytes=null 且不建库；文件在位 → 尺寸即读数、超阈按阈值单源', async () => {
+    const { sessionDbPath } = await import('../../../src/events/store.js')
+    const { __setEventStoreBytesWarnThresholdForTest, getEventStoreBytesWarnThreshold } = await import(
+      '../../../src/events/store-retention.js'
+    )
+    interface Reading {
+      bytes: number | null
+      overThreshold: boolean
+      warnThresholdBytes: number
+    }
+    const readStore = async (): Promise<Reading> => {
+      const r = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/health/event-store`)
+      expect(r.status).toBe(200)
+      return (r.json as { eventStore: Reading }).eventStore
+    }
+    const dbPath = sessionDbPath(userDataPath, studio.bookRoot)
+
+    // ① 库文件不在位：字段为 null、不抛，且不因观测新建库文件（没有「开库」这一动作）
+    const absent = await readStore()
+    expect(absent.bytes).toBeNull()
+    expect(absent.overThreshold).toBe(false)
+    expect(existsSync(dbPath)).toBe(false)
+
+    // ② 库文件在位：读数为文件尺寸——占位文件不是合法 SQLite 库（真 open 必抛），读数照出即证只 stat
+    mkdirSync(dirname(dbPath), { recursive: true })
+    writeFileSync(dbPath, Buffer.alloc(2048))
+    try {
+      const normal = await readStore()
+      expect(normal.bytes).toBe(2048)
+      expect(normal.overThreshold).toBe(false) // 2048 < 默认阈值
+      expect(normal.warnThresholdBytes).toBe(getEventStoreBytesWarnThreshold())
+      __setEventStoreBytesWarnThresholdForTest(1024)
+      const over = await readStore()
+      expect(over.bytes).toBe(2048)
+      expect(over.overThreshold).toBe(true)
+      expect(over.warnThresholdBytes).toBe(1024) // 端点读的正是阈值单源那一份，非另抄的数字
+    } finally {
+      __setEventStoreBytesWarnThresholdForTest(1024 * 1024 * 1024)
+      rmSync(dbPath, { force: true })
+    }
+  })
   it('命中：5s 内二次调用不重扫（盘上变更不可见）', async () => {
     // 建缓存：health（scanChapters 样本）+ analyze-style（采样正文/全文 stats）
     const first = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/health/style`)

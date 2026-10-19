@@ -3,6 +3,7 @@ import { onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { getLastInitialBook } from './api/client'
 import { useAppActions } from './composables/useAppActions'
+import { useAppCloseFlush } from './composables/useUnloadFlush'
 import { usePrefsStore } from './stores/prefs'
 import { LAST_BOOK_KEY } from './shared/storage-keys'
 import ErrorBoundary from './components/ui/ErrorBoundary.vue'
@@ -25,6 +26,9 @@ import TooltipHost from './components/ui/TooltipHost.vue'
 const router = useRouter()
 const { dispatch: dispatchAction } = useAppActions()
 const prefs = usePrefsStore()
+// 关窗兜底钩子应用级在册：Book 卸载（离书到 /shelf 等）后钩子仍在，主进程关窗仍能等到
+// 卸载期在途保存落定（文档冲刷体见 composables/useUnloadFlush 的 runCloseFlush）
+useAppCloseFlush()
 // 订阅句柄提升到 setup 顶层——onBeforeUnmount 此前注册在
 // onMounted 回调体内（该时机无活动组件实例，钩子永不绑定，off 清理成死代码且每次
 // 启动产「no active component instance」dev 告警）；句柄/清理同层注册，全库 on/off

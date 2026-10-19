@@ -590,7 +590,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     // 滞留插入信号随切书作废——非编辑器视图点「插入」后切书，
     // 新书编辑器 tryConsumeInsert 三口会把 A 书设定名插进 B 书正文
     pendingInsert.value = null
-    persist.cancel() // 挂起的落盘随切书作废
+    // 挂起的落盘在切书链的冲刷步已先落一次写穿（useBookSwitchGuard），此处只清残余
+    // 计时器——不清会按新书名的写链发出（写链复查 opts.name() 已变，本次作废）
+    persist.cancel()
     const gen = bookGen.begin()
     void loadBookPrefs(gen)
   }

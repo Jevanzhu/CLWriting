@@ -139,3 +139,21 @@ describe('R51-I-6: 切文档分支的组合期守卫', () => {
     w.unmount()
   })
 })
+
+
+describe('外部全量替换清撤销栈时给出一次可见提示', () => {
+  it('有旧撤销历史的外部替换 → 提示一次；同档第二次替换不再提示', async () => {
+    const { useUiStore } = await import('../../../../src/studio/web-next/src/stores/ui')
+    const spy = vi.spyOn(useUiStore(), 'toast')
+    const w = mountHost('原始内容')
+    const view = viewOf(w)
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: '作者编辑的内容' } })
+
+    await w.setProps({ modelValue: '外部同步的新内容' })
+    await w.setProps({ modelValue: '外部同步的更新的内容' })
+
+    const hits = spy.mock.calls.filter((c) => String(c[0]).includes('撤销历史已重置'))
+    expect(hits).toHaveLength(1)
+    w.unmount()
+  })
+})

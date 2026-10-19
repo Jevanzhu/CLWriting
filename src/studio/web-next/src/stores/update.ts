@@ -128,6 +128,13 @@ function createUpdatePipeline(hooks: UpdatePipelineHooks): { ensureInit: () => v
   return { ensureInit }
 }
 
+/** 一次性更新告示的合并规则（服务端读后即删）：取到新告示即替换——旧值非空不得成为丢弃
+ *  新告示的理由（首个取走者未必是渲染告示的那一页）；按 at 去重，同一条不重复上屏。 */
+export function mergeUpdateAttempt(prev: UpdateAttempt | null, note: UpdateAttempt | null): UpdateAttempt | null {
+  if (!note) return prev
+  return note.at === prev?.at ? prev : note
+}
+
 interface UpdateActionsDeps {
   latest: Ref<UpdateInfo | null>
   phase: Ref<Phase>
@@ -327,11 +334,10 @@ export const useUpdateStore = defineStore('update', () => {
     applyInfo: (info) => {
       version.value = info.version
       latest.value = info.update
-      const note = info.updateAttempt ?? null
-      // 首见公告一次（结果条是「新版本起不来」场景唯一能活下来的反馈，不能只躺角标）；
-      // 服务端读后即删 + 本窗只认首个非空值，重复重取不会重复弹
-      if (note && attempt.value === null) {
-        attempt.value = note
+      // 一次性信箱（服务端读后即删）取到即上屏——合并规则见 mergeUpdateAttempt
+      const merged = mergeUpdateAttempt(attempt.value, info.updateAttempt ?? null)
+      if (merged !== attempt.value) {
+        attempt.value = merged
         useUiStore().toast(attemptText.value ?? '上次更新未完成', 'warning')
       }
     },

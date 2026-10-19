@@ -383,7 +383,12 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
         // 让工作台事件流以英文原文显示 notice，与注释声明的路由不符
         if (t === 'sync' || (!t.startsWith('chat_') && t !== 'notice')) wb.dispatch(data)
       } catch {
-        /* 非 JSON 静默丢弃（细案 §2.2） */
+        // 非 JSON 帧 = 丢一条进度事件（无 id/seq，丢了补不回来）——首条即上屏一次，
+        // 让作者知道进度可能缺帧，而不是只在控制台留痕
+        if (!parseDropNotified) {
+          parseDropNotified = true
+          ui.toast('进度事件解析失败，可能有进度未更新（连接异常时会自动重连）', 'warning')
+        }
       }
     }
   }
@@ -396,9 +401,14 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
     void doConnect().catch(() => {})
   }
 
+  /** 非 JSON 帧提示位（每连接一次）：事件流无 id/seq，丢一帧即少一条进度——此前静默
+   *  丢弃，长任务进度缺失只能靠看门狗事后补救；新连接纪元重新给一次可见面。 */
+  let parseDropNotified = false
+
   function connect(name: string): void {
     if (!name) return
     currentName = name
+    parseDropNotified = false
     // 切书新连接纪元——429 指引、失配连记、401 自愈
     // 截断等全套连接标志单点复位（原 7 行逐行抄录收编）
     resetEpoch()

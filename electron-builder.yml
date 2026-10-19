@@ -93,6 +93,16 @@ win:
         - x64
   icon: build/icon.png
   artifactName: ${productName}-${version}-${arch}.${ext}
+  # 便携包根目录放「恢复更新.bat」（与 CLWriting.exe 同级）：更新换目录中途被杀会留下
+  # <应用目录>.old-<版本> 残留、原名目录缺席（快捷方式落空），用户双击该脚本即可还原，
+  # 不必先成功启动任何副本。落点用 extraFiles（win = 应用内容目录根）——extraResources
+  # 会落进 resources/ 内，解压后在根目录看不见、双击不到。mac 不配置：自动换目录只在
+  # win 发生（update-controller 的 selfUpdateInstallCapable 平台判据）。
+  # 脚本内引用的 exe 名 / 旗标 / 残留命名与源码同源，由 test/desktop/update-helper.test.ts
+  # 的同步用例锚定（源码或脚本任一侧改名即红）。
+  extraFiles:
+    - from: build/recover
+      to: .
 # linux:
 #   target:
 #     - AppImage

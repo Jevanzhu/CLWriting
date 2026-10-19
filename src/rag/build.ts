@@ -31,6 +31,7 @@ import {
   deleteChunksByChapter,
   getIndexedChapterNumbers,
   isRagDbCorruptionError,
+  isRagSchemaTooNewError,
   deleteRagDbFiles,
   ragDbExists,
 } from './store.js'
@@ -236,7 +237,7 @@ export function cleanupRagAfterMerge(bookRoot: string, sourceChapterNos: number[
   }
 }
 
-/** RAG 索引库三态（+损坏）探测口径——
+/** RAG 索引库状态探测口径（unbuilt / cleared / built / corrupt / too-new 五态，逐条见下）——
  *  - unbuilt：从未建索引（库文件不存在，或库可开但无任何索引内容且无 reset 标记；
  *    recall 对未建书 openRagDb 落空建 db 后同此态）
  *  - cleared：resetRagIndex 清表不删文件口径下的「已清空可用」态（reset 标记在位
@@ -245,8 +246,11 @@ export function cleanupRagAfterMerge(bookRoot: string, sourceChapterNos: number[
  *    游标，也算 built）
  *  - corrupt：库文件级损坏（openRagDb 抛 SQLITE_NOTADB 族；区别于 db 语义错误——
  *    后者原样上抛）。供 status/recall 链路把「未建 / 已清空可用 / 损坏」透出，
- *    未建书的空命中不再与损坏库混淆（排障面）。 */
-type RagIndexState = 'unbuilt' | 'cleared' | 'built' | 'corrupt'
+ *    未建书的空命中不再与损坏库混淆（排障面）。
+ *  - too-new：库 schema 版本超前（`SqliteSchemaTooNewError`：库由更新版本的应用写入，
+ *    本代码不认识其 schema）。唯一出路是升级应用版本，故与 corrupt 并列收成返回值，
+ *    供状态面给出「请升级应用」指引——而不是把打开点异常原样透出成 500。 */
+type RagIndexState = 'unbuilt' | 'cleared' | 'built' | 'corrupt' | 'too-new'
 
 /** 已开库的三态判定（recall 空库早退路径共享，免二次开库）。 */
 export function ragIndexStateOfOpenDb(db: DatabaseSync): Exclude<RagIndexState, 'corrupt'> {
@@ -267,6 +271,7 @@ export function ragIndexState(bookRoot: string): RagIndexState {
     db = openRagDb(bookRoot)
   } catch (e) {
     if (isRagDbCorruptionError(e)) return 'corrupt'
+    if (isRagSchemaTooNewError(e)) return 'too-new'
     throw e
   }
   try {

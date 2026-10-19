@@ -42,6 +42,28 @@ describe('PM-3/4/6 保存链回归', () => {
   const relPath = '写作/正文/0001-开篇.md'
   const v1 = '---\n标题: 开篇\n章号: 1\n---\n' + '他推开门，屋里静得能听见灰尘落地的声音。'.repeat(10)
 
+  // A-1：同章号跨卷并存（外部工具/坏 fm 副本/人工搬运制造）时定位不唯一——
+  // 覆盖写按遍历序首个改写另一卷的同号章（写盘基线与被写对象同源，revision 闸拦不住）。
+  it('A-1: 同章号跨卷并存 → 写路径定位 fail-loud；只读定位维持取首个', async () => {
+    const { mkdirSync } = await import('node:fs')
+    const { resolveDraftPath } = await import('../../src/document/draft-path.js')
+    for (const [vol, title] of [
+      ['第一卷', '甲'],
+      ['第二卷', '乙'],
+    ] as const) {
+      mkdirSync(join(bookRoot, '写作', '正文', vol), { recursive: true })
+      writeFileSync(join(bookRoot, '写作', '正文', vol, `0005-${title}.md`), `---\n标题: ${title}\n章号: 5\n---\n正文`)
+    }
+    // 单命中路径语义不变（第 1 章唯一 → 照旧定位既存文件）
+    expect(resolveDraftPath(bookRoot, 1).relPath).toBe(relPath)
+    // 双份同号：写路径拒绝，不按遍历序首个覆写
+    expect(() => resolveDraftPath(bookRoot, 5)).toThrow(/多份/)
+    // 只读定位（对话上下文 / check_chapter）不拦：返回首个既存路径
+    const read = resolveDraftPath(bookRoot, 5, undefined, { forRead: true })
+    expect(read.existed).toBe(true)
+    expect(read.relPath).toMatch(/^写作\/正文\/第[一二]卷\/0005-[甲乙]\.md$/)
+  })
+
   beforeEach(async () => {
     bookRoot = mkdtempTracked(join(tmpdir(), 'pm346-cluster-'))
     svc = new DocumentService({ bookRoot })

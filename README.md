@@ -2,7 +2,7 @@
 
 写给中文网文作者的桌面写作软件，长篇和短篇集都能写。
 
-[![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org) [![Test](https://img.shields.io/badge/tests-9332%20all%20green-4FC08D?logo=vitest&logoColor=white)](#技术栈) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org) [![Test](https://img.shields.io/badge/tests-9438%20all%20green-4FC08D?logo=vitest&logoColor=white)](#技术栈) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 先说清楚一件事：这是写作软件，不是 AI 工具。建书、大纲、设定、正文、审稿、定稿，整套流程都在这个应用里。AI 只是其中一环——起草、改写、分析它可以代劳，读稿和拍板永远是你自己。
 
@@ -77,9 +77,19 @@ M 系芯片下 arm64 版，Intel 机型下 x64 版，拖进「应用程序」。
 
 另外，书库路径建议控制在 200 字符以内，避开系统的路径长度限制。
 
+## 更新卡住 / 打不开怎么办
+
+在应用里点了更新、它退出之后却没再起来，双击快捷方式提示找不到文件——到上级目录看一眼：原来的应用目录不见了，旁边多出一个 `CLWriting.old-1.2.3` 这样的文件夹。这是更新换到一半被结束留下的现场（中途断电或被任务管理器杀掉），旧目录已改名、新目录还没就位，应用本身没坏。
+
+这时打开那个 `CLWriting.old-<版本>` 文件夹，双击里面的 `恢复更新.bat`（便携包自带，与 `CLWriting.exe` 同级），它会把这个文件夹的名字改回去；看到「已还原」后按提示双击 `CLWriting.exe` 即可，书稿与设置不受影响。
+
+macOS 版没有自动替换这一步，不会出现这种现场；应用打不开时重新下载 dmg、拖回「应用程序」覆盖即可。
+
+兜底：重新下载便携 zip，解压到任意目录，用新目录里的 `CLWriting.exe` 启动（若脚本提示「没有找到可还原的旧版本目录」，也走这条）——书稿都在书库文件夹里，换目录不影响。
+
 ## 技术栈
 
-Node 24+，TypeScript strict。界面 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；数据是 node:sqlite（检索索引）加 JSON/YAML 文件；AI 接三个协议（Anthropic、OpenAI Chat、OpenAI Responses），统一走 runTask 编排，重试、超时、用量都在这一层管。测试 vitest（9332 单测）+ Playwright（35 specs / 59 用例）——1285 个测试文件 / 9332 单测全绿是合入门槛，CI 会核对本文件声称的数字，对不上直接红。
+Node 24+，TypeScript strict。界面 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；数据是 node:sqlite（检索索引）加 JSON/YAML 文件；AI 接三个协议（Anthropic、OpenAI Chat、OpenAI Responses），统一走 runTask 编排，重试、超时、用量都在这一层管。测试 vitest（9438 单测）+ Playwright（36 specs / 60 用例）——1285 个测试文件 / 9438 单测全绿是合入门槛，CI 会核对本文件声称的数字，对不上直接红。
 
 ## 致谢
 

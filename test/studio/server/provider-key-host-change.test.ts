@@ -22,7 +22,7 @@ import { processProviderRuntime } from '../../../src/ai/provider/store.js'
 
 const HOST_A = 'https://api.host-a.example/v1'
 const KEY_A = 'sk-alpha-AAAA1111'
-const MASK_A = 'sk-a...1111' // maskKey 口径：前 4 + '...' + 后 4
+const MASK_A = 'sk-...11' // maskKey 口径：前 3 + '...' + 后 2
 
 let studio: StudioHarness
 let userDataPath = ''
@@ -130,7 +130,7 @@ describe('RC B-4：主机变更 + 留空 Key 的准入闸', () => {
     const p = (r.json as ProviderReply).provider!
     expect(p.baseUrl).toBe('https://api.host-b.example/v1')
     expect(p.apiKey).toBe('') // 不回传原 key
-    expect(p.apiKeyMasked).toBe('sk-b...2222')
+    expect(p.apiKeyMasked).toBe('sk-...22')
     expect(p.hasKey).toBe(true)
 
     expect(diskKey(id)).toBe(NEW_KEY)

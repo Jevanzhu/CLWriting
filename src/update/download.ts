@@ -1,12 +1,19 @@
 /**
  * 阶段 55：便携包下载（流式落盘 + 校验 + 原子改名）。
  *
- * 契约四则：
+ * 契约五则：
  *  - **先落 `.part`**：全程写 `<目标名>.part`，校验通过才 `rename` 成正式名——正式名
  *    存在 ⟺ 该文件已过校验，助手进程可据此免检复用（续传/断点不在本期）。
  *  - **不明字节不解压**：下载链与助手都要求 sha256 锚定。校验值优先用 GitHub API 的
  *    资产 `digest`，缺失时回落发布同批的 `SHA256SUMS.txt`；两者皆无 → **失败**（宁可
  *    停在「去下载」降级态，也不把不可校验的包交出去）。
+ *  - **地址只认规范地址**：包体地址与校验清单地址都在**任何出站之前**与规范地址逐字比对
+ *    （`releaseAssetUrl` = 编译期仓常量 + tag + 资产名拼出的唯一形态）——发布响应可被
+ *    中间盒/代理篡改，而主机白名单只锁得住「哪个站」、锁不住「站上的哪条路径」：
+ *    `github.com/<攻击者仓>/releases/download/…` 配上同源可用的 digest 就足以骗过主机判据。
+ *    清单地址同样由仓常量与 tag 派生（`releaseChecksumsUrl`），不取响应里的地址，免得
+ *    校验值与被校验对象同源。唯一显式放行面 = **回环地址上的 http**（本机 http 桩与离线
+ *    镜像；回环监听需要本机执行能力，远端篡改到不了这里），见 `isAcceptedReleaseUrl`。
  *  - **失败/取消不留残迹**：`.part` 与半截文件一律删除（缓存目录不该越攒越脏）。
  *  - **出站走注入**：`fetchImpl` 缺省全局 fetch，主进程传 `net.fetch`（受系统代理，
  *    与 interface 一致），单测传桩——本模块自身不引入 Electron 依赖（可被 server 侧测试
@@ -18,13 +25,71 @@ import { mkdir, open, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { renameWithRetry } from '../fs/atomic.js'
 import { errMsg } from '../log/index.js'
-import { parseChecksums } from './asset.js'
+import { CHECKSUMS_ASSET_NAME, parseChecksums } from './asset.js'
 
 /** 进度回调节流（毫秒）——300MB 的包按 64KB 块约五千次回调，逐块过 IPC 是纯噪音 */
 const PROGRESS_THROTTLE_MS = 150
 
 /** 校验清单请求超时（毫秒；清单是小文件，等太久不如失败） */
 const CHECKSUMS_TIMEOUT_MS = 20000
+
+/** 发布仓（编译期常量）：下载地址与校验清单地址都由它派生，不取自发布响应 */
+export const UPDATE_REPO_SLUG = 'Jevanzhu/CLWriting'
+
+/**
+ * 某 tag 下某资产名的**规范下载地址**：`https://github.com/<仓>/releases/download/<tag>/<资产名>`。
+ * 这是 GitHub 发布资产的唯一公开形态，也是发布响应 `browser_download_url` 的正常取值；
+ * 地址判据与 `releaseChecksumsUrl` 都以本函数为单源（地址只能有一份派生算式）。
+ */
+export function releaseAssetUrl(tag: string, assetName: string): string {
+  return `https://github.com/${UPDATE_REPO_SLUG}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(assetName)}`
+}
+
+/**
+ * 某 tag 的校验清单地址（= 同名资产 `SHA256SUMS.txt` 的规范地址）。
+ * 发布步骤为每个 release 产该资产（见 `asset.ts` 头注口径），故地址可由编译期仓常量
+ * 与 tag 直接派生——校验值的获取路径因此不依赖那次可被篡改的发布响应。
+ */
+export function releaseChecksumsUrl(tag: string): string {
+  return releaseAssetUrl(tag, CHECKSUMS_ASSET_NAME)
+}
+
+/**
+ * 地址判据（fail-closed）：`url` 必须**逐字等于**规范地址 `canonical`，或落在显式放行面上
+ * ——**回环地址上的 http**（本机 http 桩与离线镜像；回环监听需要本机执行能力，远端篡改
+ * 响应到不了这里）。放行面仅限回环，别处一律拒：私网地址、https 回环、非 http(s) 协议、
+ * 非法 URL 皆不可信。
+ *
+ * 判据只有这一份：主机白名单（历史上那份）已被规范地址完全覆盖——规范地址恒落在发布
+ * 域内，而发布域内**非规范路径**（攻击者仓 / 任意路径）必须拒；两份判据并存会漂移成
+ * 「白名单更宽」的漏洞面，故主机白名单已删除。
+ */
+export function isAcceptedReleaseUrl(url: string, canonical: string): boolean {
+  if (url === canonical) return true
+  return isLoopbackHttpUrl(url)
+}
+
+/** 回环 http 判据（显式放行面的唯一实现，不另导出：调用方一律走 `isAcceptedReleaseUrl`） */
+function isLoopbackHttpUrl(url: string): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return false
+  }
+  if (parsed.protocol !== 'http:') return false
+  const host = parsed.hostname.toLowerCase()
+  return host === '127.0.0.1' || host === 'localhost' || host === '[::1]'
+}
+
+/** 人话地址标识（拒绝文案用；非法 URL 不回声整个串，免得把注入内容带进日志） */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return '非法地址'
+  }
+}
 
 export interface UpdateDownloadProgress {
   received: number
@@ -33,7 +98,7 @@ export interface UpdateDownloadProgress {
 }
 
 export type UpdateDownloadFailureReason =
-  /** 请求失败/非 2xx/响应无体 */
+  /** 请求失败/非 2xx/响应无体/地址不可信 */
   | 'network'
   /** 无可用校验值，或校验不匹配 */
   | 'checksum'
@@ -52,16 +117,18 @@ export type UpdateDownloadResult =
   { ok: true; zipPath: string; sha256: string } | { ok: false; failure: UpdateDownloadFailure }
 
 export interface UpdateDownloadOptions {
+  /** 发布 tag（含前导 v）——规范地址的另一半：包体地址必须由它与 `fileName` 拼出 */
+  tag: string
   url: string
   /** 目标目录（不存在则创建） */
   destDir: string
-  /** 本地文件名（缺省用资产名，由调用方传） */
+  /** 资产名（同时用作本地文件名；调用方传 `pickPortableAsset` 挑中的资产名） */
   fileName: string
   /** 期望字节数（进度分母兜底；缺省 null） */
   size?: number | null
   /** 期望 sha256（小写 hex；GitHub digest）；缺省时回落 checksumsUrl */
   sha256?: string | null
-  /** 校验清单地址（sha256 缺失时的来源） */
+  /** 校验清单地址（sha256 缺失时的来源；调用方用 `releaseChecksumsUrl` 派生） */
   checksumsUrl?: string | null
   fetchImpl?: typeof fetch
   signal?: AbortSignal
@@ -134,7 +201,7 @@ async function pumpBodyToPart(
   return received
 }
 
-/** 校验值解析：给定的 digest 优先，否则拉 SHA256SUMS.txt 解析；都没有 → null */
+/** 校验值解析：给定的 digest 优先，否则拉校验清单解析；都没有 → 错误 */
 async function resolveExpectedSha256(
   opts: UpdateDownloadOptions,
   fetchImpl: typeof fetch,
@@ -167,12 +234,31 @@ async function resolveExpectedSha256(
 }
 
 /**
+ * 资产名安全判据（本地落盘文件名的纵深防御）：拒路径分隔符、相对段、空名与控制字符。
+ * 调用方给的是 `pickPortableAsset` 命中的资产名（含 tag 派生串），此处不依赖上游守规矩——
+ * 该名同时进 `join(destDir, name)`（落盘路径）与规范地址派生（包体地址）两处。
+ */
+function isSafeAssetFileName(name: string): boolean {
+  if (name === '' || name === '.' || name === '..') return false
+  if (name.includes('/') || name.includes('\\')) return false
+  return !/[\u0000-\u001f\u007f]/.test(name) // C0/DEL：换行可伪造日志行，NUL 会截断路径
+}
+
+/**
  * 下载便携包到 `destDir/fileName` 并校验。
  * 返回 `{ ok:true, zipPath, sha256 }`（sha256 = 实测值，供助手二次核验与复用锚）；
  * 失败三态见 `UpdateDownloadFailureReason`，任何失败路径都不留 `.part` 残迹。
+ * 两条地址都在任何 IO 之前过规范地址判据：不相等即 `network` 失败（碎在出站与建目录之前）。
  */
 export async function downloadUpdateZip(opts: UpdateDownloadOptions): Promise<UpdateDownloadResult> {
   const fetchImpl = opts.fetchImpl ?? fetch
+  // 文件名判据先于地址判据：坏名不进 join，也进不了规范地址派生
+  if (!isSafeAssetFileName(opts.fileName)) {
+    return {
+      ok: false,
+      failure: { reason: 'network', detail: '资产名不是安全文件名（含路径分隔符/相对段/控制字符），已拒绝' },
+    }
+  }
   const zipPath = join(opts.destDir, opts.fileName)
   const partPath = `${zipPath}.part`
   const dropPart = async (): Promise<void> => {
@@ -180,6 +266,19 @@ export async function downloadUpdateZip(opts: UpdateDownloadOptions): Promise<Up
       await rm(partPath, { force: true })
     } catch {
       /* 残留 .part 不影响正确性：下次下载起手即清 */
+    }
+  }
+
+  if (!isAcceptedReleaseUrl(opts.url, releaseAssetUrl(opts.tag, opts.fileName))) {
+    return {
+      ok: false,
+      failure: { reason: 'network', detail: `包体地址与发布仓规范地址不符（${hostOf(opts.url)}），已拒绝` },
+    }
+  }
+  if (opts.checksumsUrl && !isAcceptedReleaseUrl(opts.checksumsUrl, releaseChecksumsUrl(opts.tag))) {
+    return {
+      ok: false,
+      failure: { reason: 'network', detail: `校验清单地址与发布仓规范地址不符（${hostOf(opts.checksumsUrl)}），已拒绝` },
     }
   }
 

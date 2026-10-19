@@ -185,10 +185,17 @@ export function isValidFmKey(key: string): boolean {
 // stripComment 同一函数，防循环 import 顾虑已随 core 拆出不成立），语义逐字不变。
 // 注意：yaml.ts 读改写同样丢注释，故写侧注释丢失口径一致、可接受，测试锁定「注释不进值」。
 
+/** fm 文本按行切分并剥行尾 `\r`——读侧行尾归一的唯一入口（CRLF 档案：外部编辑器/
+ *  同步盘写入的 `---\r\n`，split('\n') 会保留行尾 CR）。只剥行尾单个 `\r`，不动行内
+ *  空白与缩进；键行/平铺值/块标量行共用同一份归一结果（写侧恒 LF，此处为容错读）。 */
+function splitFmLines(fmRaw: string): string[] {
+  return fmRaw.split('\n').map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l))
+}
+
 /** 平铺 front matter → 有序 Map（保留插入顺序；支持块标量 `key: |`/`>` 多行值） */
 export function parseFlat(fmRaw: string): Map<string, unknown> {
   const result = new Map<string, unknown>()
-  const lines = fmRaw.split('\n')
+  const lines = splitFmLines(fmRaw)
   let i = 0
   while (i < lines.length) {
     const line = lines[i]!
@@ -226,22 +233,20 @@ export function parseFlat(fmRaw: string): Map<string, unknown> {
       const indents: number[] = [] // E-9d：记录非空行缩进，供最小缩进去缩进
       i++
       while (i < lines.length) {
+        // 行尾 \r 已由 splitFmLines 剥除——块行原样入值会把 CR 带进多行值本体
         const bl = lines[i]!
         if (bl.trim() === '') {
           // 纯空白行不再一律归一真空行——literal 保留原貌
           //（去缩进按 minIndent 截断，行内缩进空白不丢）；folded 的空白行按 YAML
           // 语义仍是段落边界（foldSegs 以真空行分段），维持 ''。
-          block.push(folded ? '' : bl.endsWith('\r') ? bl.slice(0, -1) : bl)
+          block.push(folded ? '' : bl)
           i++
           continue
         }
         const indent = bl.length - bl.trimStart().length
         if (indent === 0) break // 回到平铺层（新 key）
         indents.push(indent)
-        // 剥 CRLF 行尾 \r——split('\n') 保留 \r 尾，块行原样入值会
-        // 让多行值每行尾嵌 \r（平铺值行有 trim 无此问题，仅块标量中招），写回后形成
-        // 混合行尾文件且值本体被污染
-        block.push(bl.endsWith('\r') ? bl.slice(0, -1) : bl)
+        block.push(bl)
         i++
       }
       // E-9d：以块内非空行**最小缩进**为基准去缩进——此前按每行自身
@@ -557,11 +562,12 @@ interface ParsedRealmSystem {
 
 export function parseRealmSystems(fmRaw: string): ParsedRealmSystem[] {
   const systems: ParsedRealmSystem[] = []
-  // CRLF 行尾归一（与 leads.ts parseHistory 同口径）——
-  // 名称/序列两处正则对原始行 `$` 锚定匹配且无 m 标志，`\r` 前不认行尾 → CRLF 境界
-  // 体系段整体解析为空（成长线境界跳跃/回退红闸失效 + settings-context 注入失明）。
-  // 只剥行尾单个 `\r`，不动内容侧空格。
-  const lines = fmRaw.split('\n').map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l))
+  // 行切分 + 行尾归一取自读侧唯一原语 splitFmLines（按 `\n` 切、逐行剥行尾单个 `\r`，
+  // 不动行内空白与缩进）——前提约束：下方名称/序列两处正则均对**单行**做 `$` 锚定匹配
+  // 且无 m 标志，`\r` 前不认行尾，故每行必须先归一（整段 `\r` 置换会连带吃掉行内 CR，
+  // 不得改用）；CRLF 境界体系段若不归一即整体解析为空（成长线境界跳跃/回退红闸失效
+  // + settings-context 注入失明）。原语按 `\n` 切行后逐行剥尾，与该前提一致。
+  const lines = splitFmLines(fmRaw)
   let current: ParsedRealmSystem | null = null
   let inRealms = false
   // 块式序列留痕闸（每次解析至多 warn 一条，防多体系逐行刷屏）

@@ -190,3 +190,22 @@ describe('R34D-24 · 卸载 DELETE 用落拍捕获书名', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
+
+
+describe('关窗等待链纳入心跳释放（DELETE 不再 fire-and-forget）', () => {
+  it('在册心跳的退书释放作为关窗待办被 await', async () => {
+    const { runCloseTasks } = await import('../../../../src/studio/web-next/src/shared/close-flush')
+    const book = ref<string | null>('b1')
+    tokenMock.mockReturnValue('test-token')
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }))
+    const w = mountHeartbeat(book)
+    await vi.waitUntil(() => fetchMock.mock.calls.length >= 1)
+    fetchMock.mockClear()
+
+    await runCloseTasks()
+
+    const dump = fetchMock.mock.calls.map((c) => JSON.stringify(c[1] ?? null)).join(' ')
+    expect(dump).toContain('DELETE')
+    w.unmount()
+  })
+})

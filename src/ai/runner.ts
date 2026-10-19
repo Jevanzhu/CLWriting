@@ -224,6 +224,12 @@ function extractDegraded(data: unknown): boolean {
   return runResultShape(data)?.['degraded'] === true
 }
 
+/** 从 run 回调返回值提取本次生效的 tool_choice（不发 / 非值域成员 → undefined） */
+function extractToolChoice(data: unknown): ToolChoice | undefined {
+  const v = runResultShape(data)?.['toolChoice']
+  return v === 'auto' || v === 'any' || v === 'tool' ? v : undefined
+}
+
 /** 降级回调注册记录：Map 以 userDataPath 为键，各 path 的回调闭包并存——
  *  单值槽会让后注册者覆盖前者，旧 provider 触发 persistDegraded 时读写另一个配置目录的
  *  providers.json。store 单槽只承载稳定分发器（模块级函数引用，重装幂等），分发器按
@@ -493,6 +499,12 @@ interface RunTaskOpts<T> {
    *  进 promptMeta.tools（去重排序摘要），工具 schema 面的重放口径登记；
    *  不传则无此键（向后兼容） */
   promptTools?: string[]
+  /** 本次调用的 tool_choice 参数面（进 llm/call，重放口径；缺省不出现）——
+   *  chat 传实发 'auto'；tool 型 spec 的 requireTool 派生结果由 run 回传（见 ToolChoice 注） */
+  toolChoice?: ToolChoice
+  /** 「必须产出工具调用」意图（generateTool 按模型表翻译为实发 tool_choice）——
+   *  失败 attempt 读不到 run 回传时据此登记意图面（加性字段） */
+  requireTool?: boolean
   /** 章号（仅 self-heal 传；记账 chapter 块 + 预算闸用） */
   chapter?: number
 }
@@ -507,7 +519,11 @@ interface RunTraceParams {
   errCode?: string
   maxTokens?: number
   degraded?: boolean
+  toolChoice?: ToolChoice
 }
+
+/** tool_choice 请求参数面值域（与 GenRequest.toolChoice 同源；'any' = 必须调工具不指名） */
+type ToolChoice = 'auto' | 'any' | 'tool'
 
 /**
  * 段间状态（段 1 建；段 2 推进计时快照与 stepReason，段 3 收尾时读）。
@@ -628,6 +644,13 @@ async function prepareRun<T>(opts: RunTaskOpts<T>): Promise<RunPrep<T>> {
         // degraded 落事件最后一跳——trace 入参带了但未转发进 llmCallEvent 时，
         // spread 会绕过类型检查静默丢弃，贯通断在此处
         ...(p.degraded ? { degraded: true } : {}),
+        // tool_choice 参数面（铁律②重放口径）：成功 attempt 取实发生效值（p.toolChoice），
+        // 失败 attempt 无 run 回传可读 → 回落调用方声明（opts.toolChoice）；requireTool
+        // 意图面恒按调用方声明登记（派生结果可据模型表 + quirksVersion 精确重建）
+        ...((p.toolChoice ?? opts.toolChoice) !== undefined
+          ? { toolChoice: p.toolChoice ?? opts.toolChoice }
+          : {}),
+        ...(opts.requireTool ? { requireTool: true } : {}),
         ...(ctx.resolvedChunkStallTimeoutMs !== undefined
           ? { firstByteTimeoutMs: ctx.resolvedChunkStallTimeoutMs }
           : {}),
@@ -918,6 +941,7 @@ async function runAttemptLoop<T>(opts: RunTaskOpts<T>, ctx: RunCtx, r: ResolvedP
           ok: true,
           maxTokens: extractMaxTokens(data),
           ...(extractDegraded(data) ? { degraded: true } : {}),
+          toolChoice: extractToolChoice(data),
         })
         ctx.stepReason = stepEndReasonFor(stopReason)
         return { rt, outcome: { kind: 'ok', data, usage } }
@@ -951,7 +975,7 @@ async function runAttemptLoop<T>(opts: RunTaskOpts<T>, ctx: RunCtx, r: ResolvedP
           // 失败响应并非必无 usage——截断带 usage 机制
           // 下 GenError.usage 在手即真值，重试两分支（Retry-After 超封顶 / 正常退避）与
           // abort/fail 两分支同口径按可得值入账；无 usage 保持 null 口径不变
-          // 外层 if 已收窄 e instanceof GenError（640），冗余前半判定删除
+          // 外层 if 的 isRetryable 谓词签名已窄化 e 为 GenError，冗余前半判定删除
           const retryUsage = e.usage ? e.usage : null
           // 服务端 Retry-After 超过封顶 → 尊重其「等多久」的判断，不重试（终态）
           if (delay === null) {
@@ -997,7 +1021,7 @@ async function runAttemptLoop<T>(opts: RunTaskOpts<T>, ctx: RunCtx, r: ResolvedP
           // 重试也是真实 API 消耗——按次入账，
           // 否则单章最多 1+maxRetries 次调用只计 1 次，预算闸可被超限 4 倍
           // （token 量改按 retryUsage——「失败响应无 usage，token 记 0」系截断带
-          // usage 机制引入前的过期假设，与 abort(566)/终态失败(621) 两分支口径对齐）
+          // usage 机制引入前的过期假设，与 abort / 终态失败两分支口径对齐）
           recordUsageSafe(rt, ctx, opts, retryUsage, attempt)
           // 失败 attempt 入 trace（429/5xx 无 usage，但可审计重试链）
           // errCode 细化——有结构化 code（RATE_LIMIT/SERVER_ERROR/TIMEOUT…）优先于笼统 RETRYABLE

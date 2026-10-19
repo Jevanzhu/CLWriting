@@ -134,4 +134,36 @@ describe('R35-13：rag.db 损坏 → status 结构化指引 → rebuild 恢复',
     expect(after.status).toBe(200)
     expect(after.json['chunkCount'] as number).toBeGreaterThan(0)
   })
+
+  it('库 schema 版本超前（旧应用打开新版本建的库）→ 409 RAG_SCHEMA_TOO_NEW（指引升级，非裸 500）', async () => {
+    const bookRoot = join(workDir, BOOK)
+    const dbPath = join(bookRoot, '.cache', 'rag.db')
+
+    // 0. 前置：沿用同档上一用例重建好的库；不在位则现建一次（本用例独立可跑）
+    const pre = await api('/rag/status')
+    if (pre.status !== 200) {
+      writeFileSync(join(workDir, '.clwriting', 'rag.secret'), 'sk-legacy-key\n', 'utf8')
+      await putRagCfg({ enabled: true, endpoint: 'http://stub-legacy', model: 'model-a' })
+      expect((await api('/rag/build', { method: 'POST', body: '{}' })).status).toBe(200)
+      await waitForStatus((s) => s['running'] === false && (s['chunkCount'] as number) > 0)
+    }
+
+    // 1. 模拟「更新版本的应用」把库 schema 推高（此刻无打开句柄——build 已收尾）
+    const { DatabaseSync } = await import('node:sqlite')
+    const db = new DatabaseSync(dbPath)
+    const before = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
+    db.exec('PRAGMA user_version = 999')
+    db.close()
+
+    // 2. status：结构化 409 + 升级指引（修复前 too-new 原样上抛 → 兜底裸 500 无出路）
+    const st = await api('/rag/status')
+    expect(st.status).toBe(409)
+    expect(st.json['code']).toBe('RAG_SCHEMA_TOO_NEW')
+    expect(String(st.json['error'])).toContain('升级')
+
+    // 3. 复原：写回原版本，避免污染同档其余用例与后续档
+    const dbBack = new DatabaseSync(dbPath)
+    dbBack.exec(`PRAGMA user_version = ${before}`)
+    dbBack.close()
+  })
 })

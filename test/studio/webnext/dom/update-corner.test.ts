@@ -329,3 +329,17 @@ describe('更新角标：挂点', () => {
     expect(sidebar).not.toContain('margin-right: auto')
   })
 })
+
+
+describe('一次性更新告示的合并规则（取到即替换，旧值非空不吞新告示）', () => {
+  it('已有旧告示时取到新告示 → 替换；无新告示 → 保持旧告示；同一条不重复上屏', async () => {
+    const { mergeUpdateAttempt } = await import('../../../../src/studio/web-next/src/stores/update')
+    const prev = ATTEMPT
+    // 旧实现「attempt 非空即整体丢弃后到告示」→ 此处会拿到 rc.4
+    expect(mergeUpdateAttempt(prev, { ...ATTEMPT, at: '2026-10-15T10:00:00.000Z', to: '1.0.0-rc.5' })?.to).toBe(
+      '1.0.0-rc.5',
+    )
+    expect(mergeUpdateAttempt(prev, null)).toBe(prev)
+    expect(mergeUpdateAttempt(prev, { ...ATTEMPT })).toBe(prev)
+  })
+})

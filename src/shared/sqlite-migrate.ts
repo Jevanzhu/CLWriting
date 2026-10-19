@@ -41,7 +41,17 @@ export interface SqliteMigrationConn {
   exec(sql: string): void
 }
 
-/** 一级升级步：把库从 to-1 级升到 to 级。run 必须幂等——步失败会原样重跑（见文件头裁定 3）。 */
+/**
+ * 一级升级步：把库从 to-1 级升到 to 级。
+ *
+ * **硬契约（新增步的前置条件，不是建议）**：`run` 必须**幂等且可重入**。阶梯不包外层
+ * 事务（见文件头裁定 3），步执行到一半崩溃会留下「部分 DDL + 旧版本号」态，下次打开
+ * 从同一步重跑——因此步内每个动作都必须满足「重复执行等价于执行一次」：建表用
+ * `IF NOT EXISTS`、加列先探列（`PRAGMA table_info/table_xinfo`）再 `ALTER`、回填／搬迁
+ * 按条件收敛，且不得假设「本步只会被调用一次」。违反的代价：同一库在不同崩溃点收敛到
+ * 不同形态，而版本号只记「跑到哪一步」，阶梯无从发现（契约的反面钉子见
+ * test/rag/store-migration-race.test.ts 的阶梯契约用例）。
+ */
 export interface SqliteMigrationStep<C extends SqliteMigrationConn> {
   readonly to: number
   readonly run: (db: C) => void
@@ -87,6 +97,13 @@ export class SqliteSchemaTooNewError extends Error {
     this.dbVersion = dbVersion
     this.target = target
   }
+}
+
+/** 「库版本超前」判据（类型化分派单源）：调用方据此把该态归并为可透出的状态
+ *  （如 RAG 索引状态的 too-new），区别于损坏／锁／IO——那三类可重试或可删重建，
+ *  本类唯一出路是升级应用版本。 */
+export function isSqliteSchemaTooNewError(e: unknown): e is SqliteSchemaTooNewError {
+  return e instanceof SqliteSchemaTooNewError
 }
 
 /** 阶梯校验（红线）：steps 必须恰为 1..target 连续升序。缺号会让某级升级被静默跳过

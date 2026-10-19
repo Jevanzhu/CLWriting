@@ -351,3 +351,21 @@ test('R65-30: 已定稿章 move-pending 愈合（rename 已发生）→ 同次 d
   expect(findUnsettled(jPath)).toHaveLength(0)
   rmSync(root, { recursive: true, force: true })
 })
+
+// ── A7：健康节流三表容量上限（FIFO，口径同事件库 TABLE_MAX）──────────────
+
+test('健康节流三表容量上限 256：超限逐出最旧书键', async () => {
+  const { __getHealthThrottleKeysForTest, __rememberHealthThrottleForTest, __resetSweepThrottleForTest } =
+    await import('../../src/state/health.js')
+  __resetSweepThrottleForTest()
+  const TABLE_MAX = 256
+  const total = TABLE_MAX + 44
+  for (let i = 0; i < total; i++) __rememberHealthThrottleForTest(`容量书${i}`)
+  const keys = __getHealthThrottleKeysForTest()
+  for (const list of [keys.sweep, keys.cloud, keys.finalized]) {
+    expect(list.length).toBe(TABLE_MAX)
+    expect(list).not.toContain('容量书0')
+    expect(list[list.length - 1]).toBe(`容量书${total - 1}`)
+  }
+  __resetSweepThrottleForTest()
+})

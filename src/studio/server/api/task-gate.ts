@@ -60,11 +60,9 @@ const newGateState = (lockRoot: string | null): GateState => ({
   reviewRunning: new Set(),
 })
 
-// dd- 自查修正：action:book 冒号拼接在 heldTaskGatesFor 的后缀匹配下有歧义（闸
-// "分析:A"会让书"A"误判持闸）。（专项二轮顺修）注释勘误：首句「书名可含
-// ':'」已过时——isInvalidBookName 现禁 \\/:*?"<>| 全集；分隔符
-// 不回退冒号，NUL 分隔不依赖上游校验演进（改名规则再放宽也零歧义），书名/action
-// 均不含 \0，键恒无歧义。
+// 键分隔符取 NUL——书名与 action 均不含 \0，键恒无歧义。不用冒号：它在
+// heldTaskGatesFor 的后缀匹配下会让「分析:A」误判书「A」持闸；NUL 分隔也不依赖上游
+// 校验演进（isInvalidBookName 的 `\/:*?"<>|` 禁集再放宽亦零歧义）。
 const SEP = '\u0000'
 const keyOf = (bookName: string, action: string): string => `${action}${SEP}${bookName}`
 

@@ -27,6 +27,8 @@ import { generate, GenError } from '../../gen.js'
 // resolveProvider 复用既有 resolve 路径取档位模型 conf（只读
 // contextWindow；provider 实例本身仍由 runTask 自行 resolve）——本件只用其发送面常量
 import { runTask, type TaskResult } from '../../runner.js'
+// 回合用量合并（两类一次性重发的各段用量并入封套）走记账模块累加单源，含 estimated 粘性置位
+import { addUsage } from '../../calls.js'
 import { loadProviders, tierFromStore } from '../../provider/store.js'
 import { resolveAdapter } from '../../provider/registry.js'
 import { failureAction } from '../../provider/failure.js'
@@ -122,6 +124,11 @@ export interface ChatGeneration {
   reasoning: string
   /** resolve 后上线输出上限——runner 提取落 llm/call */
   resolvedMaxTokens?: number
+  /** 本次发送的 tool_choice 参数面（chat 恒 'auto'；generateTool 路径为 requireTool
+   *  经模型表翻译后的生效值，不发时不出现）——runner extractToolChoice 落 llm/call，
+   *  重放参数面登记（铁律②）。degraded=true（剥 tools 降级链）时实发不发 tool_choice，
+   *  参数面以 degraded 标记为准 */
+  toolChoice?: 'auto' | 'any' | 'tool'
   /** 适配器降级标记透传——runner extractDegraded 落 llm/call。
    * 回调已返回而泛型未声明，
    *  类型面对调用方不可见，现补齐（finish.ts 摘要壳同款） */
@@ -342,6 +349,9 @@ function prepareSendHistory(deps: TurnDeps, sendBudget: number, turn: number): S
  *  run 回调边界就地捕获超窗与换网错误码（消费者语义见下方两助手头注）。 */
 function makeSendTurn(deps: TurnDeps, ctx: TurnSendCtx): SendTurn {
   const { opts, state, sys } = deps
+  // 实发 tool_choice 单源：GenRequest 与 llm/call 登记面（runTask opts + run 回调回传）
+  // 同取本常量，两处各写一份会随单点改动漂移
+  const chatToolChoice = 'auto' as const
   return (send: ChatMsg[], promptText: string, providerId?: string) =>
     runTask<ChatGeneration>({
       userDataPath: opts.userDataPath,
@@ -366,6 +376,9 @@ function makeSendTurn(deps: TurnDeps, ctx: TurnSendCtx): SendTurn {
       // 可见）——工具名清单进 promptMeta.tools（铁律②「模型可见 ⟺ 已记录」工具面登记），
       // 清单收 CHAT_TOOL_NAMES 模块常量（原每轮 map 重算）
       promptTools: CHAT_TOOL_NAMES,
+      // 失败 attempt 读不到 run 回传——意图随 opts 进 runner，使 llm/call 的参数面
+      // 全 attempt 覆盖（与 run 回调回传的实发值同源，见上方 chatToolChoice）
+      toolChoice: chatToolChoice,
       ctrl: state.ctrl,
       // owner='chat:<book>'——driver 分槽防跨编排抢占（此前单槽「换新先
       // abort 旧」会掐断在途写稿）。注释校准：chat 与 self-heal/spawn 的并发
@@ -396,7 +409,7 @@ function makeSendTurn(deps: TurnDeps, ctx: TurnSendCtx): SendTurn {
               systemPrompt: sys,
               messages: send,
               tools: chatTools,
-              toolChoice: 'auto',
+              toolChoice: chatToolChoice,
               effort: tier.effort,
             },
             signal,
@@ -407,6 +420,7 @@ function makeSendTurn(deps: TurnDeps, ctx: TurnSendCtx): SendTurn {
             toolCalls: r.toolCalls,
             stopReason: r.stopReason,
             usage: r.usage,
+            toolChoice: chatToolChoice,
             reasoning: r.reasoning,
             resolvedMaxTokens: r.resolvedMaxTokens,
             // 降级参数面标记透传（extractDegraded 落 llm/call，铁律②重放口径）
@@ -426,6 +440,7 @@ function makeSendTurn(deps: TurnDeps, ctx: TurnSendCtx): SendTurn {
 /**
  * 首发 → 超窗收缩重试 → 换网重发的串接。两类重发各自恰一次、不级联；后一次以前一次
  * 生效的实发载荷为输入（ctx.effectiveSend），顺序与留痕口径见两助手头注。
+ * 返回封套的用量按本回合全部真实发送合并（见 withMergedTurnUsage）。
  */
 async function sendTurnWithFallbacks(args: {
   deps: TurnDeps
@@ -437,7 +452,35 @@ async function sendTurnWithFallbacks(args: {
   const { deps, turn, prep, ctx, sendTurn } = args
   const first = await sendTurn(prep.toSend, lastMessageFingerprint(prep.toSend))
   const afterShrink = await shrinkRetryOnOverflow({ deps, turn, prep, ctx, sendTurn, out: first })
-  return retryWithAlternateProvider({ deps, turn, ctx, sendTurn, out: afterShrink })
+  const last = await retryWithAlternateProvider({ deps, turn, ctx, sendTurn, out: afterShrink })
+  return withMergedTurnUsage([first, afterShrink, last])
+}
+
+/**
+ * 回合用量合并：把两类一次性重发（超窗收缩 / 换网）各段的可得用量并入封套。
+ *
+ * 每段 sendTurn 是独立的 runTask——用量各由本段 runTask 按次入账账本，而封套消费面
+ *（assistant 事件 / chat_done）此前只带末段，重发回合的「前端成本」与「账本按次口径」
+ * 长期分裂。合并口径 = 本回合全部真实发送的可得 token 累计（各段 attemptsUsage 优先，
+ * 无则取该段 usage）；同段被后续段原样传回（未重发）按对象同一性去重，不重复计。
+ * 任一段含估计入账时整体带 estimated（addUsage 单源粘性置位）。
+ */
+function withMergedTurnUsage(stages: ChatSendOut[]): ChatSendOut {
+  const last = stages[stages.length - 1]!
+  const acc: TokenUsage = { inputTokens: 0, outputTokens: 0 }
+  let any = false
+  let prev: ChatSendOut | undefined
+  for (const s of stages) {
+    if (s === prev) continue
+    prev = s
+    const u = s.attemptsUsage ?? (s.ok ? s.usage : null)
+    if (u) {
+      addUsage(acc, u)
+      any = true
+    }
+  }
+  if (!any) return last
+  return { ...last, attemptsUsage: acc }
 }
 
 /**
@@ -471,9 +514,9 @@ async function sendTurnWithFallbacks(args: {
  * 下末条消息不变、指纹恒同，是「对齐实发」的正确形态而非漏改）。
  *
  * 双次计费口径：重试是独立的第二次 runTask——首发（失败）与重试的 usage 各由本次
- * runTask 按「失败/重试也是真实 API 消耗」口径独立入账 ai-calls/账本；
- * 外层 out.attemptsUsage 只聚合末次发送的 attempt 链，首发消耗不并入封套（与 runner
- * 内部重试链失败 attempt 不入 done 合计的既有口径一致，账本按次不丢）。
+ * runTask 按「失败/重试也是真实 API 消耗」口径独立入账 ai-calls/账本；封套用量由
+ * sendTurnWithFallbacks 的 withMergedTurnUsage 合计各段后并入（事件/前端成本与账本
+ * 按次口径对齐，账本按次不丢）。
  *
  * 留痕：log.warn（前后码点数）+ chat 会话库 llm/retry（复用 runner 重试留痕事件形态
  * LlmRetryData，delayMs=0 表无退避）+ 用户面 warning；重试前防御性 chat_reset 清前端

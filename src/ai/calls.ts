@@ -17,7 +17,7 @@
  * 旧格式（flat { chapter, used, ... }）读到即一次性迁移。
  */
 import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 // 写链队列 + 跨进程锁的写段原语迁 src/fs/lock-file.ts——记账模块不再
 // 承载 fs 锁原语（provider/store.ts 与设置域改为直引 fs 层，不经记账模块借用）；
@@ -101,7 +101,7 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
       // （持有 pid= 自己、判 held），Atomics.wait 同步自锁至超时 → 丢账 + 谎报「损坏」，
       // 且排队路径的迁移写会用无账快照覆盖刚落盘的记账。锁内改为直接内联迁移：先迁移落盘，
       // 记账叠加其上，两个窗口一并消灭。
-      if (inWriteSegment) {
+      if (writeSegmentKeys.has(writeChainKey(bookRoot))) {
         try {
           writeRecord(bookRoot, migrated)
           migratedRoots.add(bookRoot)
@@ -281,13 +281,24 @@ function writeRecord(bookRoot: string, rec: CallRecord): void {
 // 起该原语居其新家）——排队分支已在役（保调用序 = 落盘序），非保留代码。
 const writeChains = new Map<string, Promise<unknown>>()
 
-/** 当前是否处于某次记账写段（writeWithCrossProcessLock 的 doWrite）
- *  执行中。readRecord 的旧格式迁移据此感知「已在锁内」——锁内迁移直接内联写，
- *  不得嵌套 serializedWrite（见 readRecord 注）。 */
-let inWriteSegment = false
+/** 当前处于记账写段（writeWithCrossProcessLock 的 doWrite 执行中）的书键集合——
+ *  per-bookRoot 分键，不依赖「doWrite 全同步且不跨书回调」这一未声明前提：A 书的
+ *  写段不得让 B 书的读判为「已在锁内」（误判会跳过入队迁移 → 无锁写丢账）。
+ *  readRecord 的旧格式迁移据此感知「已在锁内」——锁内迁移直接内联写，
+ *  不得嵌套 serializedWrite（见 readRecord 注）。键同写链键（platformCaseFold）。 */
+const writeSegmentKeys = new Set<string>()
 
-/** （落地）：跨进程互斥为真锁——serializedWrite 的每次写段在
- * bookRoot/.cache/ai-calls.lock 上做限时跨进程文件锁（O_EXCL + pid 存活探测
+/** 记账锁文件路径（单源）：serializedWrite 的实际加锁目标与对外文案
+ *  AI_CALLS_MUTEX_SCOPE_NOTE 共用——锁实现改路径时文案随源跟手，不再各自硬编码。 */
+export function aiCallsLockPath(bookRoot: string): string {
+  return `${budgetPath(bookRoot)}.lock`
+}
+
+/** 文案里的锁文件形态（占位书根 + 统一 '/'）——由 aiCallsLockPath 单源拼出。 */
+const LOCK_PATH_NOTE = aiCallsLockPath('<bookRoot>').split(sep).join('/')
+
+/** （落地）：跨进程互斥为真锁——serializedWrite 的每次写段在 aiCallsLockPath(bookRoot)
+ * 给出的锁文件上做限时跨进程文件锁（O_EXCL + pid 存活探测
  * + 崩溃接管，见 fs/cross-process-lock.ts）。的「进程内前提」声明就此废止；
  * 超时（默认 5s，持有进程活着但迟迟不放——理论上是文件 IO 级毫秒争用）上抛由
  * 调用方降级（runner recordUsageSafe warn 留痕，少记一次由预算闸保守口径兜底）。
@@ -297,7 +308,7 @@ let inWriteSegment = false
  * 测试专用导出（零生产调用）——互斥范围声明的对外文案面，仅测试断言声明串仍含
  * 「跨进程文件锁」等契约词（防声明随实现漂移后无人察觉）；生产码不读本常量。 */
 export const AI_CALLS_MUTEX_SCOPE_NOTE =
-  'ai-calls.json 互斥为进程内队列 + 跨进程文件锁（J7 已落地，fs/cross-process-lock.ts；R30-3 等待改异步轮询）：写段在 bookRoot/.cache/ai-calls.lock 上限时互斥，超时上抛由调用方降级留痕'
+  `ai-calls.json 互斥为进程内队列 + 跨进程文件锁（J7 已落地，fs/cross-process-lock.ts；R30-3 等待改异步轮询）：写段在 ${LOCK_PATH_NOTE} 上限时互斥，超时上抛由调用方降级留痕`
 
 /** 记账写失败的可定位上下文——写段最终被拒时按此拼装告警（书由调用参数带，其余在此）。 */
 export interface LedgerWriteContext {
@@ -359,7 +370,7 @@ function writeChainKey(bookRoot: string): string {
  *  在途入链、cleanup 身份比对、旁挂 warn 防未处理 rejection 全部由 serializedLockedWrite
  *  单源承载（provider/store.ts saveProviders 同构薄壳），机制语义不变。 */
 function serializedWrite(bookRoot: string, doWrite: () => void, ctx?: LedgerWriteContext): void | Promise<void> {
-  const lockPath = `${budgetPath(bookRoot)}.lock`
+  const lockPath = aiCallsLockPath(bookRoot)
   return serializedLockedWrite(writeChains, writeChainKey(bookRoot), lockPath, doWrite, {
     warnTag: 'ai-calls',
     fastWarn: (m) => `记账写段等待跨进程锁后失败（本轮账目缺失）：${m}`,
@@ -367,7 +378,9 @@ function serializedWrite(bookRoot: string, doWrite: () => void, ctx?: LedgerWrit
     lockTimeoutMs: () => getAiCallsLockTimeoutMs(),
     lockTimeoutMsg: `ai-calls 跨进程锁获取超时（${lockPath}）——本轮账目未记，避免与其他进程交错覆盖丢账`,
     segmentFlag: (on) => {
-      inWriteSegment = on
+      const key = writeChainKey(bookRoot)
+      if (on) writeSegmentKeys.add(key)
+      else writeSegmentKeys.delete(key)
     },
     // 回执通道登记 → 本模块留痕 + 计数（缺省旁挂 warn 由本分支取代，不双重告警）
     onFailure: (err, phase) => noteLedgerWriteFailure(bookRoot, ctx, phase, err),
@@ -422,7 +435,7 @@ type BudgetCheckResult =
 export function checkAiCallBudget(bookRoot: string, chapter: number, config: BookConfig): BudgetCheckResult {
   // 全局托底：calls_per_chapter 已可选化——常规路径（self-heal orchestrate）传入的 config
   // 已过 applyGlobalDefaults，这里是直调/测试路径的最终回落（8 与 global.json 缺省一致）
-  // 超额取舍记档：本函数是锁外快照读（208），与 consume 的
+  // 超额取舍记档：本函数是锁外快照读（readRecord 整文件复读，不持写段锁），与 consume 的
   // 锁内记账构成 check-then-act 窗口——并发写者数为上界的少量超额是**既定取舍**
   // （预算闸防「无限烧」，不承诺精确配额；锁内预记回滚会把 consume 事务复杂化一档，
   // 收益不成比例），不按 bug 处理。

@@ -6,7 +6,8 @@
  * （vitest setup 的 token 包装只对 `/api/` 前缀请求生效，与本面无关，但仍不依赖）。
  *
  * 阶段 55 扩资产面：结果随带便携 zip 资产（`asset`）与校验清单地址——解析纯函数
- * （asset.ts）与 check 的结果接线在同一档内测（同域并入，不新开碎片档）。
+ * （asset.ts）与 check 的结果接线在同一档内测（同域并入，不新开碎片档）。地址面按规范
+ * 地址单源：资产的响应地址非规范即降级 null，清单地址一律由 tag 派生（不回声响应）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
@@ -56,6 +57,10 @@ const hangingFetch = (async (_url: unknown, init?: { signal?: AbortSignal }) => 
 /** 便携 zip 的假 digest（GitHub 资产 digest 字段形态：`sha256:<hex>`） */
 const ZIP_SHA = 'a1'.repeat(32)
 
+/** 规范地址（仓常量 + tag + 资产名）：响应该给的那一份，也是结果里该出现的那一份 */
+const CANONICAL_ZIP = 'https://github.com/Jevanzhu/CLWriting/releases/download/v1.0.0/CLWriting-1.0.0-x64.zip'
+const CANONICAL_SUMS = 'https://github.com/Jevanzhu/CLWriting/releases/download/v1.0.0/SHA256SUMS.txt'
+
 const RELEASES = [
   { tag_name: 'v1.0.0-rc.0', draft: false },
   {
@@ -64,12 +69,18 @@ const RELEASES = [
     assets: [
       {
         name: 'CLWriting-1.0.0-x64.zip',
-        browser_download_url: 'https://dl.test/CLWriting-1.0.0-x64.zip',
+        browser_download_url: CANONICAL_ZIP,
         size: 4096,
         digest: `sha256:${ZIP_SHA}`,
       },
-      { name: 'CLWriting-1.0.0-arm64.zip', browser_download_url: 'https://dl.test/arm64.zip', size: 4096 },
-      { name: 'SHA256SUMS.txt', browser_download_url: 'https://dl.test/SHA256SUMS.txt', size: 120 },
+      {
+        name: 'CLWriting-1.0.0-arm64.zip',
+        browser_download_url:
+          'https://github.com/Jevanzhu/CLWriting/releases/download/v1.0.0/CLWriting-1.0.0-arm64.zip',
+        size: 4096,
+      },
+      // 清单地址故意给成非规范形态：结果里的地址必须来自 tag 派生（不回声响应）
+      { name: 'SHA256SUMS.txt', browser_download_url: 'https://objects.githubusercontent.com/SHA256SUMS.txt', size: 120 },
     ],
   },
   { tag_name: 'nightly', draft: false },
@@ -118,14 +129,46 @@ describe('runUpdateCheckOnce 正常路径', () => {
     expect(getUpdateCheckResult()).toEqual({
       version: '1.0.0',
       url: 'https://github.com/Jevanzhu/CLWriting/releases/tag/v1.0.0',
-      // 资产面与版本同响应解析：便携 zip（x64）+ 校验清单地址
+      // 资产面与版本同响应解析：便携 zip（x64）+ 校验清单地址（结果里是派生值，
+      // 不是响应里那条非规范的 objects.githubusercontent.com）
       asset: {
         name: 'CLWriting-1.0.0-x64.zip',
-        url: 'https://dl.test/CLWriting-1.0.0-x64.zip',
+        url: CANONICAL_ZIP,
         size: 4096,
         sha256: ZIP_SHA,
       },
-      checksumsUrl: 'https://dl.test/SHA256SUMS.txt',
+      checksumsUrl: CANONICAL_SUMS,
+    })
+  })
+
+  it('响应给非规范资产地址（发布域主机上的攻击者仓）→ asset 降级 null，清单地址仍取派生值', async () => {
+    const tampered = okFetch([
+      {
+        tag_name: 'v1.0.0',
+        draft: false,
+        assets: [
+          {
+            name: 'CLWriting-1.0.0-x64.zip',
+            browser_download_url:
+              'https://github.com/attacker/CLWriting/releases/download/v1.0.0/CLWriting-1.0.0-x64.zip',
+            size: 4096,
+            digest: `sha256:${ZIP_SHA}`,
+          },
+          {
+            name: 'SHA256SUMS.txt',
+            browser_download_url:
+              'https://github.com/attacker/CLWriting/releases/download/v1.0.0/SHA256SUMS.txt',
+          },
+        ],
+      },
+    ])
+    await runUpdateCheckOnce({ currentVersion: '1.0.0-rc.0', fetchImpl: tampered.fn })
+    // 名字、尺寸、digest 都齐（唯一不合格的是地址）——回退成「只锁主机」时 asset 会非空，本例即红
+    expect(getUpdateCheckResult()).toEqual({
+      version: '1.0.0',
+      url: 'https://github.com/Jevanzhu/CLWriting/releases/tag/v1.0.0',
+      asset: null,
+      checksumsUrl: CANONICAL_SUMS,
     })
   })
 
@@ -139,7 +182,13 @@ describe('runUpdateCheckOnce 正常路径', () => {
       {
         tag_name: 'v1.0.0',
         draft: false,
-        assets: [{ name: 'CLWriting-1.0.0-arm64.zip', browser_download_url: 'https://dl.test/a.zip' }],
+        assets: [
+          {
+            name: 'CLWriting-1.0.0-arm64.zip',
+            browser_download_url:
+              'https://github.com/Jevanzhu/CLWriting/releases/download/v1.0.0/CLWriting-1.0.0-arm64.zip',
+          },
+        ],
       },
     ])
     await runUpdateCheckOnce({ currentVersion: '1.0.0-rc.0', fetchImpl: armOnly.fn })
@@ -230,7 +279,7 @@ describe('resolveLatestRelease（三态：下载链按 kind 分流文案）', ()
     expect(outcome.kind).toBe('release')
     const release = outcome.kind === 'release' ? outcome.release : null
     expect(release?.tag).toBe('v1.0.0')
-    expect(pickPortableAsset(release?.assets, '1.0.0')?.url).toBe('https://dl.test/CLWriting-1.0.0-x64.zip')
+    expect(pickPortableAsset(release?.assets, '1.0.0')?.url).toBe(CANONICAL_ZIP)
   })
 
   it('发布集里全是 rc → none（网络正常，只是没有正式版；与 error 必须分开）', async () => {

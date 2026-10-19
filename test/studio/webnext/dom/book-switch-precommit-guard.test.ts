@@ -266,3 +266,112 @@ describe('R0916-7-P3-20: 提交前守卫——决断后照常切书', () => {
     expect(useDocStore().bookName).toBe('书B')
   })
 })
+
+
+describe('脏路由离书（/book/A → /shelf）与切书同口径：未落盘编辑走可见决断', () => {
+  it('保存失败 + 取消 → 回退原书路由，dirty 原封保留（此前静默丢弃）', async () => {
+    const doc = useDocStore()
+    const ui = useUiStore()
+    await seedDirty('d1')
+    mocks.saveContent.mockRejectedValue(new Error('网络断了'))
+    const askSpy = askAt(ui, false)
+
+    await router.push('/shelf')
+    await flushPromises()
+    await flushPromises()
+
+    expect(visitOrder).toEqual(['书A']) // 决断发生在导航提交之前（离书守卫，非提交后兜底）
+    expect(askSpy).toHaveBeenCalledTimes(1)
+    expect(askSpy.mock.calls[0]![0].title).toContain('保存失败')
+    expect(router.currentRoute.value.path).toBe(bookPath('书A'))
+    expect(doc.bookName).toBe('书A')
+    expect(doc.get('d1')!.dirty).toBe(true)
+  })
+
+  it('保存失败 + 确认丢弃 → 离书并清缓存（决断之后才离）', async () => {
+    const doc = useDocStore()
+    const ui = useUiStore()
+    await seedDirty('d1')
+    mocks.saveContent.mockRejectedValue(new Error('网络断了'))
+    askAt(ui, true)
+    const sessionA = currentBookSession()!
+
+    await router.push('/shelf')
+    await flushPromises()
+    await flushPromises()
+
+    expect(router.currentRoute.value.path).toBe('/shelf')
+    expect(doc.bookName).toBe('')
+    expect(doc.get('d1')).toBeUndefined()
+    // 离书状态转移单源（leaveBook）：会话作废——否则离书后仍持旧书信号，在途本书写请求
+    // 不会被 abort，再进书时「上一个会话」的判定也随之错位
+    expect(sessionA.stillIn()).toBe(false)
+    expect(currentBookSession()).toBeNull()
+  })
+
+  it('无脏无冲突 → 不弹窗直接离书（冷启动不误伤）', async () => {
+    const ui = useUiStore()
+    const doc = useDocStore()
+    const askSpy = vi.spyOn(ui, 'ask')
+
+    await router.push('/shelf')
+    await flushPromises()
+
+    expect(askSpy).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.path).toBe('/shelf')
+    expect(doc.bookName).toBe('') // 干净离书同样走离书状态转移
+  })
+})
+
+/**
+ * 离书守卫的**登记锚**——上组用例在「Book 直挂、路由切换不卸载」的 harness 里跑，
+ * 缺了离书守卫时提交后 watch 的脏路由分支仍会兜住（行为断言不红）。故本组直接锚路由
+ * 记录上的守卫集合：生产路径真正生效的是 onBeforeRouteLeave（Book 卸载后 watch 已停，
+ * watch 分支收不到），摘掉该登记即红——这是本修复唯一的「回退即变红」机器判据。
+ * 真实导航面（含镜像保留/清除）见 test/e2e/unsaved-leave-guard.spec.ts。
+ */
+describe('离书守卫登记（生产路径唯一真源 = 提交前的 onBeforeRouteLeave）', () => {
+  it('Book 在册期间 /book/:name 记录上登记离书守卫；卸载后摘除', async () => {
+    interface RecordWithGuards {
+      leaveGuards: Set<unknown>
+      updateGuards: Set<unknown>
+    }
+    const record = router.currentRoute.value.matched[0] as unknown as RecordWithGuards
+    expect(record).toBeDefined()
+    expect(record.leaveGuards.size).toBeGreaterThan(0)
+    // 切书（同记录参数更新）与离书是两条不同的登记面，勿混淆
+    expect(record.updateGuards.size).toBeGreaterThan(0)
+
+    w.unmount()
+    // registerGuard 的 onUnmounted 清理：卸载后同一记录的守卫集合归空
+    expect(record.leaveGuards.size).toBe(0)
+  })
+})
+
+describe('切书链先落一次书级 prefs 写穿（500ms 防抖窗内的布局态不随切书丢弃）', () => {
+  it('冲刷步调用 flushPendingBookPrefs', async () => {
+    const { useWorkspaceStore } = await import('../../../../src/studio/web-next/src/stores/workspace')
+    const spy = vi.spyOn(useWorkspaceStore(), 'flushPendingBookPrefs')
+
+    await router.push(bookPath('书B'))
+    await flushPromises()
+
+    expect(spy).toHaveBeenCalled()
+  })
+})
+
+describe('autosave 连续失败在非编辑视图也可见', () => {
+  it('自动保存连续 3 拍失败 → toast 点名「未落盘」', async () => {
+    const doc = useDocStore()
+    const ui = useUiStore()
+    const spy = vi.spyOn(ui, 'toast')
+    await seedDirty('d1')
+    mocks.saveContent.mockRejectedValue(new Error('网络断了'))
+
+    await doc.save('d1', 'autosave')
+    await doc.save('d1', 'autosave')
+    await doc.save('d1', 'autosave')
+
+    expect(spy.mock.calls.some((c) => String(c[0]).includes('自动保存连续 3 次失败'))).toBe(true)
+  })
+})

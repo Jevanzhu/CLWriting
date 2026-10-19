@@ -54,7 +54,13 @@ import {
 } from './workdir-controller.js' // workdir 控制器拆出
 import { filterValidRecentBudgeted } from './workdir-store.js'
 import { errMsg, flushLogs, initLogging, log } from '../log/index.js'
-import { isApplyUpdateInvocation, parseApplyUpdateArgv, runUpdateHelper } from './update-helper.js' // 阶段 55 更新助手态分流（见下）
+import {
+  isApplyUpdateInvocation,
+  isRecoverUpdateInvocation,
+  parseApplyUpdateArgv,
+  runRecoverUpdateCli,
+  runUpdateHelper,
+} from './update-helper.js' // 更新助手态 / 中断自愈态分流（见下）
 import { createUpdateCheckHost, scheduleUpdateMaintenance } from './update-controller.js' // 阶段 55 启动维护 + 更新检查宿主（检查归主进程，见 update-controller 注）
 
 // ── 更新助手态分流（阶段 55）──────────────────────────────
@@ -67,6 +73,14 @@ const UPDATE_LOG_FLUSH_TIMEOUT_MS = 2000
 // 出口纪律：两条路径都直接终止进程——模块后续顶层代码（整个应用装配面）不得求值；
 // app.exit 是 Electron 语义的立即退出（不发 before-quit），process.exit 兜底两者同发，
 // 先到者接管进程终止（同发无副作用）。
+// ── 中断自愈还原态分流 ──────────────────────────────
+// 与应用形态互斥：只做目录还原（不换目录、不写结果条、不拉起进程），供「目标目录缺席、
+// 任何副本都起不来」时自愈——不依赖应用装配，故与助手态同处任何应用级装配之前。
+if (isRecoverUpdateInvocation(process.argv)) {
+  const ok = runRecoverUpdateCli(process.argv)
+  app.exit(ok ? 0 : 1)
+  process.exit(ok ? 0 : 1)
+}
 if (isApplyUpdateInvocation(process.argv)) {
   // 关掉 Electron 的 asar 层：它把「写向 `*.asar` 目标」也当包体去解析——解压真实便携包的
   // `resources/app.asar` 条目会在 open 即抛 Invalid package（win 真机实测，更新链在打包态

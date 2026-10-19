@@ -141,7 +141,8 @@ describe('E106: 401 重放仅限幂等面', () => {
     await expect(c.apiJson('/api/books/书A/chat', { method: 'POST', json: { message: 'hi' } })).rejects.toMatchObject({
       status: 401,
       code: 'UNAUTHORIZED',
-      message: 'token 无效', // 未发生重放——重审-15 的 AUTH_BROKEN 统一文案不触发
+      // 未重放面同走统一人话并补一次重试指引：信封里的「token 无效」不上屏
+      message: '本地服务连接异常（登录态失效），请刷新页面或重启应用（请重试一次）',
     })
   })
 

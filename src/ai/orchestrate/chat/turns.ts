@@ -11,10 +11,8 @@
  * chat/turns-tools.ts；可见性诊断族在 chat/turns-visibility.ts。导出面逐名 re-export
  * 拆出件，消费方 import 面零改动。
  */
-import { resolveProvider } from '../../runner.js'
-// models 行 contextWindow 读取（与 finish.ts:124
-// clampCheckpointOutputTokens(modelConfOf(provider.conf)?.contextWindow) 同款先例）
-import { modelConfOf } from '../../provider/store.js'
+// 档位模型行只读解析（loadProviders + tierFromStore/modelConfOf）
+import { modelConfOf, loadProviders, tierFromStore } from '../../provider/store.js'
 // 预算按模型 contextWindow 显式 resolve（resolveChatSendBudget），
 // system prompt 计入预算（历史可用 = 预算 − sys 点数，下限 CHAT_HISTORY_MIN_BUDGET_POINTS）
 import { resolveChatSendBudget } from '../../prompts/chat.js'
@@ -36,6 +34,21 @@ export { waitConfirm, executeChatTool } from './turns-tools.js'
 export { verifyVisibleSampled } from './turns-visibility.js'
 
 // ── 轮循环 ────────────────────────────────────────
+
+/** chat 档位模型行的 contextWindow（只读；不实例化 provider）。
+ *  provider 未配 / currentId 指向已删供应商 / 档位模型为空 / 配置读取失败 →
+ *  undefined（与 resolveProvider 失败路径同落预算缺省），发送侧真伪由 runTask 自行 resolve。 */
+function chatModelContextWindow(userDataPath: string | null): number | undefined {
+  if (!userDataPath) return undefined
+  try {
+    const s = loadProviders(userDataPath)
+    const conf = s.providers.find((p) => p.id === s.currentId)
+    const model = tierFromStore(s, 'chat').model
+    return conf && model ? modelConfOf({ ...conf, model })?.contextWindow : undefined
+  } catch {
+    return undefined
+  }
+}
 
 /** 相位 d：轮循环 + 轮数触顶收尾。返回 completedOk（E1a 续链口径：正常完成才 true）。 */
 export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
@@ -67,8 +80,10 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
   // 语义边界：agent 轮循环中途改 providers 配置不再即时生效（轮循环场次分钟级、单场
   // 对话内换档场景可忽略）；runTask 内 provider 实例仍走自身 resolve 路径，发送面
   // 与实际发送用同一预切预算的不变量（「预算先于 runTask 定型」）不受影响。
-  const prov = resolveProvider(opts.userDataPath, 'chat')
-  const sendBudget = resolveChatSendBudget(prov.ok ? modelConfOf(prov.provider.conf)?.contextWindow : undefined)
+  // 档位模型行只读解析（loadProviders + tierFromStore/modelConfOf）：本处只取
+  // contextWindow，不实例化 provider、不进 registry LRU（容量 8）——与换网候选预检
+  // 同款纪律（turns-phases 只读形状判定）；真正实例化只发生在 runTask。
+  const sendBudget = resolveChatSendBudget(chatModelContextWindow(opts.userDataPath))
 
   for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
     // 阶段一（单轮发起）：轮首中止三出口 → 血缘登记 → chat_turn → 发送面预切 →

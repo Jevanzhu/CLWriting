@@ -1,6 +1,6 @@
 /**
  * G-2（二十轮）：api 桶补测——AI/文风/服务商域端点行为级直测（走真实 client + 桩 fetch）。
- * 覆盖 style/analysis/review/rewrite/providers 的 URL 编码、method、body 负载、响应解包
+ * 覆盖 style/health/analysis/review/rewrite/providers 的 URL 编码、method、body 负载、响应解包
  * 与 404→null 兜底（review 信封）。书级状态端点见 api-endpoints-a.test.ts。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -16,6 +16,7 @@ import {
   freezeStyleBaseline,
   getStyleTrend,
 } from '../../../src/studio/web-next/src/api/style'
+import { getEventStoreFootprint } from '../../../src/studio/web-next/src/api/health'
 import {
   autotag,
   inferMeta,
@@ -116,6 +117,16 @@ describe('api style · 文风条目/候选/基线', () => {
     expect(lastCall().url).toBe('/api/books/%E4%B9%A6%20A/style/harvest')
     await freezeStyleBaseline('书 A')
     expect(lastCall().url).toBe('/api/books/%E4%B9%A6%20A/style/baseline/freeze')
+  })
+})
+
+describe('api health · 事件库体积读数', () => {
+  // URL 契约：路径段 health/event-store 与后端路由同名（src/studio/server/api/health.ts），
+  // 段名漂移只表现为 404——前端只消费服务端算好的标记与阈值，不在此另拼一份。
+  it('getEventStoreFootprint：GET /api/books/<enc>/health/event-store', async () => {
+    stubFetch(() => ok({ ok: true }))
+    await getEventStoreFootprint('书A')
+    expect(lastCall().url).toBe('/api/books/%E4%B9%A6A/health/event-store')
   })
 })
 

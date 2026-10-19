@@ -205,7 +205,7 @@ function buildRoutes(
     // 服务商化：书级引用 + 应用级 RAG 服务商（providers.json ragProviders 段）
     registerRagRoutes({ workDir, userDataPath, gate: deps.gate })
     registerRagProviderRoutes({ userDataPath })
-    registerHealthRoutes({ workDir, styleScanTtlMs: ov.styleScanTtlMs })
+    registerHealthRoutes({ workDir, userDataPath, styleScanTtlMs: ov.styleScanTtlMs })
     registerFileRoutes({ workDir, userDataPath }) // PUT /file 覆盖留底读全局保留策略
     registerOverviewRoutes({ workDir, userDataPath, overviewTtlMs: ov.overviewTtlMs }) // 全局托底：genre/target_words/volume_size 喂运行时合并 global.json
     registerRhythmRoutes({ workDir, rhythmTtlMs: ov.rhythmTtlMs })

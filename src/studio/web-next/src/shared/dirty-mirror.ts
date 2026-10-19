@@ -26,6 +26,8 @@ export interface DirtyMirrorDeps {
   getEntry: (docId: string) => MirrorEntryView | undefined
   /** 当前书名（null = 未开书；写侧属主标注用）。 */
   getBook: () => string | null
+  /** 单条镜像超限回调——超限即本篇失去崩溃镜像兜底，调用方据此上屏（不能只留 debug 日志）。 */
+  onOversize?: (docId: string, payloadChars: number) => void
 }
 
 export function createDirtyMirror(deps: DirtyMirrorDeps) {
@@ -101,6 +103,7 @@ export function createDirtyMirror(deps: DirtyMirrorDeps) {
       })
       if (payload.length > MIRROR_MAX_CHARS) {
         console.debug(`[doc] dirty 镜像超限（${payload.length} chars）跳过: ${book}/${docId}`)
+        deps.onOversize?.(docId, payload.length) // 降级必须可见：本篇已无本地崩溃镜像兜底
         return // 指纹不登记：内容缩回限内后下一拍照常落镜像（上限语义不变）
       }
       localStorage.setItem(mirrorKey(book, docId), payload)

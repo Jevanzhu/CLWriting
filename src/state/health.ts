@@ -59,10 +59,25 @@ import type { BookConfig } from '../format/types.js'
 import { log, errMsg } from '../log/index.js'
 import { registerBookKeyedCache } from '../studio/server/cache-registry.js' // 书键缓存登记表（登记制单源）
 
-// sweep 每书 TTL 节流表（内存态，key = bookRoot；书数量级小无上限
-// 忧虑）。导出 reset 钩子供测试复位节流窗。
+// sweep/网盘副本/finalizedLost 三张每书 TTL 节流表（内存态，key = bookRoot）。条目每书
+// 一条、量级小，但长期多书库/换库只增不减——与 events/store-retention.ts 的 TABLE_MAX
+// 同口径封顶（FIFO 逐出最旧书键）。导出 reset 钩子供测试复位节流窗。
+const TABLE_MAX = 256
+
+/** 书键节流表：容量到顶时按插入序逐出最旧键（Map 迭代序 = 插入序），其余语义与普通
+ *  Map 逐位一致（get/set/delete/clear/size 的消费方零感知）。 */
+class BoundedBookKeyMap<V> extends Map<string, V> {
+  override set(key: string, value: V): this {
+    if (!this.has(key) && this.size >= TABLE_MAX) {
+      const oldest = this.keys().next().value
+      if (oldest !== undefined) this.delete(oldest)
+    }
+    return super.set(key, value)
+  }
+}
+
 const SWEEP_THROTTLE_MS = 6 * 3600_000
-const sweepLastAt = new Map<string, number>()
+const sweepLastAt = new BoundedBookKeyMap<number>()
 
 // 网盘副本扫描每书 TTL 节流表（口径同 sweepLastAt 纪律）——
 // scanCloudCopies 是 readdirSync 全树同步递归 + 逐文件 existsSync 验母本，此前
@@ -74,7 +89,7 @@ const sweepLastAt = new Map<string, number>()
 // （把「有问题」降成「无问题」），与本注释「回上次结果」的承诺不符。缓存值口径：
 // 窗内新出现的副本最迟 TTL 过后下一次健康检查可见（登记取舍不变）。
 const CLOUD_SCAN_THROTTLE_MS = 60_000
-const cloudScanCache = new Map<string, { at: number; copies: string[] }>()
+const cloudScanCache = new BoundedBookKeyMap<{ at: number; copies: string[] }>()
 
 // finalizedLost 逐条 statSync 每书 TTL 节流表
 //（口径同 cloudScanCache 纪律——窗内回**上次结果**：清单在册有 finalizedRevision 的条目
@@ -82,7 +97,28 @@ const cloudScanCache = new Map<string, { at: number; copies: string[] }>()
 // 可冻结事件循环秒级。回上次结果而非空数组 = fail-closed 方向：持续丢失面在窗内仍可见，
 // 窗内新丢失最迟 TTL 过后下一次健康检查可见，登记取舍与 cloudScanCache 注一致）。
 const FINALIZED_LOST_THROTTLE_MS = 60_000
-const finalizedLostCache = new Map<string, { at: number; issues: HealthIssue[] }>()
+const finalizedLostCache = new BoundedBookKeyMap<{ at: number; issues: HealthIssue[] }>()
+
+/** @internal 测试钩子：三表现有书键的只读快照（验证 FIFO 上限；不改表）。 */
+export function __getHealthThrottleKeysForTest(): {
+  sweep: string[]
+  cloud: string[]
+  finalized: string[]
+} {
+  return {
+    sweep: [...sweepLastAt.keys()],
+    cloud: [...cloudScanCache.keys()],
+    finalized: [...finalizedLostCache.keys()],
+  }
+}
+
+/** @internal 测试钩子：往三张节流表各插一条书键（不跑真实扫描——上限是表自身的性质）。 */
+export function __rememberHealthThrottleForTest(bookRoot: string): void {
+  const now = Date.now()
+  sweepLastAt.set(bookRoot, now)
+  cloudScanCache.set(bookRoot, { at: now, copies: [] })
+  finalizedLostCache.set(bookRoot, { at: now, issues: [] })
+}
 
 function scanCloudCopiesThrottled(bookRoot: string): string[] {
   const now = Date.now()

@@ -128,13 +128,21 @@ export function readUpdateAttemptNote(homeDir: string): UpdateAttemptNote | null
   }
 }
 
-/** 取走结果条（读后即删——一次性信箱；端点每次拉起都取，取不到即无此事） */
-export function takeUpdateAttemptNote(homeDir: string): UpdateAttemptNote | null {
+export interface TakeUpdateAttemptNoteOptions {
+  /** 删除实现（测试注入以构造「删除失败」形态）；缺省真 rmSync(force)。 */
+  rm?: (path: string) => void
+}
+
+/** 取走结果条（读后即删——一次性信箱；端点每次拉起都取，取不到即无此事）。
+ *  删除失败不改变本次返回值：读到了就必须给出去——旧进程已退、界面未出现，
+ *  本函数之外已无第二份现场；代价只是下一次启动会再取到同一条（至多重复提示一次）。 */
+export function takeUpdateAttemptNote(homeDir: string, opts?: TakeUpdateAttemptNoteOptions): UpdateAttemptNote | null {
   const note = readUpdateAttemptNote(homeDir)
+  const doRm = opts?.rm ?? ((p: string) => rmSync(p, { force: true }))
   try {
-    rmSync(updateResultPath(homeDir), { force: true })
+    doRm(updateResultPath(homeDir))
   } catch {
-    /* 删除失败（瞬时占用等）不阻断：下次启动再取一次同一条，至多多提示一次 */
+    /* 删除失败（瞬时占用/权限）不阻断：下次启动再取一次同一条，至多多提示一次 */
   }
   return note
 }

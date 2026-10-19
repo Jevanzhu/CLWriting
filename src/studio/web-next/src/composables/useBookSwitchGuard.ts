@@ -12,16 +12,19 @@
  *   b) 脏路由（name=''：无回退目标口径的 flush + 留痕，不弹决断窗）；c) 重挂进书
  *  （/book/A → /shelf → /book/B：Book.vue 未挂载时路由已提交，守卫注册点在 Book.vue 的
  *   setup，未挂载即无从拦截），此路保留最小回滚（revertToPrevBook）。
+ * - ①b**提交前离书守卫**（onBeforeRouteLeave）：离开 /book/:name 到无书路由（/shelf 等）时
+ *   先冲刷与决断再放行。该路径 Book 卸载、watch 已随实例停止，收不到「脏路由」分支——
+ *   离书前的可见决断只能前移到导航提交前（此前「离书丢编辑且零提示」正是这一段缺失）。
  * - ③**书会话**（composables/useBookSession）接管「进书创建 / 离书 abort」：迟到结果由会话
  *   信号（api/client 按路径接驳）+ AbortError 统一吸收，不再逐点手写书名复检。
  *
- * 生命周期：一个 watch(bookName, …, { immediate: true }) + 一个 onBeforeRouteUpdate
- *（仅 Book 页在册期有效），无定时器与窗事件监听，随组件实例自动停。
+ * 生命周期：一个 watch(bookName, …, { immediate: true }) + onBeforeRouteUpdate +
+ * onBeforeRouteLeave（后两者仅 Book 页在册期有效），无定时器与窗事件监听，随组件实例自动停。
  * 语义零变化面：三段的预检条件、弹窗文案、决断顺序、清理时序不变；`bookName`/`resync` 仍为
  * 注入，各 store 在本函数内取实例（与调用点同在 setup 上下文，实例同源）。
  */
 import { watch, type ComputedRef } from 'vue'
-import { onBeforeRouteUpdate, useRouter, type RouteLocationNormalized } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRouter, type RouteLocationNormalized } from 'vue-router'
 import { useDocStore } from '../stores/doc'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useCheckStore } from '../stores/check'
@@ -97,6 +100,21 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
   function beginSwitch(n: string): void {
     lastBook = n
     workbench.clear()
+  }
+
+  /** 离书状态转移（无书路由：提交前离书守卫与 watch 的脏路由分支共用）。
+   *  调用前提 = 冲刷与决断已落定（两条调用路径都 await 在先）；顺序对齐切书链——
+   *  转状态 → 清各 store → 作废书会话（其信号 abort 在途本书写请求）。
+   *  转状态把 lastBook 归空，使随后导航提交触发的 watch 命中「同书重入短路」（n === lastBook），
+   *  不二次执行本条链。 */
+  function leaveBook(): void {
+    lastBook = ''
+    workbench.clear()
+    doc.setBook('')
+    ws.setBook('')
+    // 六件清空收敛 clearEventStores 单源（时序不变）
+    clearEventStores()
+    endBookSession()
   }
 
   /** 进书状态转移（两条路径共用）：清点 → setBook → 建书会话 → 补种历史/刷档位 → 链尾 resync。 */
@@ -222,6 +240,9 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
     opts.onApproved?.()
     // 切书前先保存当前书的 dirty 文档（setBook 会清空缓存，否则 <autosaveInterval 的编辑静默丢失）
     const failed = await doc.flushDirty()
+    // 书级 prefs 的 500ms 防抖窗内末次布局态此前随 setBook 的 persist.cancel() 静默丢弃——
+    // 此刻书名尚未变（状态转移在决断之后），先落一次写穿，写链的书名/代次复查均通过
+    await ws.flushPendingBookPrefs().catch(() => {})
     if (gen !== null && bookGen.stale(gen)) return 'stale' // 挂起期间路由又变：交新轮回处理
     // 守卫拓宽——非冲突保存失败（网络断/5xx）的 dirty 文档同样从未
     // 落盘，setBook 清缓存即不可恢复丢失，与冲突形态同类灾难；统一走确认弹窗
@@ -278,6 +299,27 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
     return true
   })
 
+  // ── ①b 路由提交前的离书守卫（离开 /book/:name 到无书路由）────────
+  // 离书 = 路由记录切换（/book/A → /shelf、/library、/welcome），Book 卸载后本状态机的
+  // watch 随之停止——「脏路由」分支要求 Book 仍挂载且 bookName 变 ''，在该路径不可达
+  // （见 test/e2e/unsaved-leave-guard.spec.ts 的实测）。故冲刷与决断必须前移到导航提交前：
+  // 作者取消 → 返回 false 中止导航，URL/各 store 原封（零状态变更，无需回滚善后）；
+  // 确认丢弃 → 先落离书状态转移再放行，未落盘编辑由作者在弹窗里知情放弃。
+  // 与 watch 脏路由分支共用 leaveBook 单源（同一状态转移，仅时机不同）。
+  onBeforeRouteLeave(async () => {
+    if (suppressLeaveGuard) return true // 回滚自有导航（见本文件 suppressLeaveGuard 注）
+    const current = bookName.value
+    const verdict = await flushAndAdjudicate({
+      mode: 'precommit',
+      gen: null,
+      prevBook: current || lastBook || doc.bookName || '',
+      target: '',
+    })
+    if (verdict !== 'ok') return false // 作者取消：路由不提交（零状态变更，无需善后）
+    leaveBook()
+    return true
+  })
+
   // ── ② 提交后的 watch（预决断移交 / 脏路由 / 不可前移入口的最小回滚）────────────
   watch(
     bookName,
@@ -294,31 +336,22 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
       // 首载 lastBook==='' 不受影响：路由书名经归空串时 n==='' 与 lastBook 初值
       // 相等，但首载时各 store 本就是初值，短路等价于原「清一遍空状态」，无行为差异。
       if (n === lastBook) return
-      // 脏路由（name=''，手输坏 URL / 上位页面异常跳转）提前分支——
-      // 残存 dirty 属前书，先落盘再按现有切书口径清各 store，防前书数据滞留展示。
-      // 不走下方确认弹窗：脏路由不是「切书」决断（无回退目标书），flush 失败
-      // 与卸载路径同口径 console.warn 留痕（.版本 快照是恢复底线）
+      // 脏路由（name=''）兜底：`/book/:name` 的路由记录下 params.name 恒在位，本分支在
+      // 真实导航中不可达——离开 Book（→ /shelf 等）由提交前离书守卫接管（见其头注）。
+      // 保留为防御面（路由表变更/程序化置空时仍有决断与清理），语义与离书守卫同口径。
       if (!n) {
-        workbench.clear() // 口径：clear 早于 flushDirty（防双 spawn 窗）
-        const failedEmpty = await doc.flushDirty()
-        if (bookGen.stale(gen)) return // 挂起期间路由又变：交新轮回处理
-        // flush 等待窗口内在途保存可能落成 conflict——这类条目不在
-        // failed 口径内（flushDirty 的扫描排除 conflict 项），一并留痕防静默
-        const conflictEmpty = doc.conflictedDirtyDocs()
-        if (failedEmpty.length > 0 || conflictEmpty.length > 0) {
-          console.warn(
-            `[Book] 脏路由离开时 ${failedEmpty.length} 个文档保存失败（编辑未落盘）: ${failedEmpty.join(', ')}；${conflictEmpty.length} 个文档冲突未决: ${conflictEmpty.join(', ')}`,
-          )
-        }
-        lastBook = ''
-        doc.setBook('')
-        ws.setBook('')
-        // 六件清空收敛 clearEventStores 单源（时序不变）
-        clearEventStores()
-        // 离书——冲刷已落定（上方 await），作废在册书会话并 abort 其信号
-        // （在途本书写请求统一以 AbortError 收口）。卸载体面另有 flushBeforeClose（关窗），
-        // 不经此处，故不早 abort。
-        endBookSession()
+        const prevEmpty = lastBook || doc.bookName || ''
+        const verdictEmpty = await flushAndAdjudicate({
+          mode: 'committed',
+          gen,
+          prevBook: prevEmpty,
+          target: '',
+          // 口径：clear 早于 flushDirty（防双 spawn 窗）
+          onApproved: () => workbench.clear(),
+        })
+        // 非 ok = 作者选择留在本书：revertToPrevBook 已回退路由并复位本轮态，此处不改状态
+        if (verdictEmpty !== 'ok') return
+        leaveBook()
         return
       }
       // 预决断移交——本轮切书（原地切书）已由提交前守卫完成冲刷与三段决断，
@@ -331,11 +364,11 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
         return
       }
       preConfirmed = ''
-      // 走到这里 = 路由提交时机无法前移的入口——重挂进书（/book/A → /shelf → /book/B）
-      // 在 Book.vue 未挂载时就已提交路由，提交前守卫（注册点在 Book.vue setup）收不到；脏路由已在上面单独分支。故此处保留最小
-      // 回滚（取消 → revertToPrevBook），而非「确认与冲刷后再提交」。
-      // 注：当前代码里该路径的 prevBook 近乎恒为 ''（离书时分支已 doc.setBook('')），
-      // /三段因此通常跳过，只留纯切换；此守卫是时代留下的防御，未证死。
+      // 走到这里 = 路由提交时机无法前移的入口。离书（/book/A → /shelf）已由提交前离书
+      // 守卫在导航提交前完成冲刷与决断并清空 doc 缓存，故重挂进书（/book/A → /shelf →
+      // /book/B）时本段 prevBook 恒为空串（离书守卫已 doc.setBook('')）→ 三段决断全跳过，
+      // 只剩纯状态转移。保留最小回滚（取消 → revertToPrevBook）作为本段决断面万一可达时的
+      // 兜底，不再依赖「重挂进书时 doc.bookName 仍为旧书」这一前提。
       const prevBook = lastBook || doc.bookName || ''
       const verdict = await flushAndAdjudicate({
         mode: 'committed',

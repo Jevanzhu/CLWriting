@@ -297,6 +297,8 @@ export async function generateTool(
   stopReason: StopReason
   resolvedMaxTokens?: number
   degraded?: boolean
+  /** 本次实发生效的 tool_choice（requireTool 按模型表翻译后的结果；不发时 undefined） */
+  toolChoice?: GenRequest['toolChoice']
 }> {
   // 表驱动重构 §5.3：能力判据从 modelCaps 探测换成静态表（#1 根治）
   // Responses 启用批缺口 5：意图翻译按协议视图查表，requireTool 在 responses 线不再静默丢弃
@@ -307,23 +309,8 @@ export async function generateTool(
   // quirks 表七家族 toolUse 恒 true「不支持工具提前拒绝」为死分支已删——
   // 实际防线 = 适配器 400 降级链（剥 tools 纯文本兜底），此处 q 只服务 toolChoiceMode 翻译
   // 意图翻译：requireTool=true 表示「必须产出工具调用」，按表 toolChoiceMode 落实际参数
-  let effective: GenRequest = req
-  if (req.requireTool && req.toolName) {
-    if (q.toolChoiceMode === 'named') {
-      // 可指名 → tool_choice 指名（保留 toolName 精确指向）
-      effective = { ...req, toolChoice: 'tool', toolName: req.toolName }
-    } else if (q.toolChoiceMode === 'required') {
-      // 只能「必须调某个」不能点名（Kimi k3）→ 转 any（OpenAI required / Anthropic any）
-      effective = { ...req, toolChoice: 'any' }
-    } else {
-      // auto/none（GLM / responses 协议）→ 不发 tool_choice，prompt 引导 + 契约层校验重试
-      effective = { ...req, toolChoice: undefined, toolName: undefined }
-    }
-  }
-  // 调用方未指定 toolChoice 且模型可强制 → 强制（确保结构化产出）；auto/none 不强制
-  if (!effective.toolChoice && (q.toolChoiceMode === 'named' || q.toolChoiceMode === 'required')) {
-    effective = { ...effective, toolChoice: 'any' }
-  }
+  // （单源助手；派生结果随返回值回传，runner 落 llm/call 的 toolChoice 参数面）
+  const effective = effectiveToolRequest(req, q)
   const r = await generate(provider, effective, signal, onText)
   const tool = r.toolCalls[0]
   // 「丢弃必须可感知」——本路径只取首个 tool_use，第 2+ 个
@@ -371,6 +358,30 @@ export async function generateTool(
     stopReason: r.stopReason,
     // 透传给编排层（spec.run 回调聚合进 runTask 结果 → llm/call）
     resolvedMaxTokens: r.resolvedMaxTokens,
+    // 本次实发生效的 tool_choice（不发时为 undefined，runner 侧不落键）——参数面登记
+    toolChoice: effective.toolChoice,
     ...(r.degraded ? { degraded: true } : {}),
   }
+}
+
+/** requireTool/toolChoice 意图 → 实发请求单源（generateTool 与 llm/call 参数面登记共用，
+ *  防登记面与实发面各写一份后漂移）：
+ *  - requireTool && toolName：named 档指名（保留 toolName）；required 档转 'any'（Kimi k3
+ *    只能「必须调某个」）；auto/none 档（GLM / responses 协议）不发 tool_choice 且清 toolName
+ *    （prompt 引导 + 契约层校验重试兜底）；
+ *  - 未声明 requireTool 时：调用方未指定 toolChoice 且模型可强制 → 'any'（确保结构化产出），
+ *    否则原样透传（含缺省不发）。 */
+function effectiveToolRequest(
+  req: GenRequest,
+  q: { toolChoiceMode: 'named' | 'required' | 'auto' | 'none' },
+): GenRequest {
+  if (req.requireTool && req.toolName) {
+    if (q.toolChoiceMode === 'named') return { ...req, toolChoice: 'tool', toolName: req.toolName }
+    if (q.toolChoiceMode === 'required') return { ...req, toolChoice: 'any' }
+    return { ...req, toolChoice: undefined, toolName: undefined }
+  }
+  if (!req.toolChoice && (q.toolChoiceMode === 'named' || q.toolChoiceMode === 'required')) {
+    return { ...req, toolChoice: 'any' }
+  }
+  return req
 }
