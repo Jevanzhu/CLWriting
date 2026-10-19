@@ -167,11 +167,11 @@
 ## 8. 无法判断项（合并，按「需要什么才能判」分类）
 
 **A. 需要运行时/真机实测（静态不可判）**
-1. P1-01 的 `/book/A → /shelf` 真实导航时序与 `markRaw`/卸载竞态（复核依据为 `watch(immediate)` 结构 + 自述，未启应用实测）。
+1. ~~P1-01 的 `/book/A → /shelf` 真实导航时序与 `markRaw`/卸载竞态~~ → **已在 §11.6 实测判定**：`/book → /shelf` 是路由组件切换（Book 卸载），`useBookSwitchGuard` 的 `watch(bookName)` 随实例销毁，「脏路由」分支在该路径**不可达**；实际兜底 = 崩溃镜像保留（未执行 `setBook('')`）+ 再进书时的重挂决断。结论：**不永久丢失，但离书瞬间零提示**。
 2. 关窗丢最后一段键入是否**必丢**（`useUnloadFlush.ts:90-110` 的卸载冲刷落定时机未逐行 + 未实测）。
 3. 真机平台语义：win `process.kill(pid,'SIGKILL')` 对 utilityProcess 效果、`EBUSY/EPERM` 在杀软占用下的分布、mac `app.relaunch` 时序、外置卷冻结残窗。
 4. C-03 的触发概率（`utimes` 瞬态失败频度）与 C-04 实际阻塞时长（等待档常量未读）。
-5. 前端超大档运行时性能（200ms 写回窗 CPU、大列表渲染）与 `stores/doc.ts:213/458/500/548/567/622` 六处全文 sha256 是否异步（`shared/revision.ts` 未读）。
+5. 前端超大档运行时性能（200ms 写回窗 CPU、大列表渲染）——**sha256 部分已判**：`shared/revision.ts:17-19` 用 `crypto.subtle.digest`（异步，不阻塞输入），前一行 `TextEncoder.encode` 同步全量编码，属 O(n) 一次拷贝非缺陷。剩余「200ms 窗到点 CPU 峰值」**作者拍板挂账**（`E-5`，2026-10-19），未做 benchmark。
 
 **B. 需要网络/CI 历史（本机不可得）**
 6. CI 实际绿/红状态与 flaky 频次统计（无 GitHub 侧数据）。
@@ -188,7 +188,7 @@
 13. 域2：`.版本` 被同步盘改写概率、前端 dirty 镜像兜底强度（跨域）。
 
 **E. 环境限制（本次审计自身）**
-14. `check:knowledge` 在本机因 shell shim 环境失败（§6.1），其**通过与否未实测**；`npm test`、coverage、e2e、soak 同类依赖 tsx/vitest shim，本次均未跑（内存风险 + 环境限制）→ **测试绿态与覆盖率数字本次未独立验证**，只验证了计数门与静态配置。
+14. `check:knowledge` 在本机因 shell shim 环境失败（§6.1），其**通过与否未实测**——**已在 §11.4 补测通过**（`node node_modules/tsx/dist/cli.mjs scripts/check-knowledge.ts`，exit 0）；`npm test`、coverage、e2e、soak 同类依赖 tsx/vitest shim，审计阶段均未跑（内存风险 + 环境限制）→ 那时**测试绿态与覆盖率数字未独立验证**，只验证了计数门与静态配置。**收尾后状态**：全量单测已在 §11.4 实测（1279 档 / 9845 例全绿）；**coverage 与 soak 仍未跑**（coverage 归 CI 阈值门、soak 属独立专项）；**e2e 见 §11.5**。
 
 ## 9. 优化路线建议（不改代码，仅排序）
 
@@ -293,6 +293,65 @@
 | 本批真实拦截 1 次 | 账实门顶出 README 单测数漂移（9408 → 9432）：先补批11 对账再提交，未绕过 |
 
 **变异验证汇总（执行者实测，Lead 复核 diff 与还原声明）**：D7「登记判据回退成 stat 复检」→ 断言红；E1「删 `spec.ts` 的 `toolChoice: r.toolChoice` 回传」→ 2 例红（Received undefined）；D8③「URL 段改 `eventstore`」→ URL 断言红；D11「删白名单一条」→ 挂点断言红（失败信息带 `文件:行号（未在白名单）`）。全部还原后哈希/`git status` 自查一致。**D8 体积面未做变异验证**：其单源判据由测试内改测试钩子阈值后断言端点透出同值来覆盖（`__setEventStoreBytesWarnThresholdForTest`），未另做回退实验。
+
+### 11.5 e2e 全量实测（收尾后补跑）
+
+审计阶段因环境限制未跑 e2e（§8 第 14 条）。收尾后补跑，**先重建 `dist/web`**——原产物是 2026-10-18 的，不含本轮前端改动（`SettingsBook.vue` 的存储卡、新增 `api/health.ts`），不重建等于测旧代码。
+
+| 面 | 结果 |
+|---|---|
+| 构建 | `vite build`（web-next）exit 0 |
+| 运行 | `playwright test`：**35 spec / 55 用例全部通过**，exit 0，1.4 分钟 |
+| 判据 | Playwright 配置 `retries: 0`（顺序契约下不重试，flake 直接红）；`spec-order` 双守卫（vitest 侧 + reporter 运行期探针）通过 |
+| 覆盖面 | 含 AI 降级/供应商切换/三审/分析/审计/书架搜索/切书/批量落定/短篇全流程等关键路径 |
+
+**诚实边界**：e2e 用的是 mock driver + fixture 双轨书，**不覆盖真实模型调用**，也不覆盖「脏路由离书 + 保存失败」这条 P1-01 路径（当时无对应 spec）——该路径此前只有单测守护，补测见 §11.6。
+
+### 11.6 收尾后补验三面（e2e 补测 / soak / coverage）
+
+#### 11.6.1 新增 e2e：保存失败时离书的兜底链（`test/e2e/unsaved-leave-guard.spec.ts`）
+
+**造错手法**：`page.route` 拦截 `PUT .../documents/:id/content` 返回 500——生产代码零改动缝，测真实网络失败分支，不用内部测试钩子。
+
+**实测推翻了一个审计假设**（原 §8 第 1 条）：
+
+| 原先认为（审计） | 实测结论 |
+|---|---|
+| `/book/A → /shelf` 时走切书守卫的「脏路由」分支，`flushDirty` 失败仅 `console.warn` 后 `setBook('')` 清镜像 | **该分支在此路径不可达**：`/shelf` 与 `/book/:name` 是不同路由组件，Book 卸载 → 守卫的 `watch(bookName)` 随实例销毁，「脏路由」分支（要求 Book 仍挂载且 `bookName` 变 `''`）在真实导航下不执行 |
+
+**因此修复后的真实行为链（e2e 逐条钉住）**：
+
+1. 离书到 `/shelf`：**零决断窗**（可见面为零），但因未执行 `setBook('')`，**崩溃镜像保留**（`clw:dirty-mirror:<book>:<docId>` 仍在）→ 编辑**不永久丢失**；
+2. 再进任一本书：守卫按「重挂进书」路径运行，`prevBook` 取 doc store 权威书（应用级单例，离书时未被清）→ 检出保存失败 → 弹「有 N 个文档保存失败」；
+3. 选「留在本书」→ 回退原书路由，未落盘编辑仍在编辑器里（镜像 + 内存双兜底）。
+
+**判定**：P1-01 的「永久丢失」已被批1 闭合（镜像不再被清）；**「零提示」仍成立**——只是触发点从「离书时」后移到「再进书时」。若作者离书后不再进任何书、直接关应用，则全程只有 `console.warn`（`useUnloadFlush` 的 onUnmounted 留痕）+ 镜像兜底。此残留**未修复**（修法 = 给 Book.vue 加 `onBeforeRouteLeave` 异步守卫，属行为变更，待作者拍板）。
+
+**e2e 计数变化**：35 spec / 59 用例 → **36 spec / 60 用例**（新增 spec 已按两步闸重拍 `spec-order.snapshot.txt`）。
+
+#### 11.6.2 soak 内存门
+
+`node --import tsx --expose-gc test/soak/soak.ts`（与 CI 同命令）：**5/5 段 OK**，与 `--plan` 计划段数一致（段清单以 `soak.ts PLAN_SEGMENTS` 为唯一真相源）：
+
+| 段 | 基线 → 终值 | 增长 / 上界 |
+|---|---|---|
+| 有界往返 100000 次 | 25.95 → 25.94 MB | −0.00 / 24 MB |
+| RAG 召回 20000 次 | 26.65 → 26.77 MB | +0.12 / 24 MB |
+| 清单重写 3000 次（200 条） | 26.92 → 26.95 MB | +0.03 / 24 MB |
+| 事件库长会话 2000 批×10 | 27.00 → 27.01 MB | +0.01 / 24 MB |
+| service save 链 600 次 | 27.30 → 27.63 MB | +0.34 / 24 MB |
+
+#### 11.6.3 coverage 全量（首次跑出红线，已补测收口）
+
+**首次**（`vitest run --coverage --maxWorkers=2`，9845 例全绿）：**阈值门红 1 处** ——`src/knowledge/**` branches 85.88% < 门槛 86%（差 0.12pp）。
+
+**根因**：审计批4-P3 的 `1189bcf3` 给 `src/knowledge/corpus.ts` 新增了 `checkBundledCorpus`（随包语料运行期抽查，+90 行），当时只补了「缺失/空文件」两条用例，**四种「文件在位但内容不可用」形态与抽样步长口径未覆盖** → 该档 branches 78.46%。
+
+**补测**（并入既有 `test/knowledge/inject.test.ts`，5 例，不新开档）：前缀只剩空白 / 前缀含 U+FFFD（非 UTF-8）/ 超单篇上限 / 路径存在但不可读（平台差异下「前缀为空」与「前缀读取失败」两路都算成立）/ 抽样按固定步长取且缺失判据走全量。
+
+**复跑结果**：`vitest run --coverage --maxWorkers=2` **exit 0，阈值门全绿**——`src/knowledge` branches **85.88% → 86.8%**（门槛 86%），`corpus.ts` branches 78.46% → **83.07%**；全量 **1279 档通过 / 6 skipped；9850 例通过 / 77 skipped**（+5 条补测）。单测总数 9432 → **9437**（`check:counts` 口径）。
+
+**注**：本轮改动面为 `src/studio/server/**`（事件库体积端点）与 `src/knowledge/**`（补测），其中 `src/studio/server/**` 正属活账记的「已抬到规则上限的贴线桶」——本项即活账「触此四域先本地跑 coverage 自查」口径的落实。
 
 ---
 
