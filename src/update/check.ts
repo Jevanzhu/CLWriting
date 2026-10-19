@@ -7,6 +7,9 @@
  *
  * 阶段 55 扩资产面：结果随带便携 zip 资产与校验清单地址（纯解析在 `asset.ts`），
  * 前端「下载并更新」与主进程下载链据此定位；同一响应内解析，不额外请求。
+ * 地址面同受规范地址判据约束（`download.ts` 的 `isAcceptedReleaseUrl`）：响应给的包体
+ * 地址必须等于仓常量 + tag + 资产名拼出的规范地址，清单地址一律由 tag 派生——结果里
+ * 不携带任何「响应说了算」的地址，免得前端拿着它去出站。
  *
  * 出站归**主进程**：`update-controller.createUpdateCheckHost` 以 Electron `net.fetch`
  * 调本模块的 `runUpdateCheckOnce`（Chromium 网络栈受系统代理，与下载腿同通道）。服务端
@@ -29,7 +32,8 @@ import { dirname, join } from 'node:path'
 import { testableConst } from '../shared/testable.js'
 import { log, errMsg } from '../log/index.js'
 import { compareSemver, pickLatestStable } from './semver.js'
-import { pickChecksumsUrl, pickPortableAsset, type UpdateAsset } from './asset.js'
+import { hasChecksumsAsset, pickPortableAsset, type UpdateAsset } from './asset.js'
+import { isAcceptedReleaseUrl, releaseAssetUrl, releaseChecksumsUrl } from './download.js'
 
 /** GitHub releases 列表（公开仓匿名；per_page 上限 100，20 足够覆盖正式版 + 若干 rc） */
 const RELEASES_URL = 'https://api.github.com/repos/Jevanzhu/CLWriting/releases?per_page=20'
@@ -166,12 +170,17 @@ export async function runUpdateCheckOnce(opts?: {
   if (outcome.kind === 'none' || current === '0.0.0') return
   if (compareSemver(current, outcome.release.tag) >= 0) return
   const version = outcome.release.tag.replace(/^v/, '')
+  const tag = outcome.release.tag
+  const picked = pickPortableAsset(outcome.release.assets, version)
   setCheckResult({
     version,
-    url: `https://github.com/Jevanzhu/CLWriting/releases/tag/${encodeURIComponent(outcome.release.tag)}`,
-    // 资产面与版本同一响应内解析——`asset` 为 null 即前端只给「去下载」链接
-    asset: pickPortableAsset(outcome.release.assets, version),
-    checksumsUrl: pickChecksumsUrl(outcome.release.assets),
+    url: `https://github.com/Jevanzhu/CLWriting/releases/tag/${encodeURIComponent(tag)}`,
+    // 资产面与版本同一响应内解析——`asset` 为 null 即前端只给「去下载」链接。
+    // 地址必须逐字等于规范地址：响应给的任意路径（发布域主机上的攻击者仓也算）不降级
+    // 就会变成前端手里的出站地址，故非规范一律按「无可用资产」收口。
+    asset: picked && isAcceptedReleaseUrl(picked.url, releaseAssetUrl(tag, picked.name)) ? picked : null,
+    // 清单是否提供按响应的资产清单判，地址不取响应（由仓常量与 tag 派生，与下载链同源）
+    checksumsUrl: hasChecksumsAsset(outcome.release.assets) ? releaseChecksumsUrl(tag) : null,
   })
 }
 

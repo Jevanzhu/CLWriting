@@ -146,7 +146,8 @@ function serveRelease(): void {
             assets: [
               {
                 name: ASSET_NAME,
-                browser_download_url: 'https://objects.githubusercontent.com/z.zip',
+                // 规范地址（仓常量 + tag + 资产名）：下载链只放行这一条，见 update/download 头注
+                browser_download_url: `https://github.com/Jevanzhu/CLWriting/releases/download/v1.0.0/${ASSET_NAME}`,
                 size: ZIP_BYTES.length,
                 digest: `sha256:${ZIP_SHA}`,
               },

@@ -32,6 +32,7 @@ import {
   UPDATE_RESULT_MESSAGE_TYPE,
 } from '../../src/update/check.js'
 import { updateCacheDir, updateCacheRoot, UPDATE_RESULT_FILENAME } from '../../src/update/cache.js'
+import { releaseAssetUrl, releaseChecksumsUrl } from '../../src/update/download.js'
 
 const wd = vi.hoisted(() => ({ workDir: null as string | null, relaunchPending: false }))
 vi.mock('../../src/desktop/workdir-controller.js', async (importOriginal) => ({
@@ -52,7 +53,7 @@ vi.mock('../../src/desktop/update-helper.js', async (importOriginal) => ({
 const ZIP_BYTES = Buffer.from('fake-portable-zip-payload')
 const ZIP_SHA = createHash('sha256').update(ZIP_BYTES).digest('hex')
 const ASSET_NAME = 'CLWriting-1.0.0-x64.zip'
-const ASSET_URL = 'https://objects.githubusercontent.com/CLWriting-1.0.0-x64.zip'
+const ASSET_URL = 'https://github.com/Jevanzhu/CLWriting/releases/download/v1.0.0/CLWriting-1.0.0-x64.zip'
 
 const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')
 
@@ -93,7 +94,8 @@ afterAll(() => {
   else process.env[UPDATE_DEV_FORCE_ENV] = savedForce
 })
 
-/** 发布信息响应（GitHub releases 列表形） */
+/** 发布信息响应（GitHub releases 列表形）。清单资产的响应地址故意留成非规范形态：
+ *  下载链一律用 `releaseChecksumsUrl(tag)` 派生，不取它（取它即「校验值与被校验对象同源」）。 */
 function releasesResponse(version: string, asset: Record<string, unknown> | null): unknown {
   return {
     ok: true,
@@ -235,25 +237,55 @@ describe('startUpdateDownload（发布信息重取 + 流式下载 + 缓存复用
   })
 })
 
-describe('更新链地址信任面（白名单 + 校验清单派生）', () => {
-  it('地址白名单：发布域主机可信、其余不可信（非法 URL 亦不可信）', async () => {
-    const { isTrustedUpdateUrl } = await import('../../src/update/download.js')
-    expect(isTrustedUpdateUrl('https://github.com/Jevanzhu/CLWriting/releases/download/v1.0.0/a.zip')).toBe(true)
-    expect(isTrustedUpdateUrl('https://objects.githubusercontent.com/a.zip')).toBe(true)
-    expect(isTrustedUpdateUrl('https://api.github.com/repos/Jevanzhu/CLWriting/releases')).toBe(true)
-    expect(isTrustedUpdateUrl('https://evil.test/a.zip')).toBe(false)
-    expect(isTrustedUpdateUrl('https://github.com.evil.test/a.zip')).toBe(false)
-    expect(isTrustedUpdateUrl('not a url')).toBe(false)
-  })
-
-  it('校验清单地址由编译期仓常量与 tag 派生（不取发布响应里的地址）', async () => {
-    const { releaseChecksumsUrl } = await import('../../src/update/download.js')
+describe('更新链地址信任面（规范地址单源 + 仅回环放行）', () => {
+  it('规范地址由编译期仓常量 + tag + 资产名派生（清单地址同一算式，不另抄一份）', () => {
+    expect(releaseAssetUrl('v1.0.0', ASSET_NAME)).toBe(ASSET_URL)
     expect(releaseChecksumsUrl('v1.0.0')).toBe(
       'https://github.com/Jevanzhu/CLWriting/releases/download/v1.0.0/SHA256SUMS.txt',
     )
   })
 
-  it('资产地址不在发布域白名单 → 下载拒且零出站（不把「下哪个文件」交给可篡改的响应）', async () => {
+  it('规范地址与回环 http 可信；发布域主机上的非规范路径、https 回环、非法 URL 一律不可信', async () => {
+    const { isAcceptedReleaseUrl } = await import('../../src/update/download.js')
+    const canonical = releaseAssetUrl('v1.0.0', ASSET_NAME)
+    expect(isAcceptedReleaseUrl(canonical, canonical)).toBe(true)
+    // 显式放行面只有一条：回环 + http（本机桩 / 离线镜像）
+    expect(isAcceptedReleaseUrl('http://127.0.0.1:7301/pkg.zip', canonical)).toBe(true)
+    // 主机对得上、路径不是规范地址 → 拒（回退成「只锁主机」即本例红）
+    expect(
+      isAcceptedReleaseUrl(`https://github.com/attacker/CLWriting/releases/download/v1.0.0/${ASSET_NAME}`, canonical),
+    ).toBe(false)
+    expect(isAcceptedReleaseUrl('https://objects.githubusercontent.com/z.zip', canonical)).toBe(false)
+    expect(isAcceptedReleaseUrl('https://github.com.evil.test/a.zip', canonical)).toBe(false)
+    expect(isAcceptedReleaseUrl('https://127.0.0.1/z.zip', canonical)).toBe(false)
+    expect(isAcceptedReleaseUrl('not a url', canonical)).toBe(false)
+  })
+
+  it('校验清单回落腿拉的是派生地址：响应里那条非规范清单地址零出站', async () => {
+    setPlatform('win32')
+    M.netFetchResponse = (url: string) => {
+      if (url.includes('api.github.com')) return releasesResponse('1.0.0', {}) // 无 digest → 回落清单
+      if (url === releaseChecksumsUrl('v1.0.0')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          text: async () => `${ZIP_SHA}  ${ASSET_NAME}\n`,
+        }
+      }
+      return zipResponse(ZIP_BYTES)
+    }
+    const r = await startUpdateDownload({ version: '1.0.0', onProgress: () => {} })
+    expect(r).toEqual({ ok: true })
+    expect(M.netFetchCalls).toEqual([
+      expect.stringContaining('api.github.com'),
+      ASSET_URL,
+      releaseChecksumsUrl('v1.0.0'),
+    ])
+    expect(M.netFetchCalls.some((u) => u.includes('objects.githubusercontent.com'))).toBe(false)
+  })
+
+  it('资产地址不是发布域主机 → 下载拒且零出站（不把「下哪个文件」交给可篡改的响应）', async () => {
     setPlatform('win32')
     M.netFetchResponse = (url: string) => {
       if (url.includes('api.github.com')) {
@@ -279,6 +311,25 @@ describe('更新链地址信任面（白名单 + 校验清单派生）', () => {
     expect(M.netFetchCalls.filter((u) => u.includes('evil.test'))).toEqual([])
     expect(__getPendingUpdateForTest()).toBeNull()
     expect(existsSync(join(updateCacheDir(M.userData, '1.0.0'), ASSET_NAME))).toBe(false)
+  })
+
+  it('发布域主机 + 攻击者仓路径 → 下载拒且零出站、不建缓存目录（回退成只锁主机即本例红）', async () => {
+    setPlatform('win32')
+    M.netFetchResponse = (url: string) => {
+      if (url.includes('api.github.com')) {
+        return releasesResponse('1.0.0', {
+          browser_download_url: `https://github.com/attacker/CLWriting/releases/download/v1.0.0/${ASSET_NAME}`,
+          digest: `sha256:${ZIP_SHA}`,
+        })
+      }
+      return zipResponse(ZIP_BYTES)
+    }
+    const r = await startUpdateDownload({ version: '1.0.0', onProgress: () => {} })
+    expect(r.ok).toBe(false)
+    expect(String(r.reason)).toContain('规范地址') // 判据如实回话，不混成泛泛的「网络错」
+    expect(M.netFetchCalls).toHaveLength(1) // 只有发布信息那一次：篡改地址零出站
+    expect(__getPendingUpdateForTest()).toBeNull()
+    expect(existsSync(updateCacheDir(M.userData, '1.0.0'))).toBe(false) // 判据在任何 IO 之前
   })
 })
 

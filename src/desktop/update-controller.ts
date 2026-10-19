@@ -173,6 +173,8 @@ export async function startUpdateDownload(opts: {
   activeDownload = controller
   try {
     const r = await downloadUpdateZip({
+      // tag 与资产名是规范地址的两半：下载链据此校验响应给的地址确实是本仓该 tag 的该资产
+      tag: release.tag,
       url: asset.url,
       destDir,
       fileName: asset.name,

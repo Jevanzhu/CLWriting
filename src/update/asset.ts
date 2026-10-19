@@ -73,13 +73,12 @@ export function pickPortableAsset(assets: unknown, version: string): UpdateAsset
   return null
 }
 
-/** 挑校验清单地址（sha256 缺失时的校验值来源；无 → null） */
-export function pickChecksumsUrl(assets: unknown): string | null {
-  for (const entry of assetEntries(assets)) {
-    const asset = toUpdateAsset(entry)
-    if (asset && asset.name === CHECKSUMS_ASSET_NAME) return asset.url
-  }
-  return null
+/**
+ * 该发布是否提供校验清单资产（**只判有无**；地址不从这里取——响应可被篡改，地址一律由
+ * `releaseChecksumsUrl(tag)` 派生，与下载链同源）。
+ */
+export function hasChecksumsAsset(assets: unknown): boolean {
+  return assetEntries(assets).some((entry) => entry['name'] === CHECKSUMS_ASSET_NAME)
 }
 
 /**
