@@ -562,11 +562,12 @@ interface ParsedRealmSystem {
 
 export function parseRealmSystems(fmRaw: string): ParsedRealmSystem[] {
   const systems: ParsedRealmSystem[] = []
-  // CRLF 行尾归一（与 leads.ts parseHistory 同口径）——
-  // 名称/序列两处正则对原始行 `$` 锚定匹配且无 m 标志，`\r` 前不认行尾 → CRLF 境界
-  // 体系段整体解析为空（成长线境界跳跃/回退红闸失效 + settings-context 注入失明）。
-  // 只剥行尾单个 `\r`，不动内容侧空格。
-  const lines = fmRaw.split('\n').map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l))
+  // 行切分 + 行尾归一取自读侧唯一原语 splitFmLines（按 `\n` 切、逐行剥行尾单个 `\r`，
+  // 不动行内空白与缩进）——前提约束：下方名称/序列两处正则均对**单行**做 `$` 锚定匹配
+  // 且无 m 标志，`\r` 前不认行尾，故每行必须先归一（整段 `\r` 置换会连带吃掉行内 CR，
+  // 不得改用）；CRLF 境界体系段若不归一即整体解析为空（成长线境界跳跃/回退红闸失效
+  // + settings-context 注入失明）。原语按 `\n` 切行后逐行剥尾，与该前提一致。
+  const lines = splitFmLines(fmRaw)
   let current: ParsedRealmSystem | null = null
   let inRealms = false
   // 块式序列留痕闸（每次解析至多 warn 一条，防多体系逐行刷屏）
