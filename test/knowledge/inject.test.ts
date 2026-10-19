@@ -88,6 +88,69 @@ describe('随包语料运行期抽查（存在性 + 前缀抽样，不逐字节 
     expect(bundledCorpusIntegrityReport()).toBe(report) // 一次性：不再重算
     expect(ensureBundledCorpusChecked({ rels: [REL_A], root: join(dir, 'knowledge') }).issues).toEqual([])
   })
+
+  // 下列四例覆盖「文件在位但内容不可用」的四种现实形态——它们都不是假设性分支：
+  // 随包语料在用户机上可被压缩工具清空、被第三方编辑器存成 UTF-16/GBK（解码出 U+FFFD）、
+  // 被错误替换成超大文件、或被杀软/网络卷占住读不动。漏一条 = 该形态静默降质不报。
+  it('文件在位但前缀只剩空白 → 报「前缀为空」（与 size=0 同因不同形态）', () => {
+    const root = join(dir, 'knowledge')
+    mkdirSync(join(root, '类目'), { recursive: true })
+    writeFileSync(join(root, '类目', '甲篇.md'), '\n\n   \n\t\n')
+    const r = checkBundledCorpus(['类目/甲篇.md'], { root })
+    expect(r.issues).toHaveLength(1)
+    expect(r.issues[0]!.detail).toContain('前缀为空')
+  })
+
+  it('文件前缀含 U+FFFD → 报「前缀非合法 UTF-8」（被替换/非 UTF-8 存储）', () => {
+    const root = join(dir, 'knowledge')
+    mkdirSync(join(root, '类目'), { recursive: true })
+    writeFileSync(join(root, '类目', '甲篇.md'), '标题\n正文\n\uFFFD\n')
+    const r = checkBundledCorpus(['类目/甲篇.md'], { root })
+    expect(r.issues).toHaveLength(1)
+    expect(r.issues[0]!.detail).toContain('非合法 UTF-8')
+  })
+
+  it('文件超单篇上限 → 报「超过单篇上限」（注入侧会跳过该篇，抽查须先说清）', () => {
+    const root = join(dir, 'knowledge')
+    mkdirSync(join(root, '类目'), { recursive: true })
+    // 上限 256KB（corpus.ts MAX_CORPUS_BYTES）；超 1 字节即命中，不必写巨量正文
+    writeFileSync(join(root, '类目', '甲篇.md'), Buffer.alloc(256 * 1024 + 1, 0x41))
+    const r = checkBundledCorpus(['类目/甲篇.md'], { root })
+    expect(r.issues).toHaveLength(1)
+    expect(r.issues[0]!.detail).toContain('超过单篇上限')
+  })
+
+  // 位移形态：路径存在但不可读。断言只锚「必报缺口且不抛出」这条不变量——
+  // 具体走哪条分支随平台而定（win 上目录 statSync().size 为 0 → 命中「前缀为空」；
+  // linux 上目录 size 非 0 → readFileSync 抛 EISDIR → 命中 catch），两路都必须成立。
+  it('路径存在但不可读 → 必报缺口且不抛出（抽查不得反噬注入）', () => {
+    const root = join(dir, 'knowledge')
+    mkdirSync(join(root, '类目', '甲篇.md'), { recursive: true }) // 同名目录冒充文件
+    let r!: ReturnType<typeof checkBundledCorpus>
+    expect(() => {
+      r = checkBundledCorpus(['类目/甲篇.md'], { root })
+    }).not.toThrow()
+    expect(r.issues).toHaveLength(1)
+    expect(r.issues[0]!.rel).toBe('类目/甲篇.md')
+    expect(r.issues[0]!.detail).toMatch(/前缀为空|前缀读取失败/)
+  })
+
+  it('抽样按固定步长取：篇目多于采样数时只抽查 step 倍数位，缺 1 篇仍先报缺失', () => {
+    const root = join(dir, 'knowledge')
+    mkdirSync(join(root, '类目'), { recursive: true })
+    // 4 篇齐备 + sample=2 → step=2 → 抽查 i=0,2 两篇；sampled 计数即该口径的观察面
+    const rels = ['类目/一.md', '类目/二.md', '类目/三.md', '类目/四.md']
+    for (const rel of rels) writeFileSync(join(root, ...rel.split('/')), '正文\n')
+    const full = checkBundledCorpus(rels, { root, sample: 2 })
+    expect(full.checked).toBe(4) // 存在性判据走全量
+    expect(full.sampled).toBe(2) // 前缀抽查只走抽样面
+    expect(full.issues).toEqual([])
+    // 缺失判据不受抽样影响：未抽样位（i=1）的文件被删也要报
+    rmSync(join(root, '类目', '二.md'))
+    const missing = checkBundledCorpus(rels, { root, sample: 2 })
+    expect(missing.issues.map((i) => i.rel)).toEqual(['类目/二.md'])
+    expect(missing.checked).toBe(4)
+  })
 })
 
 describe('assembleKnowledge：单篇与多篇装配', () => {
