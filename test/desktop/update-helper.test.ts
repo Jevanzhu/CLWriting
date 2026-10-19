@@ -12,6 +12,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 import { buildZipStore } from '../../src/diagnostics/zip.js'
@@ -569,5 +570,33 @@ describe('runRecoverUpdateCli（不依赖应用启动的中断自愈还原入口
     const s = makeScene()
     expect(runRecoverUpdateCli(['CLWriting.exe', RECOVER_UPDATE_FLAG, '--target', join(s.root, 'gone')])).toBe(false)
     expect(runRecoverUpdateCli(['CLWriting.exe', RECOVER_UPDATE_FLAG])).toBe(false)
+  })
+})
+
+describe('包内恢复脚本与源码常量同源（任一侧改名即脚本失效 → 回退即变红）', () => {
+  const batUrl = new URL('../../build/recover/恢复更新.bat', import.meta.url)
+
+  it('脚本硬编码的 exe 名 / 旗标 / 残留命名与源码常量逐字一致', () => {
+    const text = readFileSync(fileURLToPath(batUrl), 'utf8')
+    expect(text).toContain(PORTABLE_EXE_NAME)
+    expect(text).toContain(RECOVER_UPDATE_FLAG)
+    expect(text).toContain('.old-')
+    // 行尾须 CRLF：脚本用 goto 标签，cmd 对 LF 行的标签/跳转行为不可靠（.gitattributes 钉 *.bat eol=crlf）
+    expect(text).toContain('\r\n')
+  })
+
+  it('electron-builder 把脚本放进 win 便携包根目录（extraFiles；extraResources 会落进 resources/ 看不见）', () => {
+    const lines = readFileSync(fileURLToPath(new URL('../../electron-builder.yml', import.meta.url)), 'utf8').split('\n')
+    const start = lines.findIndex((line) => /^win:\s*$/.test(line))
+    expect(start).toBeGreaterThanOrEqual(0) // win 是出货平台，配置块缺席即红
+    const block: string[] = []
+    for (let i = start + 1; i < lines.length; i++) {
+      const line = lines[i]!
+      if (line.trim() !== '' && !/^\s/.test(line)) break // 下一个顶层键 = win 块结束
+      block.push(line)
+    }
+    const winBlock = block.join('\n')
+    expect(winBlock).toContain('extraFiles:')
+    expect(winBlock).toContain('build/recover')
   })
 })
