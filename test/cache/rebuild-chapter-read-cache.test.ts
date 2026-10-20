@@ -115,6 +115,45 @@ test('低精度卷（mtime 整毫秒对齐）不读不写章读缓存', () => {
   expect(stats.entries).toBe(0)
 })
 
+// 重建是「清空全部表 + 整表重写」：DELETE 腾出的页留在空闲表里、主库高水位不回落，不回收
+// 的话 index.db 按历史峰值占盘（历史内容越多、盘占得越久）。
+// 构造方式：先建好库 → 灌一大块历史数据进 meta（模拟「上一轮索引比这一轮大得多」）→
+// 再 rebuild（clearAllTables 会把那块历史删掉，腾出成百页空闲页）→ 判据是空闲页归零。
+// 小库上测不出差异：空闲页不足时 SQLite 会直接把页复用掉，回收跑不跑都看不出来。
+test('重建收尾回收空闲页：清掉历史大块后 index.db 不残留空闲页', () => {
+  __testHooks.clearChapterCache()
+  const root = makeTwoChapterBook()
+  const cachePath = join(root, '.cache', 'index.db')
+  rebuild(root, cachePath) // 建库（顺带把档位设成增量档）
+
+  // 灌 ~2MB 历史数据：远超回收阈，腾出的空闲页足以被观察
+  const seeded = new DatabaseSync(cachePath)
+  try {
+    seeded.exec('BEGIN')
+    seeded
+      .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
+      .run('history_blob', 'x'.repeat(2 * 1024 * 1024))
+    seeded.exec('COMMIT')
+  } finally {
+    seeded.close()
+  }
+  // 改一章逼第二轮走全量（源树不变时 rebuild 会走增量跳过，clearAllTables 与收尾都不会跑）
+  writeChapter(join(root, '写作', '正文'), 2, '旧约', '林晚与故人重逢，谈起旧日约定。雪停了。')
+
+  rebuild(root, cachePath) // 第二轮：清表 → 写入两章 → 收尾回收
+  const db = new DatabaseSync(cachePath, { readOnly: true })
+  try {
+    const free = (db.prepare('PRAGMA freelist_count').get() as { freelist_count?: number } | undefined)?.freelist_count
+    // 判据取「几乎为零」而非严格 0：incremental_vacuum 按 64 页块释放，最后不足一块的
+    // 零头会留下；2MB 历史清掉后若不回收，残留会在这个量级之上（数百页）。
+    expect(free).toBeLessThanOrEqual(1)
+    // 且库仍完好（回收不能把库弄坏），历史块确实已被清掉
+    expect((db.prepare('SELECT COUNT(*) AS n FROM chapters').get() as { n: number }).n).toBe(2)
+    expect((db.prepare("SELECT COUNT(*) AS n FROM meta WHERE key = 'history_blob'").get() as { n: number }).n).toBe(0)
+  } finally {
+    db.close()
+  }
+})
 test('R37-16: 容量上限逐出最旧（注入 max=1，两章后 entries ≤ 1）', () => {
   __testHooks.clearChapterCache()
   __testHooks.setChapterCacheMaxForTest(1)

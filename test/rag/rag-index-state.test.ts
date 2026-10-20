@@ -74,6 +74,22 @@ describe('R40-50: 索引三态', () => {
     const r2 = await recallDetailed(root, CONFIG, 'k', '雪夜', 5, embedOk)
     expect(r2.indexState).toBe('cleared')
   })
+
+  // 「清表不删文件」口径下，DELETE 只把页放进空闲表——不做回收则其后的重建按历史峰值占盘。
+  // 回收本身的有界性与档位判据由单源直测钉住（test/fs/sqlite-vacuum.test.ts）；这里只锚
+  // 「接入没把重置路径弄坏」，以及「重建后仍可用」这条端到端事实。
+  it('重置索引后回收不打断后续重建（清表 → 回收 → 再建仍落块）', async () => {
+    const root = tempBook()
+    writeChapter(root, 1, '开篇')
+    const built = await buildIndex(root, CONFIG, 'k', embedOk)
+    expect(built.chunkCount).toBeGreaterThan(0)
+    resetRagIndex(root)
+    expect(ragIndexState(root)).toBe('cleared')
+    // 关键：回收之后库仍是可写可用的（步过 VACUUM 的连接不能留在坏状态）
+    const rebuilt = await buildIndex(root, CONFIG, 'k', embedOk)
+    expect(rebuilt.chunkCount).toBeGreaterThan(0)
+    expect(ragIndexState(root)).toBe('built')
+  })
 })
 
 describe('R40-51: 续传计数 = 实际新嵌落库数', () => {

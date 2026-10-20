@@ -23,6 +23,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { log, errMsg } from '../log/index.js'
 import { MIGRATED_EXT, registerOpenMarker, touchOpenMarker } from './store-open-markers.js'
 import { migrateSqlite, describeSqliteMigration, type SqliteMigrationOutcome } from '../shared/sqlite-migrate.js'
+import { ensureIncrementalAutoVacuum } from '../fs/sqlite-vacuum.js'
 
 /** SQLite 库文件损坏类错误判据——node:sqlite 对
  *  SQLITE_NOTADB/CORRUPT 抛英文裸 message 且各版本措辞有差，按已知短语集匹配；
@@ -69,15 +70,9 @@ export function clearStaleMigrationTombstone(bookRoot: string, dbPath: string): 
   }
 }
 
-/** SQLite auto_vacuum 档位（PRAGMA 读回值，库 header 位域）：0=未定档 1=整库 2=增量。
- *  档位判定单源——打开期（决定是否下 auto_vacuum 语句）与维护族（回收路径分流）同取本值。 */
-export const AUTO_VACUUM_NONE = 0
-export const AUTO_VACUUM_INCREMENTAL = 2
-
-/** 现读库的 auto_vacuum 档（header 读，廉价；读不到按 0 = 未定档处理）。 */
-export function readAutoVacuumMode(db: DatabaseSync): number {
-  return (db.prepare('PRAGMA auto_vacuum').get() as { auto_vacuum?: number } | undefined)?.auto_vacuum ?? 0
-}
+/** SQLite auto_vacuum 档位与判定单源在 `fs/sqlite-vacuum`（五库共用）：打开期（决定是否下
+ *  auto_vacuum 语句）与维护族（回收路径分流）同取那边的值，避免两处各写一份判据。 */
+export { AUTO_VACUUM_NONE, AUTO_VACUUM_INCREMENTAL, readAutoVacuumMode } from '../fs/sqlite-vacuum.js'
 
 /** 打开期 PRAGMA + WAL 切换（须在 DDL 之前）：busy_timeout 必须先于 journal_mode=WAL
  *  设置——WAL 切换在 journal_mode 处需拿写锁，若另一进程正持锁而 busy_timeout 未设，
@@ -100,7 +95,7 @@ export function applyOpenPragmas(db: DatabaseSync): void {
   // busy_timeout 先设（见上）
   db.exec('PRAGMA busy_timeout = 5000')
   // auto_vacuum 与 journal_size_limit 次设（见上：auto_vacuum 须早于 WAL 切换、且只在未达档时下）
-  if (readAutoVacuumMode(db) !== AUTO_VACUUM_INCREMENTAL) db.exec('PRAGMA auto_vacuum = INCREMENTAL')
+  ensureIncrementalAutoVacuum(db)
   db.exec('PRAGMA journal_size_limit = 4194304')
   // 退避维持不加深：8 次退避耗尽仍可抛 SQLITE_BUSY，但耗尽即抛是 fail-closed 正确
   // 出口，不是缺陷——每轮失败前 busy_timeout 已在 SQLite 内部等待 5s，8 轮 × 5s +

@@ -57,8 +57,14 @@ import { yieldToEventLoop } from '../async.js'
 import { closeWithPrepared, rollbackQuietly } from '../shared/sqlite-prepared.js'
 import { testableConst } from '../shared/testable.js'
 import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
+import {
+  RELEASE_MIN_FREE_PAGES,
+  pageStats,
+  reclaimFreedSpace,
+  withShortBusyTimeout,
+  type ReclaimOutcome,
+} from '../fs/sqlite-vacuum.js'
 import { sessionMigrateLockPathForDb } from './store-migrate.js'
-import { AUTO_VACUUM_NONE, readAutoVacuumMode } from './store-open.js'
 
 /** 可裁剪事件族（观测类、零读取方；判据见文件头）。新增成员必须先核读取方与遮蔽安全性。 */
 export const PRUNABLE_EVENT_TYPES = ['llm/retry', 'retry/attempt', 'check/report'] as const
@@ -73,19 +79,6 @@ export const PRUNE_MAX_WINDOWS = 4
 /** 裁剪的最小间隔（按库路径）：到期行裁净后仍会有「尚在保留期的首行」残留判据，本闸把
  *  「每次关闭都开一个写事务」压成「至多每 6 小时一次」；测试注入 0 可逐轮跑。 */
 export const [getPruneMinIntervalMs, __setPruneMinIntervalMsForTest] = testableConst(6 * 60 * 60 * 1000)
-/** 空间回收的最小空闲页数：低于此不值当一次 checkpoint + 回收（避免每次维护都动 WAL）。 */
-const RELEASE_MIN_FREE_PAGES = 64
-/** 每次 incremental_vacuum 的块大小：单块有界（毫秒级），让出点在块与块之间。 */
-const INCREMENTAL_VACUUM_CHUNK_PAGES = 64
-/** 单轮回收的空闲页预算：整轮合计（实测 ~10µs/页，4096 页约 40ms 上限），余量留给后续维护点。 */
-const INCREMENTAL_VACUUM_MAX_PAGES = 4096
-/** 转增量模式的最小空闲页：少于此不值得整库重写一次。 */
-const CONVERT_MIN_FREE_PAGES = 256
-/** 整库重写的存活页上限：重写代价随存活页线性（实测 ~13µs/页），2048 页约 30ms 封顶。
- *  超限的存量库本轮不转换——宁可保留高水位，也不在让利路径上长时间独占事件循环。 */
-const CONVERT_VACUUM_LIVE_PAGE_MAX = 2048
-/** 维护段的写锁等待档（SQLite busy_timeout）：维护是让利动作，不为抢锁拖住调用方。 */
-const MAINTENANCE_BUSY_TIMEOUT_MS = 250
 /** 迁移锁的等待档：拿不到即本轮跳过（不排队等首开/迁移段让路）。 */
 const MAINTENANCE_LOCK_TIMEOUT_MS = 150
 /** 游标/时刻表上限（FIFO）：条目只是一个整数，上限纯防御。 */
@@ -147,15 +140,6 @@ export interface PruneOutcome {
   truncated: boolean
 }
 
-export interface ReclaimOutcome {
-  /** vacuum = 整库重写（顺带把存量库转成增量模式）；incremental = 逐块释放；
-   *  none = 未达条件（空闲页不足或存活页超预算） */
-  mode: 'vacuum' | 'incremental' | 'none'
-  /** 回收前页数（-1 = 读取失败，调用方按未回收处理） */
-  pagesBefore: number
-  pagesAfter: number
-}
-
 /** 维护触发档：'idle' = 关闭路径的机会档（到期/超阈才动手）；'force' = 清库路径的
  *  强制档（刚删完行，回收端有空闲页就收）。 */
 export type MaintenanceTrigger = 'idle' | 'force'
@@ -187,34 +171,8 @@ function remember(map: Map<string, number>, key: string, value: number): void {
 /** busy 类冲突（另一连接持锁/写）——维护面把「争用」与「故障」分流：争用静默跳过，
  *  故障才留痕。判据是 node:sqlite 抛出的英文 message（各版本措辞一致短语）。 */
 function isBusyError(e: unknown): boolean {
-  return /database is locked|SQLITE_BUSY|database table is locked/i.test(errMsg(e))
-}
-
-/** 维护段短等待档包夹：档位值来自模块常量（整数，无外部输入，无拼接面）。退出即恢复原档
- *  ——维护段之后的业务写仍按开库纪律等 5s。 */
-function withShortBusyTimeout<T>(db: DatabaseSync, body: () => T): T {
-  const prev = (db.prepare('PRAGMA busy_timeout').get() as { timeout?: number } | undefined)?.timeout ?? 5000
-  db.exec(`PRAGMA busy_timeout = ${MAINTENANCE_BUSY_TIMEOUT_MS}`)
-  try {
-    return body()
-  } finally {
-    db.exec(`PRAGMA busy_timeout = ${prev}`)
-  }
-}
-
-/** 折 WAL 进主库并截断：页数/文件尺寸读数要它才准，回收后的体积也要它才落盘。busy
- *  （另有连接持读事务）时不强求——返回 false 交调用方按「本轮未回收」处理，不上抛。 */
-function truncateWal(db: DatabaseSync): boolean {
-  const r = db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get() as { busy?: number } | undefined
-  return (r?.busy ?? 0) === 0
-}
-
-/** 页数/空闲页数读数（廉价 header 读；拿不到按 -1/0 处理，调用方据此退化为「不回收」）。 */
-function pageStats(db: DatabaseSync): { pages: number; free: number } {
-  const pages = (db.prepare('PRAGMA page_count').get() as { page_count?: number } | undefined)?.page_count ?? -1
-  const free =
-    (db.prepare('PRAGMA freelist_count').get() as { freelist_count?: number } | undefined)?.freelist_count ?? 0
-  return { pages, free }
+  const msg = errMsg(e)
+  return /SQLITE_BUSY|database is locked|database table is locked/i.test(msg)
 }
 
 /** 库内是否已有 events 表：幽灵库（他进程刚建文件未跑 DDL）与空库在此静默跳过。 */
@@ -312,58 +270,17 @@ export function pruneExpiredObservationEvents(
   })
 }
 
-/**
- * 回收已释放页 + 截断 WAL（有界：整库重写只在空闲页充裕且存活页很小时进行）。
- *
- * 两条路径按库自身的 auto_vacuum 档分流：
- * - 已是增量模式（1/2）：逐块 incremental_vacuum 释放空闲页，单轮有页预算（超预算的余量
- *   留给后续维护点收敛），不整库重写；**块与块之间让出事件循环**（本函数是 async，整轮
- *   不是一段长同步段）。
- * - 仍是 0（存量库）：auto_vacuum 只有「同一连接上先设 PRAGMA 再立即 VACUUM」这一条转换
- *   路径（单独设 PRAGMA 不落库，也不会靠之后某次 VACUUM 生效——实测如此），故此处承担
- *   转换：仅当空闲页 ≥ CONVERT_MIN_FREE_PAGES 且存活页 ≤ CONVERT_VACUUM_LIVE_PAGE_MAX
- *   才做。清库（清空对话 / 清除事件史）刚删完行，存活页≈0，实测四万页的空库 VACUUM 约
- *   1ms；存活页超预算的存量库本轮不转换，等该书被清空（存活页归零）时的那一轮再收。
- *   VACUUM 内部是单段同步执行（SQLite 无异步入口），故代价靠**存活页上限**封顶：实测约
- *   13µs/存活页，2048 页 ≈ 30ms——是让利路径上可接受的单段占用（本函数只被后台维护任务
- *   调用，调用方不在服务请求链路上）。
- *
- * force（清库路径的强制档）：空闲页阈不再拦——清库要的就是空间回落；增量档下只要还有
- * 空闲页就收，零档（存量库）下存活页判据仍生效（整库重写的代价上限不能因为强制档而失效）。
- */
-export async function reclaimFreedSpace(db: DatabaseSync, force = false): Promise<ReclaimOutcome> {
-  // 先折 WAL：否则页数是陈旧读数，回收完的体积也看不见（WAL 侧车会留住高水位）
-  truncateWal(db)
-  const mode = readAutoVacuumMode(db)
-  const before = pageStats(db)
-  if (before.pages < 0) return { mode: 'none', pagesBefore: -1, pagesAfter: -1 }
-  if (mode === AUTO_VACUUM_NONE) {
-    const live = before.pages - before.free
-    if (before.free < CONVERT_MIN_FREE_PAGES || live > CONVERT_VACUUM_LIVE_PAGE_MAX) {
-      return { mode: 'none', pagesBefore: before.pages, pagesAfter: before.pages }
-    }
-    return withShortBusyTimeout(db, () => {
-      db.exec('PRAGMA auto_vacuum = INCREMENTAL')
-      db.exec('VACUUM')
-      truncateWal(db)
-      return { mode: 'vacuum' as const, pagesBefore: before.pages, pagesAfter: pageStats(db).pages }
-    })
-  }
-  if (before.free === 0 || (!force && before.free < RELEASE_MIN_FREE_PAGES)) {
-    return { mode: 'none', pagesBefore: before.pages, pagesAfter: before.pages }
-  }
-  let released = 0
-  // 让出点在块与块之间：整轮累计可达数十毫秒，逐块让出后其间 SSE 心跳/其它请求可跑
-  while (released < INCREMENTAL_VACUUM_MAX_PAGES && pageStats(db).free > 0) {
-    withShortBusyTimeout(db, () => {
-      db.exec(`PRAGMA incremental_vacuum(${INCREMENTAL_VACUUM_CHUNK_PAGES})`)
-    })
-    released += INCREMENTAL_VACUUM_CHUNK_PAGES
-    await yieldToEventLoop()
-  }
-  truncateWal(db)
-  return { mode: 'incremental', pagesBefore: before.pages, pagesAfter: pageStats(db).pages }
-}
+/** 空间回收的实现单源在 `fs/sqlite-vacuum`（events / rag / cache / check / learn 五库共用）：
+ *  档位判定、折 WAL、逐块释放与整库重写的存活页上限都在那边，本模块只负责「什么时候收」
+ *  （让利档 vs 强制档）与库级节流/互斥。 */
+export {
+  reclaimFreedSpace,
+  readAutoVacuumMode,
+  pageStats,
+  truncateWal,
+  AUTO_VACUUM_NONE,
+  type ReclaimOutcome,
+} from '../fs/sqlite-vacuum.js'
 
 /**
  * 一轮维护（裁剪 + 回收）：写阶段持迁移锁，与首开/迁移互斥；先关库再放锁由调用方保证
