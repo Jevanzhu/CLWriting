@@ -252,9 +252,6 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
 /* 渲染上限省略提示行——纯展示不可点（弱化色，TrashPanel cap-hint 同式） */
 .cap-hint {
   padding-left: 6px;
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
-  font-style: italic;
   cursor: default;
 }
 .row.current {

@@ -156,8 +156,6 @@ function onCardContextmenu(e: MouseEvent, name: string): void {
 /* 渲染上限截断提示行——纯展示不可点（弱化色，对齐 ChapterTreeItem cap-hint 口径） */
 .cap-hint {
   padding-top: var(--size-4-2);
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
 }
 .book-grid {
   display: grid;

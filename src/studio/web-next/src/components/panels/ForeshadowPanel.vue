@@ -293,9 +293,6 @@ useBookScoped(() => props.bookName, { load, immediate: true })
 /* 渲染上限省略提示行——纯展示（弱化色 tree-cap-hint 同语义） */
 .cap-hint {
   padding: 3px 8px;
-  font-size: var(--font-size-xxs);
-  color: var(--text-faint);
-  font-style: italic;
 }
 .fs-item {
   display: flex;
