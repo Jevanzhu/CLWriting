@@ -145,6 +145,42 @@ describe('chat 按书预算闸（budget.chat_max_calls）', () => {
     expect(JSON.parse(gateWarns[0]!)).toMatchObject({ code: 'BUDGET_EXCEEDED', used: 2, task: 'chat' })
   })
 
+  it('闸按 task 分账：别的 task 用量不吃本 task 的配额（两键同吃一个上限，但各计各的）', async () => {
+    // 上一档已把 chat 顶到上限；本例把上限全花在另一任务上，chat 自己的计数为 0
+    const root = tempBook('spec_version: 1\n\nhost: cc\n\nbook:\n  title: X\n\nbudget:\n  chat_max_calls: 2\n')
+    mkdirSync(join(root, '.cache'), { recursive: true })
+    writeFileSync(
+      join(root, '.cache', 'ai-calls.json'),
+      JSON.stringify({
+        chapter: { num: 0, used: 0, inputTokens: 0, outputTokens: 0 },
+        // 压缩摘要已用掉 2 次——若闸按「全库合计」算，本次 chat 就会被误拦
+        tasks: { chat_compact: { used: 2, inputTokens: 0, outputTokens: 0 } },
+      }),
+      'utf-8',
+    )
+    const ud = tempUserData()
+    writeProviders(ud)
+    vi.spyOn(log, 'warn').mockImplementation(() => {})
+    let calls = 0
+    const out = await runTask<{ text: string }>({
+      userDataPath: ud,
+      task: 'chat',
+      bookRoot: root,
+      run: () => {
+        calls++
+        return Promise.resolve(RUN_RET)
+      },
+    })
+    expect(out.ok).toBe(true)
+    expect(calls).toBe(1)
+    // 且本次入的是 chat 自己那块，不落进 chat_compact
+    const ledger = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf-8')) as {
+      tasks: Record<string, { used: number }>
+    }
+    expect(ledger.tasks.chat!.used).toBe(1)
+    expect(ledger.tasks.chat_compact!.used).toBe(2)
+  })
+
   it('键值非法 → parse 面 fail-closed 落 0 = 全部阻断（宁拦勿放）', async () => {
     const root = tempBook('spec_version: 1\n\nhost: cc\n\nbook:\n  title: X\n\nbudget:\n  chat_max_calls: abc\n')
     const ud = tempUserData()
