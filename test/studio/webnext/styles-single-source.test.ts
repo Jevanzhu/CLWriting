@@ -137,3 +137,37 @@ describe('章节状态点色类单源（CHAPTER_STATUS.dot）', () => {
     expect(used).toEqual([...DOT_CLASSES].sort())
   })
 })
+
+// 书架有两壳（整页 Shelf.vue / 浮层 ShelfModal.vue），同交互两条挂载路径，不该强行合并
+// ——但「同形」必须有判据。此前整页缺了「全选盖过渲染帽」提示而浮层有，两边各自看着都
+// 正常，没人会发现；补一处后另一处再漏也一样。本组锚定成对出现的交互锚点：只改一壳即红。
+describe('书架两壳交互同形（整页 / 浮层）', () => {
+  const SHELLS = {
+    page: 'pages/Shelf.vue',
+    modal: 'components/ui/ShelfModal.vue',
+  } as const
+
+  it('两壳都把渲染帽传给 ShelfGrid（帽值单源 shared/render-cap）', () => {
+    for (const [label, rel] of Object.entries(SHELLS)) {
+      const src = read(rel)
+      expect(src, `${label} 未从 shared/render-cap 取帽`).toContain('SHELF_RENDER_CAP')
+      expect(src, `${label} 未把帽传给 ShelfGrid（整页不传＝全量挂载，与浮层性能口径不一）`).toContain(
+        ':render-cap="SHELF_RENDER_CAP"',
+      )
+    }
+  })
+
+  it('两壳都有「全选盖过渲染帽」的如实提示（含文本与样式类，缺一壳即红）', () => {
+    for (const [label, rel] of Object.entries(SHELLS)) {
+      const src = read(rel)
+      // 触发条件必须同在：只提示不判条件＝每次全选都喊；只判条件不提示＝作者看不见
+      expect(src, `${label} 缺全选提示的触发条件（已全选 且 总数超帽）`).toContain(
+        'selected.size === shelf.books.length && shelf.books.length > SHELF_RENDER_CAP',
+      )
+      expect(src, `${label} 缺提示文本`).toContain('已全选全部')
+      expect(src, `${label} 缺提示文本里的「对全集生效」语义`).toContain('批量操作对全集生效')
+      // 样式类两壳同名：形态不一致本身就是功能差（字号/颜色取舍不同）
+      expect(src, `${label} 缺 .sel-all-hint 样式类`).toMatch(/\.sel-all-hint\s*\{/)
+    }
+  })
+})
