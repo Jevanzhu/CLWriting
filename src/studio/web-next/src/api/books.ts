@@ -13,7 +13,21 @@ export async function getTree(
 }
 
 // GET /config → {config, revision}（book.yaml）。target_words 在 config.book.target_words。
+//
+// 带索引签名：服务端还有几十个可选键（budget / auto / rag / short / snapshots 等）本端
+// 未消费，逐个声明只会制造两边都要维护的冗余。但索引签名会掩盖漂移——未声明的键读出来是
+// `unknown`，消费处只能断言逃生。故「读侧功能真正依赖」的键必须**显式声明**
+// （`spec_version` / `leads`），由 `BOOK_CONFIG_REQUIRED_KEYS` + 文件末的类型探针兜住：
+// 键退化成 `unknown` 即编译期失败。其余键按需补声明，判据同上。
+import type { BookLeadsConfig } from '../../../../shared/contract/books'
+import type { BookConfigRequiredKey } from '../../../../shared/contract/books'
+export type { BookLeadsConfig } from '../../../../shared/contract/books'
+
 export interface BookConfig {
+  /** 配置代际（服务端必填）。读到不认识的值即旧/新版配置，消费方须按缺省语义处理 */
+  spec_version?: number
+  /** 扩展线索开关。读侧依赖 `enabled`（成长线判定等），服务端必填 */
+  leads?: BookLeadsConfig
   kind?: 'long' | 'short'
   host?: 'cc' | 'codex'
   book?: {
@@ -189,3 +203,23 @@ export async function triggerRagRebuild(name: string): Promise<{ started: true; 
     method: 'POST',
   })
 }
+
+// ── 类型探针（零运行时；判据由 vue-tsc 执行，不是测试）────────────────────────
+//
+// 判据 = 「`BOOK_CONFIG_REQUIRED_KEYS` 里的每个键在本端必须显式声明」。写成
+// `unknown extends T ? false : true` 是因为索引签名的退化结果恰好就是 `unknown`：
+// 键被漏声明（或从本 interface 里被删掉）时 `BookConfig['leads']` 变成 `unknown`，
+// `unknown extends unknown` 成立 → `Assert<false>` 编译报错。声明了（哪怕可选，
+// 得到 `T | undefined`）则 `unknown extends T | undefined` 不成立 → 通过。
+type BookConfigDeclared<K extends BookConfigRequiredKey> = unknown extends BookConfig[K] ? false : true
+type AllRequiredKeysDeclared<K extends BookConfigRequiredKey = BookConfigRequiredKey> = K extends BookConfigRequiredKey
+  ? BookConfigDeclared<K> extends true
+    ? true
+    : false
+  : never
+type Assert<T extends true> = T
+export type _BookConfigRequiredKeysDeclared = Assert<AllRequiredKeysDeclared extends true ? true : false>
+// `leads.enabled` 是读侧真正用的那一格：外层声明对了、内层形状错了同样要红
+export type _BookLeadsEnabledShape = Assert<
+  [NonNullable<BookConfig['leads']>['enabled']] extends [string[]] ? true : false
+>
