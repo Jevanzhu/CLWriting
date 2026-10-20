@@ -21,8 +21,8 @@ import { stringifyValue } from '../../src/format/frontmatter.js'
 import { writeChapter } from '../helpers/chapter.js'
 import { buildIndex } from '../../src/rag/index.js'
 import type { ChapterMeta } from '../../src/format/types.js'
-import type { EmbedResult } from '../../src/rag/embed.js'
 import type { RagConfig } from '../../src/rag/config.js'
+import { stubEmbed } from '../helpers/embed.js'
 
 function makeBook(): { root: string; workDir: string; db: DatabaseSync } {
   const workDir = mkdtempTracked(join(tmpdir(), 'mat-r36-'))
@@ -66,15 +66,6 @@ function makeBook(): { root: string; workDir: string; db: DatabaseSync } {
 }
 
 /** 桩 embed：确定性，不联网。 */
-function stubEmbed(_ep: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> {
-  return Promise.resolve(
-    texts.map((t) => {
-      const code = t.charCodeAt(0) || 1
-      const norm = 1 / (code + 1)
-      return [norm, norm * 0.5, norm * 0.3]
-    }),
-  )
-}
 
 /** 启用 RAG 的等价直写（原 enableRag API 已删，本测试内复刻其 yaml 输出）：
  *  patchTopSection 文本级补丁写 rag 段（enabled: true + endpoint/model，

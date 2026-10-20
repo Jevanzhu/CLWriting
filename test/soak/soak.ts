@@ -38,10 +38,10 @@ import { join } from 'node:path'
 import { buildIndex, recall } from '../../src/rag/index.js'
 import { writeChapter } from '../helpers/chapter.js'
 import type { ChapterMeta } from '../../src/format/types.js'
-import type { EmbedResult } from '../../src/rag/embed.js'
 import { readManifestStrict, upsertEntry, writeManifest, type Manifest } from '../../src/document/manifest.js'
 import { openSessionStore, type NewEvent } from '../../src/events/store.js'
 import { DocumentService } from '../../src/document/service.js'
+import { stubEmbed } from '../helpers/embed.js'
 
 /** 固定小fixture（真实章纲三段式形态）：纯字符串常量，解析/回写零外部依赖。 */
 const FIXTURE = [
@@ -151,14 +151,6 @@ const RAG_ITER = numEnv('CLW_SOAK_RAG_ITER', 20_000)
 const RAG_BOUND_MB = numEnv('CLW_SOAK_RAG_BOUND_MB', 24)
 
 /** 桩 embed：确定性 3 维（test/rag/r1010b 同款），不联网。 */
-function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> {
-  return Promise.resolve(
-    texts.map((t) => {
-      const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
-      return [norm, norm * 0.5, norm * 0.3]
-    }),
-  )
-}
 
 const ragRoot = join(tmpdir(), `clw-soak-rag-${Date.now()}-${Math.random().toString(36).slice(2)}`)
 mkdirSync(join(ragRoot, '写作', '正文'), { recursive: true })

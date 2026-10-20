@@ -21,7 +21,8 @@ import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adap
 import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
 import { createOpenAIResponsesProvider } from '../../../src/ai/provider/responses-adapter.js'
 import { estimateInputTokens, estimateOutputTokens } from '../../../src/ai/provider/usage-estimate.js'
-import type { GenEvent, GenRequest, ModelProvider, ProviderConf } from '../../../src/ai/provider/index.js'
+import type { GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
+import { collect } from './adapter-fixtures.js'
 
 const CONF = {
   id: 't1',
@@ -50,12 +51,6 @@ function fakeSend(events: unknown[]): () => AsyncGenerator<unknown> {
   return async function* () {
     for (const e of events) yield e
   }
-}
-
-async function collect(prov: ModelProvider, req: GenRequest): Promise<GenEvent[]> {
-  const out: GenEvent[] = []
-  for await (const ev of prov.stream(req, new AbortController().signal)) out.push(ev)
-  return out
 }
 
 describe('R36-2: Anthropic 流侧思考增量透出 + claude+effort 显式禁思考', () => {

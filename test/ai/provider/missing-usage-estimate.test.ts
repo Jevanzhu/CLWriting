@@ -22,6 +22,7 @@ import { estimateInputTokens } from '../../../src/ai/provider/usage-estimate.js'
 import { DEFAULT_TOKEN_COEFF, estimateTokens } from '../../../src/shared/tokens.js'
 import { chatTools } from '../../../src/ai/contract/chat.js'
 import type { GenEvent, GenRequest, ProviderConf, ToolDef } from '../../../src/ai/provider/index.js'
+import { collect } from './adapter-fixtures.js'
 
 const CONF = {
   id: 't1',
@@ -39,12 +40,6 @@ function fakeSend(events: unknown[]): () => AsyncGenerator<unknown> {
   return async function* () {
     for (const e of events) yield e
   }
-}
-
-async function collect(prov: ReturnType<typeof createOpenAIProviderChat>, req: GenRequest): Promise<GenEvent[]> {
-  const out: GenEvent[] = []
-  for await (const ev of prov.stream(req, new AbortController().signal)) out.push(ev)
-  return out
 }
 
 describe('R73-1: OpenAI 线网关吞 usage → 估计入账', () => {

@@ -36,7 +36,8 @@ import {
   resolvePrompt,
   type PromptRegistry,
 } from '../../../src/ai/prompts/resource.js'
-import type { GenEvent, GenRequest, ModelProvider, ProviderConf } from '../../../src/ai/provider/index.js'
+import type { GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
+import { collect } from './adapter-fixtures.js'
 
 // vi.mock('openai')：默认导出换捕获构造参数的桩类（models.list 乱序两行 → 排序出口），
 // 命名导出（APIError 等）保持真身——R38-4 构造参数行为锚 + 本文件其余用例的
@@ -71,12 +72,6 @@ function fakeSend(events: unknown[]): () => AsyncGenerator<unknown> {
   return async function* () {
     for (const e of events) yield e
   }
-}
-
-async function collect(prov: ModelProvider, req: GenRequest): Promise<GenEvent[]> {
-  const out: GenEvent[] = []
-  for await (const ev of prov.stream(req, new AbortController().signal)) out.push(ev)
-  return out
 }
 
 const REQ: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] }

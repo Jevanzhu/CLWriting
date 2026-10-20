@@ -25,8 +25,9 @@ import { runTask } from '../../src/ai/runner.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { createAnthropicProvider } from '../../src/ai/provider/anthropic-adapter.js'
 import { httpStatusToCode, failureAction } from '../../src/ai/provider/failure.js'
-import type { GenEvent, GenRequest, ModelProvider, ProviderConf } from '../../src/ai/provider/index.js'
+import type { ModelProvider, ProviderConf } from '../../src/ai/provider/index.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { collect } from './provider/adapter-fixtures.js'
 
 // R27-1：把记账入口换成同步忙等——runner 对记账调用（R46-21 起为 recordUsageBoth
 // 单写段；mock 随之改挂新入口，recordTaskUsage mock 保留防其它路径回归）的耗时可观测
@@ -56,12 +57,6 @@ function fakeSend(events: unknown[]): () => AsyncGenerator<unknown> {
   return async function* () {
     for (const e of events) yield e
   }
-}
-
-async function collect(prov: ModelProvider, req: GenRequest): Promise<GenEvent[]> {
-  const out: GenEvent[] = []
-  for await (const ev of prov.stream(req, new AbortController().signal)) out.push(ev)
-  return out
 }
 
 // ── R27-1：durationMs 不含记账 IO ──
