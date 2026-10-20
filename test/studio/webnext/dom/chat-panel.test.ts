@@ -580,7 +580,6 @@ describe('ChatMessages: 滚底 force 语义与在途节流帧共存', () => {
   })
 })
 
-
 describe('清空被服务端拒绝时提示含恢复说明（显示滞后不再只有报错）', () => {
   it('clearChatHistory 失败 → toast 说明本次未清空且旧记录会重新出现', async () => {
     const chat = useChatStore()

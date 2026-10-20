@@ -499,6 +499,19 @@ export const TEST_BATCH_ANCHOR = Object.freeze({
 })
 
 /**
+ * README 徽章的单测数声称形态。
+ *
+ * 措辞是判据的一部分：此前徽章写 `tests-<N> all green`，而 N 是 `vitest list --json` 的
+ * **静态声明数**，运行收集数比它多四百余（`.each` 表行展开与循环内声明解释），且运行汇总
+ * 天然含 skipped 项。两数不可互校时，「N 个单测全绿」会被读成「执行了 N 个用例且全绿」——
+ * 这是被审计点名的口径误导，故徽章显式写 `units declared`，把口径摆到读者眼前。
+ *
+ * 正则**只认新形态**：旧的 `all green` 措辞不再匹配，README 退回旧写法会立刻失配报红。
+ * 留两形态兼容等于允许措辞再退回去，那这条口径就又没人守了。
+ */
+export const README_BADGE_PATTERN = /badge\/tests-(\d+)%20units%20declared/
+
+/**
  * e2e pageerror 基线接线静态门——渲染层异常升级为红
  * 的前提是各 spec 接 attachPageErrorBaseline，但接线是约定式 opt-in 无机器校验：新增
  * spec 漏接一行，「渲染层异常被断言偶然通过掩盖」的洞静默重开。剥注释/字符串后每个
@@ -850,8 +863,7 @@ function main() {
   // 全平台同数，win/linux 差值分账臂随静态口径终局废除；README「开发」节相应
   // 改写为静态口径（「过数/linux 实测差 N 恒定」句删除）。仅剩参数序适配。
   const claimUnitTests = (pattern, label) => claim(pattern, actual.unitTests, label)
-  // 徽章：tests-<单测数>%20all%20green（示例为形态，实际值以 README 为准）
-  claimUnitTests(/badge\/tests-(\d+)%20all%20green/, '徽章单测数')
+  claimUnitTests(README_BADGE_PATTERN, '徽章单测数')
   // README 介绍面精简（纯项目介绍定位）：开发/安装节撤除，「npm test # N 单测」与
   // 「Playwright e2e（mock 驱动，…）」两族锚点句随之退役——声称值锚收拢到徽章 + 技术
   // 栈段，四个实际值（文件/单测/spec/用例）仍各有对账锚，漂移照红。
@@ -860,9 +872,11 @@ function main() {
   claim(new RegExp('Playwright[（(](\\d+) specs'), actual.e2eSpecs, 'Playwright spec 数')
   // 锚定完整短语——裸 `(\d+) 用例）` 会命中 README 里任何以"用例）"结尾的数字
   claim(new RegExp(`Playwright${PH('\\d+ specs [\\/／] (\\d+) 用例')}`), actual.e2eCases, 'Playwright 用例数')
-  // 「<文件数> 个测试文件 / <单测数> 单测全绿」（原开发节合入门槛句，随节撤移入技术栈段）
-  claim(/(\d+) 个测试文件 [\/／] \d+ 单测全绿/, actual.unitFiles, '测试文件数')
-  claimUnitTests(/\d+ 个测试文件 [\/／] (\d+) 单测全绿/, '合入门槛单测数')
+  // 「<文件数> 个测试文件 / <单测数> 单测是合入门槛」（原开发节合入门槛句，随节撤移入技术栈段）
+  // 尾部措辞不再锚「全绿」：那句与徽章同源同因（静态声明数并非执行数、且运行汇总含 skipped），
+  // 已一并改成「是合入门槛 + 静态声明口径」的写法（见 README 技术栈段）。
+  claim(/(\d+) 个测试文件 [\/／] \d+ 单测(?:是合入门槛|全绿)/, actual.unitFiles, '测试文件数')
+  claimUnitTests(/\d+ 个测试文件 [\/／] (\d+) 单测(?:是合入门槛|全绿)/, '合入门槛单测数')
 
   // docs 索引面的篇数声称原在本门对账（`Archive/` 行正则）；链面收口批起改由
   // `check:harness` 的 verify-doc-index 按 `scripts/harness/doc-index.manifest.json`
@@ -879,8 +893,10 @@ function main() {
     }
   }
 
+  // 输出行显式写「静态声明」：这条输出是作者与审计者读到的唯一口径提示，省掉这三个字
+  // 就又回到「这个数是什么数」的问题上（README 徽章已同步标注，两处要一致）
   console.log(
-    `实测：${actual.unitFiles} 个测试文件 / ${actual.unitTests} 单测；${actual.e2eSpecs} e2e spec / ${actual.e2eCases} 用例`,
+    `实测（静态声明口径，非运行收集）：${actual.unitFiles} 个测试文件 / ${actual.unitTests} 单测；${actual.e2eSpecs} e2e spec / ${actual.e2eCases} 用例`,
   )
   console.log(
     `test/ 批号标签（上锚不追）：注释 ${batch.comments} 处（上锚 ${TEST_BATCH_ANCHOR.comments}）/ 用例标题 ${batch.titles} 处（上锚 ${TEST_BATCH_ANCHOR.titles}）`,

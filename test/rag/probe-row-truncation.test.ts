@@ -27,18 +27,9 @@ import { openRagDb, storeChunk, streamChunkScores } from '../../src/rag/store.js
 import { buildIndex, recallDetailed } from '../../src/rag/index.js'
 import { writeChapter } from '../helpers/chapter.js'
 import type { ChapterMeta } from '../../src/format/types.js'
-import type { EmbedResult } from '../../src/rag/embed.js'
+import { stubEmbed } from '../helpers/embed.js'
 
 /** 桩 embed：确定性、不联网（3 维，与 r36 先例同风格）。 */
-function stubEmbed(_endpoint: string, _model: string, _key: string, texts: string[]): Promise<EmbedResult> {
-  return Promise.resolve(
-    texts.map((t) => {
-      const code = t.charCodeAt(0) || 1
-      const norm = 1 / (code + 1)
-      return [norm, norm * 0.5, norm * 0.3]
-    }),
-  )
-}
 
 const CONFIG = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
 

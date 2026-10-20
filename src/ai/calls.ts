@@ -307,8 +307,7 @@ const LOCK_PATH_NOTE = aiCallsLockPath('<bookRoot>').split(sep).join('/')
  *
  * 测试专用导出（零生产调用）——互斥范围声明的对外文案面，仅测试断言声明串仍含
  * 「跨进程文件锁」等契约词（防声明随实现漂移后无人察觉）；生产码不读本常量。 */
-export const AI_CALLS_MUTEX_SCOPE_NOTE =
-  `ai-calls.json 互斥为进程内队列 + 跨进程文件锁（J7 已落地，fs/cross-process-lock.ts；R30-3 等待改异步轮询）：写段在 ${LOCK_PATH_NOTE} 上限时互斥，超时上抛由调用方降级留痕`
+export const AI_CALLS_MUTEX_SCOPE_NOTE = `ai-calls.json 互斥为进程内队列 + 跨进程文件锁（J7 已落地，fs/cross-process-lock.ts；R30-3 等待改异步轮询）：写段在 ${LOCK_PATH_NOTE} 上限时互斥，超时上抛由调用方降级留痕`
 
 /** 记账写失败的可定位上下文——写段最终被拒时按此拼装告警（书由调用参数带，其余在此）。 */
 export interface LedgerWriteContext {

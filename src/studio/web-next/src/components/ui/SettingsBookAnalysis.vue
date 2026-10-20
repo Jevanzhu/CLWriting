@@ -182,58 +182,84 @@ function providerLabel(id: string | null): string {
 
 function onShortOverrideToggle(on: boolean): void {
   if (on) {
-    bookShortStrict.value = effShortStrict.value
-    void saveConfig((c) => {
-      c.short = { ...(c.short ?? {}), strict: effShortStrict.value }
-    })
+    // 生效值在**调用时**读成局部量再交给闭包：闭包在 saveConfig 队列里、`await getConfig`
+    // 之后才执行，读活 ref 会把「切书后新书的 eff 值」写成旧书的配置
+    const strict = effShortStrict.value
+    bookShortStrict.value = strict
+    void saveConfig(
+      (c) => {
+        c.short = { ...(c.short ?? {}), strict }
+      },
+      { label: '短篇严格模式' },
+    )
   } else {
     bookShortStrict.value = null
-    void saveConfig((c) => {
-      if (c.short) delete c.short.strict
-    })
+    void saveConfig(
+      (c) => {
+        if (c.short) delete c.short.strict
+      },
+      { label: '短篇严格模式' },
+    )
   }
 }
 
 function onRelationOverrideToggle(on: boolean): void {
   if (on) {
-    bookAutoMine.value = effAutoMine.value
-    bookMineThreshold.value = effMineThreshold.value
-    void saveConfig((c) => {
-      c.auto = {
-        ...(c.auto ?? {}),
-        relation_auto_mine: effAutoMine.value,
-        relation_mine_threshold: effMineThreshold.value,
-      }
-    })
+    // 同 onShortOverrideToggle：两个生效值都在调用时快照（闭包读活 ref 会串书）
+    const autoMine = effAutoMine.value
+    const threshold = effMineThreshold.value
+    bookAutoMine.value = autoMine
+    bookMineThreshold.value = threshold
+    void saveConfig(
+      (c) => {
+        c.auto = {
+          ...(c.auto ?? {}),
+          relation_auto_mine: autoMine,
+          relation_mine_threshold: threshold,
+        }
+      },
+      { label: '关系图' },
+    )
   } else {
     bookAutoMine.value = null
     bookMineThreshold.value = null
-    void saveConfig((c) => {
-      if (c.auto) {
-        delete c.auto.relation_auto_mine
-        delete c.auto.relation_mine_threshold
-      }
-    })
+    void saveConfig(
+      (c) => {
+        if (c.auto) {
+          delete c.auto.relation_auto_mine
+          delete c.auto.relation_mine_threshold
+        }
+      },
+      { label: '关系图' },
+    )
   }
 }
 
 function onRagOverrideToggle(on: boolean): void {
   if (on) {
-    bookRagEnabled.value = effRagEnabled.value
-    bookRagProvider.value = effRagProvider.value
-    void saveConfig((c) => {
-      // provider 生效值为空（全局未选）→ 置 undefined = 不落键，与「未设」等义
-      c.rag = { ...(c.rag ?? {}), enabled: effRagEnabled.value, provider: effRagProvider.value ?? undefined }
-    })
+    const enabled = effRagEnabled.value
+    const provider = effRagProvider.value
+    bookRagEnabled.value = enabled
+    bookRagProvider.value = provider
+    void saveConfig(
+      (c) => {
+        // provider 生效值为空（全局未选）→ 置 undefined = 不落键，与「未设」等义
+        c.rag = { ...(c.rag ?? {}), enabled, provider: provider ?? undefined }
+      },
+      { label: '检索增强' },
+    )
   } else {
     bookRagEnabled.value = null
     bookRagProvider.value = null
-    void saveConfig((c) => {
-      if (c.rag) {
-        delete c.rag.enabled
-        delete c.rag.provider
-      }
-    })
+    void saveConfig(
+      (c) => {
+        if (c.rag) {
+          delete c.rag.enabled
+          delete c.rag.provider
+        }
+      },
+      { label: '检索增强' },
+    )
   }
 }
 
@@ -241,15 +267,21 @@ function onRagOverrideToggle(on: boolean): void {
 
 function onShortStrictToggle(v: boolean): void {
   bookShortStrict.value = v
-  void saveConfig((c) => {
-    c.short = { ...(c.short ?? {}), strict: v }
-  })
+  void saveConfig(
+    (c) => {
+      c.short = { ...(c.short ?? {}), strict: v }
+    },
+    { label: '短篇严格模式' },
+  )
 }
 function onBookAutoMineToggle(v: boolean): void {
   bookAutoMine.value = v
-  void saveConfig((c) => {
-    c.auto = { ...(c.auto ?? {}), relation_auto_mine: v }
-  })
+  void saveConfig(
+    (c) => {
+      c.auto = { ...(c.auto ?? {}), relation_auto_mine: v }
+    },
+    { label: '关系图' },
+  )
 }
 function onMineThresholdInput(e: Event): void {
   // 空串/非数字走共享 helper 挡掉（原 Number('')=0 过闸被钳成 1）
@@ -257,36 +289,52 @@ function onMineThresholdInput(e: Event): void {
   if (raw === null) return
   const v = Math.min(20, Math.max(1, Math.round(raw)))
   bookMineThreshold.value = v
-  void saveConfig((c) => {
-    c.auto = { ...(c.auto ?? {}), relation_mine_threshold: v }
-  })
+  void saveConfig(
+    (c) => {
+      c.auto = { ...(c.auto ?? {}), relation_mine_threshold: v }
+    },
+    { label: '关系图' },
+  )
 }
 function onBookRagToggle(v: boolean): void {
   bookRagEnabled.value = v
-  void saveConfig((c) => {
-    c.rag = { ...(c.rag ?? {}), enabled: v }
-  })
+  void saveConfig(
+    (c) => {
+      c.rag = { ...(c.rag ?? {}), enabled: v }
+    },
+    { label: '检索增强' },
+  )
 }
 // 知识层：组开关 on = 用当前生效值落键；off = delete 归「未设」（回落全局默认）。
 // 与同页三组同款——auto 段展开保留段内他键（confirm_outline/relation_* 各有其主）
 function onKnowledgeOverrideToggle(on: boolean): void {
   if (on) {
-    bookKnowledgeInjection.value = effKnowledgeInjection.value
-    void saveConfig((c) => {
-      c.auto = { ...(c.auto ?? {}), knowledge_injection: effKnowledgeInjection.value }
-    })
+    const injection = effKnowledgeInjection.value
+    bookKnowledgeInjection.value = injection
+    void saveConfig(
+      (c) => {
+        c.auto = { ...(c.auto ?? {}), knowledge_injection: injection }
+      },
+      { label: '知识层注入' },
+    )
   } else {
     bookKnowledgeInjection.value = null
-    void saveConfig((c) => {
-      if (c.auto) delete c.auto.knowledge_injection
-    })
+    void saveConfig(
+      (c) => {
+        if (c.auto) delete c.auto.knowledge_injection
+      },
+      { label: '知识层注入' },
+    )
   }
 }
 function onBookKnowledgeToggle(v: boolean): void {
   bookKnowledgeInjection.value = v
-  void saveConfig((c) => {
-    c.auto = { ...(c.auto ?? {}), knowledge_injection: v }
-  })
+  void saveConfig(
+    (c) => {
+      c.auto = { ...(c.auto ?? {}), knowledge_injection: v }
+    },
+    { label: '知识层注入' },
+  )
 }
 
 /** 选本书检索提供方：写 rag.provider 并清旧内联 endpoint/model（一次性迁移；
@@ -296,12 +344,15 @@ function onBookRagProviderChange(e: Event): void {
   if (v === '__legacy__') return // 「旧版内联配置（沿用）」= 保持现状
   bookRagProvider.value = v || null
   ragLegacy.value = false
-  void saveConfig((c) => {
-    if (!c.rag) c.rag = { enabled: true }
-    c.rag.provider = v || undefined
-    delete c.rag.endpoint
-    delete c.rag.model
-  })
+  void saveConfig(
+    (c) => {
+      if (!c.rag) c.rag = { enabled: true }
+      c.rag.provider = v || undefined
+      delete c.rag.endpoint
+      delete c.rag.model
+    },
+    { label: '检索增强' },
+  )
 }
 
 /** 刷新建索引状态（读 .cache/rag.db 现状 + 最近结果）。

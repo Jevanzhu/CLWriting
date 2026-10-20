@@ -1,16 +1,14 @@
 ---
 name: project-harness
 description: >-
-  Set up and maintain a repository's engineering conventions and quality gates —
-  项目管理 / 工程规范 / 代码评审 / 注释卫生 / 门禁 / 质量体系 / AGENTS.md / CLAUDE.md /
-  CONTRIBUTING.md / 提交规范 / 测试可靠性. Use when establishing a new repository's
-  conventions, deciding which checks run before a push versus in CI, adding a gate
-  script, enforcing documentation standards, word budgets, or comment hygiene,
-  reviewing a pull request, choosing between merge-forward and rebase, working with
-  stacked or dependent PRs, or discussing error-handling and test-flakiness policy.
-  Also use when an agent keeps ignoring project rules, when local checks and CI
-  disagree about what "passing" means, or when briefing agents — task targets,
-  acceptance criteria, what not to read, fan-out limits.
+  Establish and maintain a repository's engineering conventions and executable
+  gates — 文档管理 / 文档整理 / 文档落位 / 文档链 / 索引与活账 / 评审报告 /
+  审计报告 / 项目管理 / 工程规范 / 代码评审 / 注释卫生 / 门禁 / 质量体系 /
+  AGENTS.md / 提交规范 / 测试可靠性. Use when setting up a repository's rules,
+  choosing what runs before a push versus in CI, adding a gate, enforcing
+  documentation standards or word budgets, landing review or audit reports into
+  the document chain, reviewing a pull request, or dispatching work to
+  sub-agents (靶点 / 验收判据 / 不读面).
 ---
 
 # Project Harness
@@ -18,6 +16,24 @@ description: >-
 把团队的协作规范变成**可执行的门禁**，而不是靠人记住的约定。当干活的主体是 agent 时，任何没写进文件、没接进检查的规则都等于不存在。
 
 这不是一份清单，而是一套判据。规则会互相冲突（预算 vs 完整性、速度 vs 覆盖），冲突时要靠理由判断，不能靠背条款。
+
+## 加载与使用前提
+
+客户端通常只加载本文件正文；`references/` 不会自动进入上下文。
+
+正文里的相对路径都相对本 skill 目录，加载结果会给出这个基目录；只读正文就动手，等于只加载了摘要。
+
+**按任务先读对应的参考档，再开始动手：**
+
+| 任务 | 先读 |
+|---|---|
+| 写、迁、归档任何文档 | [references/doc-lifecycle.md](references/doc-lifecycle.md) |
+| 决定规则住哪、写多长 | [references/doc-governance.md](references/doc-governance.md) |
+| 派活、审计、通读 | [references/agent-work.md](references/agent-work.md) |
+| 加门禁、接 CI、核对宣称值 | [references/gates.md](references/gates.md) |
+| 换客户端、技能没生效 | [references/client-loading.md](references/client-loading.md) |
+
+文档任务的交付面按 doc-lifecycle 的槽位落，仓根和临时工作目录不算交付；落位与索引、活账在同一改动里更新（细节只在 doc-lifecycle 写一遍）。
 
 ## 四条组织原则
 
@@ -32,8 +48,10 @@ description: >-
 ## 从零建立
 
 ```sh
-node ~/.agents/skills/project-harness/scripts/bootstrap.ts --target <repo> [--notes-language en|zh] [--dry-run]
+node <skill-dir>/scripts/bootstrap.ts --target <repo> [--notes-language en|zh] [--dry-run]
 ```
+
+`<skill-dir>` 是已安装副本 `<repo>/.agents/skills/project-harness`（本仓源码布局为 `skills/project-harness`）。
 
 它会建好 Agent Note 生命周期树与归档清单、按目标仓库实测词数算出文档预算、把校验器复制到 `<target>/scripts/harness/`（**复制而非引用**——CI 和任何 clone 者必须能独立跑门禁），并列出需要你决策的剩余步骤。详细流程见 [references/bootstrap.md](references/bootstrap.md)。
 
@@ -44,7 +62,7 @@ node ~/.agents/skills/project-harness/scripts/bootstrap.ts --target <repo> [--no
 **目标仓库已经有内容时，加 `--adopt`。**
 
 ```sh
-node ~/.agents/skills/project-harness/scripts/bootstrap.ts --target <repo> --adopt
+node <skill-dir>/scripts/bootstrap.ts --target <repo> --adopt
 ```
 
 直接把门禁装到一个有历史的仓库上，它会立刻抓到几年积累下来的所有死链、所有折行段落，而它**没有能力区分「历史遗留」和「你这次改坏的」**。一堵第一天就全红的门禁，第二天就会被关掉。
@@ -90,6 +108,10 @@ node ~/.agents/skills/project-harness/scripts/bootstrap.ts --target <repo> --ado
 
 文档里写下的数字与清单是**副本**，不会自己更新。`verify-doc-claims.ts` 把每条宣称（数字或清单 + 源头命令）与命令的实测输出对账：`expect: atLeast` 是把「门禁表只增不减」这类下限变成机器可判的形态，`list` 类管「新增了目录而文档没提」。同一事实只在一个地方写数值，别处指过来。这个门禁**有意不挂台账**——改一个错数比记一笔错账便宜。契约是仓库数据（`scripts/harness/doc-claims.manifest.json`，`{}` 即无宣称），见 [references/gates.md](references/gates.md)。
 
+### 技能可加载性
+
+技能装进目录不等于会被用上：客户端只把 `name` + `description` 投影成常驻目录，`description` 超长会被截断、尾部触发词对模型不可见，自动路由于是永远命不中；而这类失败是静默的——技能在目录里，日志里没有红。`verify-skill-catalog.ts` 把「能被加载」做成机器可判：声明的技能根必须存在，每个技能档的 `name` 合法且与目录名一致，`description` 归一后不超过 manifest 声明的上限，扫到零个技能档判红。**它判不了描述质量与语义遵守**——那落在评审与派发任务书（见「Agent 工作纪律」）。契约是仓库数据（`scripts/harness/skill-catalog.manifest.json`，`{}` 即不带技能根），机制细节、根优先级与四种断点见 [references/client-loading.md](references/client-loading.md)。
+
 ### 注释卫生
 
 注释只写代码作用与需要说明的东西（约束／不变量／语义／平台差／同步关系），**修复史归 git**。机器判据分两族，缺一不可：写进注释的编年史（日期、轮次、批次括注）与**清理后的残形**（括注被切空、只剩破折号）——只做前者时，清理器留下的半痕会被判成干净。**字面量是红线**：扫描器只读注释面，字符串、模板串、正则里的标签样文本永不报告，清理工具不得触碰生产字面量。例外与「被测试钉住的注释」都进 manifest 显式登记——各带理由与钉住它的测试，陈旧时门会催删。扫描面不可信（根缺失、零文件、不可读）时 fail-closed 报红且不入台账。见 [references/comment-hygiene.md](references/comment-hygiene.md)。
@@ -126,9 +148,11 @@ PR 历史怎么组织、堆叠 PR 怎么落地、什么时候 merge-forward 什�
 
 [ templates/](templates/) 下有起步用的骨架，每份按语言两版（`<名>.zh.md` / `<名>.en.md`，`lefthook` 为 `.yml`；模板名里的语言标签标的是模板自身的语言）：`AGENTS.zh.md`（standing orders 层，含工作语言声明与「指令面永不配对」）、`docs-AGENTS`（文档层级与预算）、`ledger`（活账）、`docs-index`（索引）、`lefthook`（薄提交钩子）。bootstrap 按 `--notes-language` 选版；`AGENTS`、`docs-AGENTS`、`lefthook` 三份只在**首次铺装**时写入目标仓（升级重跑不复活已删的起步文件），另两份由采用方按提示自行起步。
 
+派活时由派发的人从模板目录取用 `agent-brief`（中英两版：[templates/agent-brief.zh.md](templates/agent-brief.zh.md)、[templates/agent-brief.en.md](templates/agent-brief.en.md)），它含交付面落位与验收命令。
+
 ## 责任边界
 
-本 skill 拥有**文档层级与文档链、注释卫生、门禁、评审、错误处理、测试可靠性、历史与发布纪律、agent 派发与阅读纪律**。
+本 skill 拥有**文档层级与文档链、注释卫生、门禁、技能可加载性、评审、错误处理、测试可靠性、历史与发布纪律、agent 派发与阅读纪律**。
 
 决策记录的格式、生命周期与归档属于 `agent-notes` skill。两者都涉及 `.agents/` 下的内容：写决策记录时用 `agent-notes`，制定「规则住在哪个文件」时用本 skill。
 

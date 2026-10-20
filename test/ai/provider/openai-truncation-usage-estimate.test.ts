@@ -18,7 +18,8 @@
 import { describe, expect, it } from 'vitest'
 import OpenAI from 'openai'
 import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
-import type { GenEvent, GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
+import type { GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
+import { collect } from './adapter-fixtures.js'
 
 const CONF = {
   id: 't1',
@@ -33,12 +34,6 @@ const CONF = {
 
 const REQ: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] }
 const REQ_TOOL: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: '查一下' }] }
-
-async function collect(prov: ReturnType<typeof createOpenAIProviderChat>, req: GenRequest): Promise<GenEvent[]> {
-  const out: GenEvent[] = []
-  for await (const ev of prov.stream(req, new AbortController().signal)) out.push(ev)
-  return out
-}
 
 function fakeSend(events: unknown[]): () => AsyncGenerator<unknown> {
   return async function* () {

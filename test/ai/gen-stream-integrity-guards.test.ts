@@ -26,7 +26,7 @@ import OpenAI from 'openai'
 import { generateTool, GenError } from '../../src/ai/gen.js'
 import { createAnthropicProvider } from '../../src/ai/provider/anthropic-adapter.js'
 import { createOpenAIResponsesProvider } from '../../src/ai/provider/responses-adapter.js'
-import type { GenEvent, GenRequest, ModelProvider, ProviderConf } from '../../src/ai/provider/index.js'
+import type { ModelProvider, ProviderConf } from '../../src/ai/provider/index.js'
 import { runSelfHeal, type SelfHealOpts } from '../../src/ai/orchestrate/self-heal.js'
 import { configureRunnerMockFastPath } from '../../src/ai/runner.js'
 import { makeDualTrackWorkdir, tempUserData, SHORT_BOOK } from '../studio/fixtures.js'
@@ -34,6 +34,7 @@ import { makeFakeDriver } from './fake-driver.js'
 import type { CheckOutcome } from '../../src/studio/server/api/check.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 import type { saveDraft } from '../../src/studio/server/api/draft.js'
+import { collect } from './provider/adapter-fixtures.js'
 
 const CONF = { name: 'fake' } as ProviderConf
 
@@ -48,12 +49,6 @@ function fakeSend(events: unknown[]): () => AsyncGenerator<unknown> {
   return async function* () {
     for (const e of events) yield e
   }
-}
-
-async function collect(prov: ModelProvider, req: GenRequest): Promise<GenEvent[]> {
-  const out: GenEvent[] = []
-  for await (const ev of prov.stream(req, new AbortController().signal)) out.push(ev)
-  return out
 }
 
 describe('R26-1: generateTool 残参（_raw）+ 截断 → MAX_TOKENS 不按成功入账', () => {

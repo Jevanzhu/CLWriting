@@ -8,14 +8,34 @@
  *
  * 用 CLWRITING_RESOURCES_DIR 注入临时资源根（真实语料体量够不到帽）。
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { assembleKnowledge, titleOf, knowledgeReportOf, summarizeDropped } from '../../src/knowledge/inject.js'
-import { bundledCorpusIntegrityReport, checkBundledCorpus, ensureBundledCorpusChecked } from '../../src/knowledge/corpus.js'
+import {
+  bundledCorpusIntegrityReport,
+  checkBundledCorpus,
+  ensureBundledCorpusChecked,
+} from '../../src/knowledge/corpus.js'
 import { clipWithNotice } from '../../src/shared/text.js'
+
+/**
+ * 资源根故障注入：`bundledResource` 是 corpus 侧取件的唯一入口，`resourcesRoot()` 在
+ * resources/ 缺失时按设计抛错。默认透传真实实现，仅置位时抛——不影响本档其余用例。
+ */
+const FAIL = vi.hoisted(() => ({ resources: false }))
+vi.mock('../../src/fs/resources.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/fs/resources.js')>()
+  return {
+    ...actual,
+    bundledResource: (...segments: string[]) => {
+      if (FAIL.resources) throw new Error('未找到捆绑资源目录 resources/')
+      return actual.bundledResource(...segments)
+    },
+  }
+})
 
 let dir: string
 let prevResourcesDir: string | undefined
@@ -258,6 +278,39 @@ describe('assembleKnowledge：两级 rank 与登记名', () => {
     expect(a.records.map((r) => r.layer)).toEqual(['book', 'bundled'])
     expect(a.sources).toEqual(['知识层/' + REL_A, `知识层(内置)/${REL_B}`])
   })
+
+  it('书级篇编码可疑（BOM / 替换符）→ 跳过该篇，不用它顶替随包件', () => {
+    stubCorpus({ [REL_A]: '随包甲。' })
+    const bookRoot = join(dir, 'book')
+    const writeBook = (text: string): void => {
+      const abs = join(bookRoot, '知识层', ...REL_A.split('/'))
+      mkdirSync(join(abs, '..'), { recursive: true })
+      writeFileSync(abs, text)
+    }
+    // BOM：UTF-16/GBK 存盘的典型残留
+    writeBook('\uFEFF甲正文。')
+    const bom = assemble([REL_A], { bookRoot })
+    expect(bom.text).not.toContain('甲正文。')
+    expect(bom.text).toContain('随包甲。') // 两级回落照旧：书级不可用即用随包件
+    expect(bom.records.map((r) => r.layer)).toEqual(['bundled'])
+    // 替换符：真 GBK 字节按 utf-8 解码的结果就是成片 U+FFFD
+    writeBook('甲\uFFFD\uFFFD正文。')
+    const garbled = assemble([REL_A], { bookRoot })
+    expect(garbled.text).not.toContain('正文。')
+    expect(garbled.records.map((r) => r.layer)).toEqual(['bundled'])
+    expect(garbled.dropped).toEqual([])
+  })
+
+  it('书级与随包两级皆编码可疑 → 该篇记 missing（不静默注入乱码）', () => {
+    stubCorpus({ [REL_A]: '\uFEFF随包乱码。' })
+    const bookRoot = join(dir, 'book')
+    const abs = join(bookRoot, '知识层', ...REL_A.split('/'))
+    mkdirSync(join(abs, '..'), { recursive: true })
+    writeFileSync(abs, '甲\uFFFD正文。')
+    const r = assemble([REL_A], { bookRoot })
+    expect(r.text).toBe('')
+    expect(r.dropped).toEqual([{ rel: REL_A, reason: 'missing' }])
+  })
 })
 
 describe('assembleKnowledge：开关关停', () => {
@@ -359,5 +412,61 @@ describe('知识层报告面：records / dropped / 缺口摘要', () => {
         { rel: 'c/4.md', reason: 'switch-off' },
       ]),
     ).toBe('missing×2 cap-total×1 switch-off×1')
+  })
+})
+
+// 知识层是三面（写稿/三审/对话）的叠加段，不是主链。资源根缺失时 resourcesRoot() 按设计
+// 抛错（打包 bug 须显式暴露），但该错抛在装配层就是一次 500——暴露面交给 check:packaging，
+// 装配层降级为空段 + 逐篇 missing 登记。
+describe('资源根故障时装配降级（叠加层不拿走主链）', () => {
+  it('首次注入的随包语料抽查抛错 → 空段 + 逐篇 missing，不上抛', async () => {
+    stubCorpus({ [REL_A]: '甲正文。' })
+    // 抽查结果是进程内一次性快照，本档前面的用例已把它填满——要测「首调抽查失败」
+    // 必须拿一份快照未填充的模块实例，否则走的是缓存命中，判据根本不执行。
+    vi.resetModules()
+    FAIL.resources = true
+    try {
+      const { assembleKnowledge: fresh } = await import('../../src/knowledge/inject.js')
+      const r = fresh({
+        rels: [REL_A, REL_B],
+        heading: '## 段头\n',
+        fileCap: 2000,
+        totalCap: 3000,
+        reasonOf: () => 'x',
+      })
+      expect(r.text).toBe('')
+      expect(r.sources).toEqual([])
+      expect(r.dropped).toEqual([
+        { rel: REL_A, reason: 'missing' },
+        { rel: REL_B, reason: 'missing' },
+      ])
+    } finally {
+      FAIL.resources = false
+    }
+  })
+
+  it('逐篇解析抛错（快照已命中，探测不执行）→ 该篇记 missing，其余篇不受连坐', () => {
+    stubCorpus({ [REL_A]: '甲正文。', [REL_B]: '乙正文。' })
+    // 先正常跑一次让快照填充，再只让取件侧失败：此时外层抽查已命中缓存，
+    // 唯一能兜住的是逐篇 try——正是本用例要锚的那一层。
+    expect(assemble([REL_A]).text).toContain('甲正文。')
+    FAIL.resources = true
+    try {
+      const r = assemble([REL_A, REL_B])
+      expect(r.text).toBe('')
+      expect(r.dropped).toEqual([
+        { rel: REL_A, reason: 'missing' },
+        { rel: REL_B, reason: 'missing' },
+      ])
+    } finally {
+      FAIL.resources = false
+    }
+  })
+
+  it('对照：资源根正常时同一候选照常入选（降级不是恒空段）', () => {
+    stubCorpus({ [REL_A]: '甲正文。' })
+    const r = assemble([REL_A])
+    expect(r.text).toContain('甲正文。')
+    expect(r.dropped).toEqual([])
   })
 })

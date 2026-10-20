@@ -17,7 +17,7 @@ import { sanitizeChapterTitle, isMdFileName } from './filename.js'
 import { readFile, writeFile, parseFlat, stringifyFlat, joinFrontMatter } from './frontmatter.js'
 import { parseSampleFileName } from './style.js'
 import type { StyleEntry, EntryKind, EntrySource, ParseError } from './types.js'
-import { registerBookKeyedCache } from '../studio/server/cache-registry.js' // 书键缓存登记表（登记制单源）
+import { registerBookKeyedCache } from '../shared/cache-registry.js' // 书键缓存登记表（登记制单源）
 
 /** 四种条目类型（即 条目/ 下的子目录名） */
 export const ENTRY_KINDS: readonly EntryKind[] = ['样章', '手法', '反例', '禁词'] as const

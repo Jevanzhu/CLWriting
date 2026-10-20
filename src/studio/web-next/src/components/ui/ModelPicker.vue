@@ -147,9 +147,6 @@ useFocusTrap(modalRef)
 /* 2-：渲染上限省略提示行——纯展示弱化色（对齐 ChapterTreeItem/CommandPalette cap-hint 口径） */
 .cap-hint {
   padding: 2px 8px;
-  font-size: var(--font-size-xxs);
-  color: var(--text-faint);
-  font-style: italic;
 }
 .picker-actions {
   display: flex;

@@ -27,6 +27,7 @@ import { emptySettings, saveProviders } from '../../src/ai/provider/index.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 import type { EmbedResult } from '../../src/rag/embed.js'
 import type { RagConfig } from '../../src/rag/config.js'
+import { stubEmbed } from '../helpers/embed.js'
 
 /** 建一本带 .cache + 文风铁律 + 1 章定稿正文的测试书。 */
 function makeBook(): { root: string; workDir: string; db: DatabaseSync } {
@@ -77,15 +78,6 @@ function makeBook(): { root: string; workDir: string; db: DatabaseSync } {
 }
 
 /** 桩 embed：确定性，不联网。 */
-function stubEmbed(_ep: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> {
-  return Promise.resolve(
-    texts.map((t) => {
-      const code = t.charCodeAt(0) || 1
-      const norm = 1 / (code + 1)
-      return [norm, norm * 0.5, norm * 0.3]
-    }),
-  )
-}
 
 /** 启用 RAG 的等价直写（原 enableRag API 已删，本测试内复刻其 yaml 输出）：
  *  非密段走 patchTopSection 文本级补丁（enabled: true + endpoint/model，stringifyValue
@@ -658,6 +650,30 @@ test('R0912-4: 编排 signal 预先 aborted → 召回中断降级，embed 零�
     expect(r.ragHitCount).toBe(0)
     expect(r.ragNote).toBe('RAG 召回异常（降级回落精准读取）：RAG 召回已中断')
     expect(embedCalls).toBe(0)
+  } finally {
+    db.close()
+    rmSync(workDir, { recursive: true, force: true })
+  }
+})
+
+// RAG 是叠加层：解析面（resolveRag 读 .clwriting/rag.secret）与片段读取面都在本函数内。
+// 二者任一抛错若穿出 prepareMaterials，写稿主链就是一次 500——违背「RAG 失败不阻断主路径」。
+test('RAG 密钥文件不可读 → 按未配 RAG 降级，主链照常出备料（不上抛）', async () => {
+  const { root, workDir, db } = makeBook()
+  try {
+    setupRag(root, workDir, { endpoint: 'https://rag.example/v1', model: 'emb-1' })
+    // 同名目录占位：existsSync 为真、readFileSync 抛 EISDIR/EACCES 一类——正是 permissions 故障形态
+    mkdirSync(join(workDir, '.clwriting', 'rag.secret'), { recursive: true })
+    const r = await prepareMaterials(db, DEFAULT_CONFIG, {
+      bookRoot: root,
+      workDir,
+      chapterLeadIds: [],
+      sampleScene: '对话',
+    })
+    // 主链未被带走：备料照常产出
+    expect(r.ragUsed).toBe(false)
+    expect(typeof r.text).toBe('string')
+    expect(r.text.length).toBeGreaterThan(0)
   } finally {
     db.close()
     rmSync(workDir, { recursive: true, force: true })

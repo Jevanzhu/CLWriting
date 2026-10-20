@@ -26,6 +26,7 @@ import { rebuild } from '../cache/rebuild.js'
 import { runRebuildAsync } from '../cache/run-rebuild-async.js'
 import { readBookConfig } from '../format/yaml.js'
 import { assembleStatus } from '../process/assemble.js'
+import { closeWithPrepared } from '../shared/sqlite-prepared.js'
 import { readChapterDir } from '../format/chapters.js'
 import {
   readManifest,
@@ -215,7 +216,9 @@ export async function detectState(
       // 无清单 → undefined（全量口径），清单在册零定稿 → 空集（=0）
       snapshot = assembleStatus(db, config, volumeSize, finalizedChapterSetOfBook(bookRoot))
     } finally {
-      db.close()
+      // 关库经单源摘缓存——assembleStatus 面用的语句进的是 prepared 缓存，
+      // 裸 close 断不开 StatementSync→DatabaseSync 的 ephemeron 环，每次判态滞留一份语句。
+      closeWithPrepared(db)
     }
   } catch (e) {
     const msg = errMsg(e)

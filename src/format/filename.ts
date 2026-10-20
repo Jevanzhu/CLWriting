@@ -35,33 +35,10 @@ function truncateTitle(input: string, maxCp = CHAPTER_TITLE_MAX_CP, maxBytes = C
   return out
 }
 
-/** Windows HTTP 保留设备名前缀。这些名字本身是合法目录名，但
- *  拷到 Windows 会被文件系统拒绝；新写入数据面预留规避（加 `_` 前缀）。 */
-export const RESERVED_WIN = new Set([
-  'CON',
-  'PRN',
-  'AUX',
-  'NUL',
-  'CLOCK$',
-  'COM1',
-  'COM2',
-  'COM3',
-  'COM4',
-  'COM5',
-  'COM6',
-  'COM7',
-  'COM8',
-  'COM9',
-  'LPT1',
-  'LPT2',
-  'LPT3',
-  'LPT4',
-  'LPT5',
-  'LPT6',
-  'LPT7',
-  'LPT8',
-  'LPT9',
-])
+/** Windows 保留设备名前缀单源在 fs/safe-path（fs 为最低层：format 的净化向与
+ *  update/document 的拒绝向共用同一词表，不各持一份）。此处转出供既有消费方零改动。 */
+export { RESERVED_WIN } from '../fs/safe-path.js'
+import { RESERVED_WIN } from '../fs/safe-path.js'
 
 /** 对已净化标题做 Windows 兼容再处理：尾点/尾空格剥离 + 保留设备名避让。
  *  同名存储路径语义（尾点自动被剥会读写名不一致）在 mac 上也一致执行。 */
@@ -71,7 +48,6 @@ function winCompatNamePart(name: string): string {
   const base = stripped.split('.')[0]!.toUpperCase()
   return RESERVED_WIN.has(base) ? '_' + stripped : stripped
 }
-
 /**
  * 单一真相源：净化文件名的标题段——剥控制字符 → 替换非法文件名字符 →
  * [[ ]] 转义 → 尾点/尾空格剥离 + 保留设备名避让 → 码位 + 字节双封顶 →

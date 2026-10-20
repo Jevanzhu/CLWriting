@@ -137,11 +137,6 @@ function lensText(lens: string): string {
   justify-content: space-between;
   gap: 8px;
 }
-/* 渲染上限省略提示行——纯展示（弱化色 tree-cap-hint 同语义） */
-.cap-hint {
-  font-size: var(--font-size-xxs);
-  color: var(--text-faint);
-}
 .check-item--red,
 .rev-item--red {
   background: color-mix(in srgb, var(--text-error) 8%, transparent);

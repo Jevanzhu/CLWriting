@@ -238,10 +238,7 @@ export function useChatComposer(
     } catch (e) {
       // 清空被服务端拒绝（409 等）/网络失败：事件库未清，前端仍显示旧气泡是「未生效」
       // 而非「已清空」——提示里必须带恢复说明，否则作者只看到报错而对话还在，不明所以
-      useUiStore().toast(
-        `${friendlyError(e)}；本次未清空（服务端历史仍保留，重开对话面板会重新显示旧记录）`,
-        'error',
-      )
+      useUiStore().toast(`${friendlyError(e)}；本次未清空（服务端历史仍保留，重开对话面板会重新显示旧记录）`, 'error')
       return
     }
     // 清除请求在途切书 → 本地不清（B 书历史刚由切书流程恢复，clear 会把它清掉）

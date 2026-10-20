@@ -21,7 +21,10 @@ export async function listSnapshots(name: string, docId: string): Promise<Snapsh
   return r.entries ?? []
 }
 
-// GET /documents/:docId/snapshots/:id → 单个版本内容（预览）
+// GET /documents/:docId/snapshots/:id → 单个版本内容。
+// **当前无生产消费方**：客户端不提供只读预览面（版本恢复不可逆，但预览属新功能而非缺陷）。
+// 保留本包装器而非删除：服务端端点已注册且行为已被用例钉住（含 id 段的 URL 编码），删掉会
+// 连带丢掉那层编码回归；接线预览时直接用即可。下面的注释是「账实相符」的落点。
 export async function readSnapshot(name: string, docId: string, id: string): Promise<string> {
   const r = await apiJson<{ content: string }>(bookUrl(name, 'documents', docId, 'snapshots', id))
   return r.content

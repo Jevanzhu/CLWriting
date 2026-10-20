@@ -102,20 +102,21 @@ export function patchTopSection(raw: string, section: string, body: string): str
     return canonicalizeText(`${prefix}\n${sectionLines.join('\n')}\n`)
   }
   const { start, end } = span
-  // 保留旧段尾部的空行 run（段间分隔）——替换体本身无尾空行，不补会与下一段粘连
-  let blanks = 0
+  // 收走旧段尾部的尾块（空行 + 纯注释行），原样接在新段体之后。
+  // 两件事一起办：空行 run 是段间分隔（替换体本身无尾空行，不补会与下一段粘连）；
+  // 段末注释（`# 本段各键含义…`）不对应任何被替换的键值，随旧段丢弃就是静默丢作者内容。
+  // 只取**尾部连续**的一段——夹在键之间的注释与被描述的键一一对应，留着会张冠李戴。
+  const tail: string[] = []
   for (let i = end - 1; i > start; i--) {
-    if (lines[i]!.trim() === '') blanks++
-    else break
+    const line = lines[i]!
+    if (line.trim() === '' || line.trimStart().startsWith('#')) {
+      tail.unshift(line)
+      continue
+    }
+    break
   }
   return canonicalizeText(
-    [
-      ...lines.slice(0, start),
-      `${section}:`,
-      ...body.split('\n'),
-      ...Array.from({ length: blanks }, () => ''),
-      ...lines.slice(end),
-    ].join('\n'),
+    [...lines.slice(0, start), `${section}:`, ...body.split('\n'), ...tail, ...lines.slice(end)].join('\n'),
   )
 }
 

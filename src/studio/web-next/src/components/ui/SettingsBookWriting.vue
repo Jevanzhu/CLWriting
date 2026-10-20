@@ -104,29 +104,41 @@ watch(
  *  on = 组内全部键用当前生效值（书级 ?? 全局）写入——防呆：从生效值起步，切换本身不改变行为。 */
 function onOverrideToggle(on: boolean): void {
   if (on) {
-    bookGenre.value = effGenre.value
-    bookVolumeSize.value = effVolumeSize.value
-    bookTargetWords.value = effTargetWords.value
-    bookChapterTargetWords.value = effChapterTargetWords.value
-    void saveConfig((c) => {
-      if (!c.book) c.book = {}
-      c.book.genre = effGenre.value
-      c.book.volume_size = effVolumeSize.value
-      c.book.target_words = effTargetWords.value
-      c.book.chapter_target_words = effChapterTargetWords.value
-    })
+    // 四个生效值都在调用时快照：闭包在 saveConfig 队列里、`await getConfig` 之后才执行，
+    // 读活 ref 会把「切书后新书的 eff 值」写进旧书的 book.yaml
+    const genre = effGenre.value
+    const volumeSize = effVolumeSize.value
+    const targetWords = effTargetWords.value
+    const chapterTarget = effChapterTargetWords.value
+    bookGenre.value = genre
+    bookVolumeSize.value = volumeSize
+    bookTargetWords.value = targetWords
+    bookChapterTargetWords.value = chapterTarget
+    void saveConfig(
+      (c) => {
+        if (!c.book) c.book = {}
+        c.book.genre = genre
+        c.book.volume_size = volumeSize
+        c.book.target_words = targetWords
+        c.book.chapter_target_words = chapterTarget
+      },
+      { label: '写作默认' },
+    )
   } else {
     bookGenre.value = ''
     bookVolumeSize.value = null
     bookTargetWords.value = null
     bookChapterTargetWords.value = null
-    void saveConfig((c) => {
-      if (!c.book) c.book = {}
-      c.book.genre = undefined
-      delete c.book.volume_size
-      delete c.book.target_words
-      delete c.book.chapter_target_words
-    })
+    void saveConfig(
+      (c) => {
+        if (!c.book) c.book = {}
+        c.book.genre = undefined
+        delete c.book.volume_size
+        delete c.book.target_words
+        delete c.book.chapter_target_words
+      },
+      { label: '写作默认' },
+    )
   }
 }
 
@@ -134,10 +146,13 @@ function onOverrideToggle(on: boolean): void {
 
 function onBookGenreChange(): void {
   bookGenre.value = bookGenre.value.trim()
-  void saveConfig((c) => {
-    if (!c.book) c.book = {}
-    c.book.genre = bookGenre.value
-  })
+  void saveConfig(
+    (c) => {
+      if (!c.book) c.book = {}
+      c.book.genre = bookGenre.value
+    },
+    { label: '题材' },
+  )
 }
 function onBookVolumeSizeInput(e: Event): void {
   // 对齐兄弟两输入——本 handler 是
@@ -146,10 +161,13 @@ function onBookVolumeSizeInput(e: Event): void {
   // 口径与 onBookTargetWordsInput 完全一致（含 trim），零行为改动。
   const raw = parseNumericInput(e)
   bookVolumeSize.value = raw !== null && raw >= 5 ? Math.round(raw) : null
-  void saveConfig((c) => {
-    if (!c.book) c.book = {}
-    c.book.volume_size = bookVolumeSize.value ?? undefined
-  })
+  void saveConfig(
+    (c) => {
+      if (!c.book) c.book = {}
+      c.book.volume_size = bookVolumeSize.value ?? undefined
+    },
+    { label: '卷字数' },
+  )
 }
 function onBookTargetWordsInput(e: Event): void {
   // 接 helper（全库数值输入唯一偏离点）——原 `Number('')===0`
@@ -157,19 +175,25 @@ function onBookTargetWordsInput(e: Event): void {
   // 空/非法 → null → 清键回跟随全局；合法数字（含 0 = 显式未设）维持原语义。
   const raw = parseNumericInput(e)
   bookTargetWords.value = raw !== null && raw >= 0 ? Math.round(raw) : null
-  void saveConfig((c) => {
-    if (!c.book) c.book = {}
-    c.book.target_words = bookTargetWords.value ?? undefined
-  })
+  void saveConfig(
+    (c) => {
+      if (!c.book) c.book = {}
+      c.book.target_words = bookTargetWords.value ?? undefined
+    },
+    { label: '目标字数' },
+  )
 }
 function onBookChapterTargetInput(e: Event): void {
   // 同 onBookTargetWordsInput——空输入清键而非写 0（helper 统一口径）
   const raw = parseNumericInput(e)
   bookChapterTargetWords.value = raw !== null && raw >= 0 ? Math.round(raw) : null
-  void saveConfig((c) => {
-    if (!c.book) c.book = {}
-    c.book.chapter_target_words = bookChapterTargetWords.value ?? undefined
-  })
+  void saveConfig(
+    (c) => {
+      if (!c.book) c.book = {}
+      c.book.chapter_target_words = bookChapterTargetWords.value ?? undefined
+    },
+    { label: '单章目标字数' },
+  )
 }
 </script>
 

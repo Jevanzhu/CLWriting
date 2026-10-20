@@ -19,9 +19,9 @@
  *    与 interface 一致），单测传桩——本模块自身不引入 Electron 依赖（可被 server 侧测试
  *    直接跑）。
  */
-import { createHash, type Hash } from 'node:crypto'
+import { createHash, randomBytes, type Hash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { mkdir, open, rm } from 'node:fs/promises'
+import { mkdir, open, readdir, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { renameWithRetry } from '../fs/atomic.js'
 import { errMsg } from '../log/index.js'
@@ -250,6 +250,48 @@ function isSafeAssetFileName(name: string): boolean {
  * 失败三态见 `UpdateDownloadFailureReason`，任何失败路径都不留 `.part` 残迹。
  * 两条地址都在任何 IO 之前过规范地址判据：不相等即 `network` 失败（碎在出站与建目录之前）。
  */
+/** 中间文件的随机段（8 字节 hex）——只为多实例并发时的路径唯一，不做安全用途。 */
+function randomSuffix(): string {
+  return randomBytes(8).toString('hex')
+}
+
+/** 起手清扫的陈旧阈值：在途下载持续写盘，mtime 一直刷新；超过该时长未更新的中间文件
+ *  判为上一次崩溃/断电的遗留。 */
+const STALE_PART_MS = 10 * 60 * 1000
+
+/**
+ * 清掉目标文件的历史中间产物（缓存目录不该越攒越脏）。
+ *
+ * 两族分开处置：旧固定名 `<名>.part` 新写法不再产出，恒无人持有，直接删；带 pid/随机段
+ * 的按 mtime 老化删——裸删会误伤另一实例正在写的中间文件（并发下载正是本模块要支持的形态）。
+ */
+async function sweepStaleParts(destDir: string, fileName: string): Promise<void> {
+  const legacy = join(destDir, `${fileName}.part`)
+  const stem = `${fileName}.`
+  try {
+    await rm(legacy, { force: true })
+  } catch {
+    /* 清不掉不影响本次下载（新写法不复用该名） */
+  }
+  let names: string[]
+  try {
+    names = await readdir(destDir)
+  } catch {
+    return
+  }
+  const now = Date.now()
+  for (const name of names) {
+    if (!name.startsWith(stem) || !name.endsWith('.part')) continue
+    const abs = join(destDir, name)
+    try {
+      const st = await stat(abs)
+      if (now - st.mtimeMs > STALE_PART_MS) await rm(abs, { force: true })
+    } catch {
+      /* 竞态消失/不可读：交下一轮 */
+    }
+  }
+}
+
 export async function downloadUpdateZip(opts: UpdateDownloadOptions): Promise<UpdateDownloadResult> {
   const fetchImpl = opts.fetchImpl ?? fetch
   // 文件名判据先于地址判据：坏名不进 join，也进不了规范地址派生
@@ -260,12 +302,15 @@ export async function downloadUpdateZip(opts: UpdateDownloadOptions): Promise<Up
     }
   }
   const zipPath = join(opts.destDir, opts.fileName)
-  const partPath = `${zipPath}.part`
+  // `.part` 名带 pid + 随机段：多实例共享同一缓存根时，各自的中间文件不得同名——同名
+  // 会让两路写交错（校验必失败，或一路 rename 时另一路仍在写）。最终 rename 到正式名仍
+  // 是同一目标：两路内容都过 sha256 时先后覆盖等价，不产生损坏态。
+  const partPath = `${zipPath}.${process.pid}.${randomSuffix()}.part`
   const dropPart = async (): Promise<void> => {
     try {
       await rm(partPath, { force: true })
     } catch {
-      /* 残留 .part 不影响正确性：下次下载起手即清 */
+      /* 残留 .part 不影响正确性：无人复用中间文件，过期残迹由起手清扫收走 */
     }
   }
 
@@ -278,7 +323,10 @@ export async function downloadUpdateZip(opts: UpdateDownloadOptions): Promise<Up
   if (opts.checksumsUrl && !isAcceptedReleaseUrl(opts.checksumsUrl, releaseChecksumsUrl(opts.tag))) {
     return {
       ok: false,
-      failure: { reason: 'network', detail: `校验清单地址与发布仓规范地址不符（${hostOf(opts.checksumsUrl)}），已拒绝` },
+      failure: {
+        reason: 'network',
+        detail: `校验清单地址与发布仓规范地址不符（${hostOf(opts.checksumsUrl)}），已拒绝`,
+      },
     }
   }
 
@@ -287,7 +335,16 @@ export async function downloadUpdateZip(opts: UpdateDownloadOptions): Promise<Up
   } catch (e) {
     return { ok: false, failure: { reason: 'disk', detail: `更新缓存目录创建失败：${errMsg(e)}` } }
   }
+
+  // 期望校验值在**下包体之前**解析（含清单回落的那次出站）：发布方没给值、清单拉不到、
+  // 清单里没这一行，三种都注定失败——先把三百兆下完再报「无法校验」，作者的等待全白费。
+  const expected = await resolveExpectedSha256(opts, fetchImpl)
+  if ('error' in expected) {
+    return { ok: false, failure: { reason: 'checksum', detail: expected.error } }
+  }
+
   await dropPart()
+  await sweepStaleParts(opts.destDir, opts.fileName)
 
   const hash = createHash('sha256')
   let received: number
@@ -312,11 +369,6 @@ export async function downloadUpdateZip(opts: UpdateDownloadOptions): Promise<Up
   }
 
   const actual = hash.digest('hex')
-  const expected = await resolveExpectedSha256(opts, fetchImpl)
-  if ('error' in expected) {
-    await dropPart()
-    return { ok: false, failure: { reason: 'checksum', detail: expected.error } }
-  }
   if (expected.hex !== actual) {
     await dropPart()
     return {

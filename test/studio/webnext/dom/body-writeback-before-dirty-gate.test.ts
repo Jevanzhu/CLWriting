@@ -2,11 +2,14 @@
  * RC 源码重审 B-2 附批（mac 腿 e2e 首因）回归：防抖尾 × 「先读 dirty 再决定落盘」的决策点。
  *
  * 被测行为（源码锚 = shared/body-writeback.ts 不变量 ②b、useChapterTreeStructure.flushUnsaved、
- * useChapterTreeActions.doDelete、stores/rewrite.run、stores/workspace.openTab）：
- * 正文回写有 ≤200ms 合并窗，窗内键入只登记未落回 store（dirty 仍 false）。这四处决策点
+ * useChapterTreeActions.doDelete、stores/doc.flushBeforeSettle（定稿/批量定稿）、
+ * stores/rewrite.run、stores/workspace.openTab）：
+ * 正文回写有 ≤200ms 合并窗，窗内键入只登记未落回 store（dirty 仍 false）。这五处决策点
  * 若在窗内直接读 dirty，就「既不冲刷也不保存」整段放行，动线随后按盘上缺末段的内容走。
  * mac 腿 e2e 首因即此：拆分干跑按全文偏移校验吃 400 BAD_INPUT（弹窗不开），后序
- * switch-book 因前序「收尾净零」没跑到而连坐红。
+ * switch-book 因前序「收尾净零」没跑到而连坐红。定稿族另有独立后果链：服务端按盘上字节
+ * 算定稿基线并留 pinned 版本，窗内的末段键入不落盘则定稿版本缺这一段，随后 autosave 落盘
+ * 又把章状态从 final 降级为 revision（作者收到「已定稿」，树里回到待定稿）。
  *
  * 「窗内」态由「只登记不等待」构造（真 shared/body-writeback 槽 + commit 复刻 EditorView
  * 的落回语义），不睡表——断言与计时无关。判定一律看**落盘请求是否携带窗内正文**，
@@ -77,7 +80,13 @@ vi.mock('../../../../src/studio/web-next/src/stores/tree', () => ({
   useTreeStore: vi.fn(() => treeMock),
 }))
 
-import { saveContent, structurePlan, deleteDoc } from '../../../../src/studio/web-next/src/api/documents'
+import {
+  saveContent,
+  structurePlan,
+  deleteDoc,
+  finalizeDoc,
+  batchFinalizeDocs,
+} from '../../../../src/studio/web-next/src/api/documents'
 import { runRewriteDoc } from '../../../../src/studio/web-next/src/api/rewrite'
 import { useDocStore } from '../../../../src/studio/web-next/src/stores/doc'
 import { useWorkspaceStore } from '../../../../src/studio/web-next/src/stores/workspace'
@@ -89,6 +98,8 @@ import type { TreeNode } from '../../../../src/studio/web-next/src/types/tree'
 const saveMock = saveContent as ReturnType<typeof vi.fn>
 const planMock = structurePlan as ReturnType<typeof vi.fn>
 const deleteMock = deleteDoc as ReturnType<typeof vi.fn>
+const finalizeMock = finalizeDoc as ReturnType<typeof vi.fn>
+const batchMock = batchFinalizeDocs as ReturnType<typeof vi.fn>
 const rewriteMock = runRewriteDoc as ReturnType<typeof vi.fn>
 
 const BOOK = '书A'
@@ -212,5 +223,92 @@ describe('B-2 附批：读 dirty 前先落防抖尾', () => {
     expect(saveMock).toHaveBeenCalledTimes(1)
     expect(savedPayload().content).toContain(WINDOWED)
     expect(savedPayload().origin).toBe('autosave')
+  })
+
+  it('定稿：落盘先于定稿请求，且落的是窗内正文（定稿版本含末段）', async () => {
+    await openDoc('d6')
+    windowedInput('d6')
+    expect(useDocStore().get('d6')!.content).not.toContain(WINDOWED)
+    finalizeMock.mockResolvedValue({ ok: true, status: 'final', skipped: false })
+
+    const ok = await useDocStore().finalize('d6')
+
+    expect(ok).toBe(true)
+    expect(saveMock).toHaveBeenCalledTimes(1)
+    expect(savedPayload().content).toContain(WINDOWED)
+    // 序：落盘先于定稿——服务端按盘上字节算基线，反序即定稿版本缺末段
+    expect(saveMock.mock.invocationCallOrder[0]).toBeLessThan(finalizeMock.mock.invocationCallOrder[0]!)
+    expect(finalizeMock).toHaveBeenCalledWith(BOOK, 'd6')
+  })
+
+  it('批量定稿：各章先落盘再发批量请求', async () => {
+    await openDoc('d7')
+    windowedInput('d7')
+    expect(useDocStore().get('d7')!.content).not.toContain(WINDOWED)
+    batchMock.mockResolvedValue({ results: [{ ok: true, skipped: false }] })
+
+    await actions().doBatchFinalize(['d7'])
+
+    expect(saveMock).toHaveBeenCalledTimes(1)
+    expect(savedPayload().content).toContain(WINDOWED)
+    expect(saveMock.mock.invocationCallOrder[0]).toBeLessThan(batchMock.mock.invocationCallOrder[0]!)
+    expect(batchMock).toHaveBeenCalledWith(BOOK, ['d7'])
+  })
+
+  it('定稿：冲突未决 → 零定稿请求且中止并提示', async () => {
+    await openDoc('d8')
+    windowedInput('d8')
+    useDocStore().get('d8')!.conflict = true
+
+    const ok = await useDocStore().finalize('d8')
+
+    expect(ok).toBe(false)
+    expect(saveMock).not.toHaveBeenCalled()
+    expect(finalizeMock).not.toHaveBeenCalled()
+    expect(toastMock).toHaveBeenCalledWith(expect.stringContaining('无法自动落盘'), 'error')
+  })
+
+  it('定稿：脏内容保存失败 → 零定稿请求（不按缺末段的盘上内容结算）', async () => {
+    await openDoc('d11')
+    windowedInput('d11')
+    saveMock.mockRejectedValueOnce(new Error('服务开小差'))
+
+    const ok = await useDocStore().finalize('d11')
+
+    expect(ok).toBe(false)
+    expect(finalizeMock).not.toHaveBeenCalled()
+    expect(toastMock).toHaveBeenCalledWith(expect.stringContaining('无法自动落盘'), 'error')
+  })
+
+  it('批量定稿：任一章落不下去 → 整批中止且零批量请求', async () => {
+    await openDoc('d12')
+    windowedInput('d12')
+    useDocStore().get('d12')!.conflict = true
+
+    await actions().doBatchFinalize(['d12'])
+
+    expect(batchMock).not.toHaveBeenCalled()
+    expect(toastMock).toHaveBeenCalledWith(expect.stringContaining('无法自动落盘'), 'error')
+  })
+
+  it('定稿：前置落盘链自身抛错 → 不外抛（对外承诺失败走 toast），零定稿请求', async () => {
+    await openDoc('d13')
+    windowedInput('d13')
+    // 落盘链上游抛错（编辑器回写执行体异常形态）：定稿须就地吸收并转 toast
+    registerBodyWriteback(() => {
+      throw new Error('回写执行体异常')
+    })
+    let thrown: unknown = null
+    const ok = await useDocStore()
+      .finalize('d13')
+      .catch((e: unknown) => {
+        thrown = e
+        return null
+      })
+
+    expect(thrown).toBeNull()
+    expect(ok).toBe(false)
+    expect(finalizeMock).not.toHaveBeenCalled()
+    expect(toastMock).toHaveBeenCalledWith(expect.stringContaining('无法自动落盘'), 'error')
   })
 })

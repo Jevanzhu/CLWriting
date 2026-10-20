@@ -15,18 +15,9 @@ import { tmpdir } from 'node:os'
 import { buildIndex, recall, recallDetailed } from '../../src/rag/index.js'
 import { writeChapter } from '../helpers/chapter.js'
 import type { ChapterMeta } from '../../src/format/types.js'
-import type { EmbedResult } from '../../src/rag/embed.js'
+import { stubEmbed } from '../helpers/embed.js'
 
 /** 桩 embed：确定性、不联网（选定文本首字符相似度最高）。 */
-function stubEmbed(_endpoint: string, _model: string, _key: string, texts: string[]): Promise<EmbedResult> {
-  return Promise.resolve(
-    texts.map((t) => {
-      const code = t.charCodeAt(0) || 1
-      const norm = 1 / (code + 1)
-      return [norm, norm * 0.5, norm * 0.3]
-    }),
-  )
-}
 
 describe('R36-16: recallDetailed truncated 信号透出 + recall() 兼容包装契约不变', () => {
   let bookRoot: string

@@ -21,7 +21,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { readManifest } from '../../../document/manifest.js' // analysis-overview 全量遍历（非 docId 单查）
 import { readAnalysisKinds, readBookAnalysis } from '../../../document/analysis.js'
 import { createTtlProbeCache } from '../ttl-cache.js' // TTL+探针+FIFO 缓存壳单源
-import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
+import { registerBookKeyedCache } from '../../../shared/cache-registry.js' // 书键缓存登记表（登记制单源）
 import { sigStatFor } from './rhythm.js' // stat 签名单源（原本地同构副本收敛，单源落点 rhythm.ts 既有两 import 方不变）
 import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js' // MISS 读循环逐块让出（范式；起主路径下沉 worker，此为回落面）
 import type { FullStyleStats } from '../../../metrics/style.js'

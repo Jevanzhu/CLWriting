@@ -14,6 +14,7 @@ import OpenAI from 'openai'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
 import { createOpenAIResponsesProvider } from '../../../src/ai/provider/responses-adapter.js'
 import type { GenEvent, GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
+import { collect } from './adapter-fixtures.js'
 
 const CONF = {
   id: 't1',
@@ -29,15 +30,6 @@ const CONF = {
 const RCONF: ProviderConf = { ...CONF, protocol: 'openai-responses', model: 'gpt-5' }
 
 const REQ: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] }
-
-async function collect(
-  prov: { stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> },
-  req: GenRequest,
-): Promise<GenEvent[]> {
-  const out: GenEvent[] = []
-  for await (const ev of prov.stream(req, new AbortController().signal)) out.push(ev)
-  return out
-}
 
 function fakeSend(events: unknown[]): () => AsyncGenerator<unknown> {
   return async function* () {

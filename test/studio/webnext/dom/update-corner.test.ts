@@ -330,7 +330,6 @@ describe('更新角标：挂点', () => {
   })
 })
 
-
 describe('一次性更新告示的合并规则（取到即替换，旧值非空不吞新告示）', () => {
   it('已有旧告示时取到新告示 → 替换；无新告示 → 保持旧告示；同一条不重复上屏', async () => {
     const { mergeUpdateAttempt } = await import('../../../../src/studio/web-next/src/stores/update')

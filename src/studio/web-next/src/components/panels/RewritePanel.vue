@@ -270,9 +270,6 @@ function accept(): void {
 /* 渲染上限省略提示行（对齐 CommandPalette pg-more 口径） */
 .cap-hint {
   padding: 2px 6px;
-  font-size: var(--font-size-xxs);
-  color: var(--text-faint);
-  font-style: italic;
 }
 .rw-actions {
   display: flex;

@@ -573,6 +573,10 @@ interface RunRuntime {
   forwardAbort: () => void
   totalTimer: ReturnType<typeof setTimeout>
   tier: TierSlot
+  /** 本次调用实际由哪个 provider 发出（resolveProvider 已 resolve 出的 id）。
+   *  计价要按「谁发的」查价——双 provider 挂同一模型 id 不同价时，只看模型名会把
+   *  一次由 B 发出的调用按 A 的价记账（金额错且错得不留痕）。 */
+  providerId: string | null
   /** 全 attempt 可得 usage 累计（记账助手逐 attempt 写，终态封套读） */
   attemptsUsage: TokenUsage | null
 }
@@ -647,9 +651,7 @@ async function prepareRun<T>(opts: RunTaskOpts<T>): Promise<RunPrep<T>> {
         // tool_choice 参数面（铁律②重放口径）：成功 attempt 取实发生效值（p.toolChoice），
         // 失败 attempt 无 run 回传可读 → 回落调用方声明（opts.toolChoice）；requireTool
         // 意图面恒按调用方声明登记（派生结果可据模型表 + quirksVersion 精确重建）
-        ...((p.toolChoice ?? opts.toolChoice) !== undefined
-          ? { toolChoice: p.toolChoice ?? opts.toolChoice }
-          : {}),
+        ...((p.toolChoice ?? opts.toolChoice) !== undefined ? { toolChoice: p.toolChoice ?? opts.toolChoice } : {}),
         ...(opts.requireTool ? { requireTool: true } : {}),
         ...(ctx.resolvedChunkStallTimeoutMs !== undefined
           ? { firstByteTimeoutMs: ctx.resolvedChunkStallTimeoutMs }
@@ -890,7 +892,8 @@ async function runAttemptLoop<T>(opts: RunTaskOpts<T>, ctx: RunCtx, r: ResolvedP
   }, timeoutMs)
 
   // 运行期句柄：段 3 的收尾（清定时器/摘监听/封套）与记账助手共用同一份
-  const rt: RunRuntime = { external, forwardAbort, totalTimer, tier, attemptsUsage: null }
+  // providerId 在此钉死：resolveProvider 的 ok 臂已给出，计价点直接取用
+  const rt: RunRuntime = { external, forwardAbort, totalTimer, tier, providerId: r.providerId, attemptsUsage: null }
 
   try {
     for (let attempt = 0; ; attempt++) {
@@ -1186,7 +1189,12 @@ function recordUsageSafe(
     // 时计价，chat/摘要这类 task-only 调用的 tasks 块永无金额，只能事后按当下价表
     // 重算事件库（调价即历史漂移）。查价按 attempt 时刻模型快照（rt.tier.model）——
     // 事后重算拿不到这个时点，故落账即钉死。
-    const cost = usage ? computeCallCost(resolveModelPricing(opts.userDataPath, rt.tier.model), usage) : undefined
+    // providerId 一并传入：同一模型 id 挂在两家 provider 下且价格不同时，要按「这次由
+    // 谁发出」计价（rt.providerId 来自本次 resolveProvider，缓存在途期间切 currentId
+    // 也不会把它换掉）。
+    const cost = usage
+      ? computeCallCost(resolveModelPricing(opts.userDataPath, rt.tier.model, rt.providerId ?? undefined), usage)
+      : undefined
     recordUsageBoth(ctx.bookRoot, ctx.task, opts.chapter, usage, cost ?? undefined, attempt)
   } catch (e) {
     noteLedgerWriteFailure(ctx.bookRoot, { task: ctx.task, chapter: opts.chapter, attempt }, 'sync', e)
@@ -1248,9 +1256,18 @@ function abortStepReason(userAborted: boolean): StepEndReason {
   return userAborted ? 'aborted' : 'interrupted'
 }
 
-/** 成功路径 step/end 终止原因：截断记 max-tokens，其余记 completed */
+/**
+ * 成功路径 step/end 终止原因：截断记 max-tokens，流未收到 done 记 interrupted，其余记 completed。
+ *
+ * `unknown` 是「流迭代结束仍未收到 done」的归类值（适配器早退 / 断流），产出可能是半截；
+ * 记成 completed 等于把不完整首稿标成正常收尾，消费方与统计面都无从分辨。它是值域内
+ * 唯一一类「不知是否完整」的结局，故按 interrupted 落账。其余值（end_turn/stop/tool_use/
+ * stop_sequence/pause_turn 等）都是服务端给出的确定结局，照 completed。
+ */
 function stepEndReasonFor(stopReason: StopReason): StepEndReason {
-  return stopReason === 'max_tokens' ? 'max-tokens' : 'completed'
+  if (stopReason === 'max_tokens') return 'max-tokens'
+  if (stopReason === 'unknown') return 'interrupted'
+  return 'completed'
 }
 
 /** 终态失败 errCode：结构化 code 优先于笼统 GEN_FAIL（trace-stats 口径不变，仍是非空字符串） */

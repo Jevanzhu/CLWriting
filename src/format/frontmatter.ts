@@ -407,8 +407,12 @@ export function patchFlatFm(
         reason: `字段「${key}」带嵌套子结构，平铺改写会破坏该结构，已拒绝（请用结构化编辑入口修改）`,
       }
     }
-    // 块标量整体重渲染（含跨空行内容）；普通键只换键行，段内空行原位保留
-    out.push(...renderKeyLine(key, val), ...(isBlockScalar ? [] : span))
+    // 块标量整体重渲染（含跨空行内容）；普通键只换键行，段内空行原位保留。
+    // 块标量段里的注释行与空行不属于被替换的旧值——整段丢弃会让作者手写的注释无声
+    // 消失（同档承诺「其余行逐字节保留」）。注释行判据同上方 hasNested：任意缩进、
+    // trimStart 以 `#` 开头即注释。
+    const keptSpan = isBlockScalar ? span.filter((l) => l.trim() === '' || l.trimStart().startsWith('#')) : span
+    out.push(...renderKeyLine(key, val), ...keptSpan)
     i = j
   }
   // 未命中的键追加到末尾（保持既有行序不变；原文尾随换行的 split 占位 '' 随追加

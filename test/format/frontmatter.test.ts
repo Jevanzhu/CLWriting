@@ -211,6 +211,34 @@ test('R65-1: patchFlatFm 块标量键整体重渲染（含跨空行内容）', (
   expect(parseFlat(r.text).get('状态')).toBe('进行中')
 })
 
+test('R65-1: patchFlatFm 块标量改值保留段内作者注释与空行（只丢旧值内容行）', () => {
+  const fmRaw = '摘要: |\n  旧第一段\n  # 作者手写的注释\n\n  旧第二段\n下一键: 值'
+  const r = patchFlatFm(fmRaw, { 摘要: '新的单行摘要' })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  // 新值落键行，旧块内容行消失
+  expect(r.text).toContain('摘要: 新的单行摘要')
+  expect(r.text).not.toContain('旧第一段')
+  expect(r.text).not.toContain('旧第二段')
+  // 作者注释与空行不得被静默删除
+  expect(r.text).toContain('# 作者手写的注释')
+  // 段内其余键仍逐字在位，回读语义不变
+  expect(r.text.endsWith('\n下一键: 值')).toBe(true)
+  const map = parseFlat(r.text)
+  expect(map.get('摘要')).toBe('新的单行摘要')
+  expect(map.get('下一键')).toBe('值')
+})
+
+test('R65-1: patchFlatFm 块标量改值后仍为多行（新值也走块标量）同样保留注释', () => {
+  const fmRaw = '摘要: |\n  旧内容\n# 段内注释\n下一键: 值'
+  const r = patchFlatFm(fmRaw, { 摘要: '甲\n乙' })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  expect(r.text).toContain('# 段内注释')
+  expect(parseFlat(r.text).get('摘要')).toBe('甲\n乙')
+  expect(parseFlat(r.text).get('下一键')).toBe('值')
+})
+
 test('R65-1: patchFlatFm 普通键后随空行不误判嵌套；多行值渲染块标量', () => {
   const fmRaw = '标题: 旧\n\n状态: 进行中'
   const r = patchFlatFm(fmRaw, { 标题: '新', 摘要: 'a\nb' })

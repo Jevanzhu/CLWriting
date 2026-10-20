@@ -133,7 +133,11 @@ async function summarizeCheckpoint(
   }>({
     userDataPath: opts.userDataPath,
     tierKind: 'chat',
-    task: 'chat',
+    // 压缩摘要与轮循环用**不同的 task 键**：两者共吃 budget.chat_max_calls，同键会让闸与
+    // 账本把两类消耗混成一份，拦截文案指不出真实来源（作者把上限设小后，被拦时无从知道
+    // 是「这轮发多了」还是「历史压缩吃掉了配额」）。档位仍是 chat——档位决定模型与配额面，
+    // 与「哪一类调用」是两件事，不可顺手一起改。
+    task: 'chat_compact',
     bookRoot: opts.bookRoot,
     systemPrompt: sys,
     promptText: promptTextWithPrefix,

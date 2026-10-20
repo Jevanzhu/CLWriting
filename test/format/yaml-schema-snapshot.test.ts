@@ -8,7 +8,7 @@
  *    toMatchInlineSnapshot 逐位钉死，表驱动重构前后不得差一字节；
  * 2. canonical 配置（覆盖全部键）stringify↔parse 双向往返：文本逐位不动点、
  *    配置深度相等（含显式空数组保真 / opening_env_chars 显式 0 保真）；
- * 3. PUT patch 白名单全集逐键锚（46 叶键 + thresholds 特例 + 3 顶层标量）：
+ * 3. PUT patch 白名单全集逐键锚（48 叶键 + thresholds 特例 + 3 顶层标量）：
  *    改任一键只动目标行，注释/未知段/未知子键逐字保留，重解析收回新值；
  *    删方向（新值 undefined）落行删除；缺段键走插入/追加分支；
  * 4. 容错形态 warn 文案逐字快照（parse 容错与 warn 文案逐位不变红线）。
@@ -455,6 +455,7 @@ const PATCH_LONG = [
   '  input_per_chapter: 90000',
   '  summary_chapter_max: 200',
   '  summary_volume_max: 500',
+  '  chat_max_calls: 20',
   '',
   'style:',
   '  injection: light',
@@ -544,7 +545,7 @@ interface PatchAnchor {
   mutate: (cfg: BookConfig) => void
 }
 
-/** PUT /config 白名单全集（47 叶键 + thresholds 特例 + 3 顶层标量）。
+/** PUT /config 白名单全集（48 叶键 + thresholds 特例 + 3 顶层标量）。
  *  本清单即白名单锁：与 CONFIG_PATCH_LEAVES 派生结果一一对应。 */
 const PATCH_ANCHORS: PatchAnchor[] = [
   {
@@ -657,6 +658,13 @@ const PATCH_ANCHORS: PatchAnchor[] = [
     base: 'long',
     mutate: (c) => {
       c.budget.summary_volume_max = 600
+    },
+  },
+  {
+    label: 'budget.chat_max_calls',
+    base: 'long',
+    mutate: (c) => {
+      c.budget.chat_max_calls = 99
     },
   },
   {
@@ -1005,8 +1013,8 @@ function runAnchor(a: PatchAnchor): void {
   }
 }
 
-test('P1-5 快照: PUT patch 白名单全集逐键生效（47 叶键 + thresholds 特例 + 3 顶层标量）', () => {
-  expect(PATCH_ANCHORS).toHaveLength(51)
+test('P1-5 快照: PUT patch 白名单全集逐键生效（48 叶键 + thresholds 特例 + 3 顶层标量）', () => {
+  expect(PATCH_ANCHORS).toHaveLength(52)
   for (const a of PATCH_ANCHORS) runAnchor(a)
 })
 

@@ -1,19 +1,32 @@
 ---
 name: agent-notes
 description: >-
-  Record and maintain durable decision records — the "why", the rejected alternatives,
-  and the consequences that code and docs cannot carry. Use when the user asks to
-  write a decision record / ADR / RFC / design doc / 决策记录 / 设计文档 / 技术方案,
-  asks "why did we do it this way" and no record exists, proposes a substantial change
-  that needs a proposal, wants to archive or delete old decision documents, or when a
-  change reverses an earlier recorded decision. Also use when superseding, auditing,
-  or pruning an existing notes corpus, or when a repository has .agents/notes/ and
-  needs its format, classification, bilingual pairing, or archive seals verified.
+  Record and maintain durable decision records — the why, the rejected
+  alternatives, and the consequences code and docs cannot carry. 决策记录 / ADR /
+  RFC / 设计文档 / 技术方案 / 记录决策 / 归档 / 双语配对. Use when asked to
+  write a decision record, design doc, or technical proposal; when "why did we
+  do it this way" has no record; when a change reverses an earlier decision; or
+  when auditing, pruning, or verifying an existing .agents/notes/ corpus
+  (lifecycle tree, classification, bilingual pairing, archive seals).
 ---
 
 # Agent Notes
 
 Agent Notes 是给 agent 写、也给 agent 读的 RFC：它记录一个决策，以及**这个决策击败了什么**。代码能说明「是什么」，注释能说明「这一行为什么」，但只有决策记录能说明「当初还考虑过哪三条路，为什么都没选」。
+
+## 加载与使用前提
+
+客户端通常只加载本文件正文；`references/` 与 `templates/` 不会自动进入上下文。
+
+正文里的相对路径都相对本 skill 目录，加载结果会给出这个基目录；只读正文就动手，等于只加载了摘要。
+
+**按任务先读对应的参考档，再开始动手：**
+
+| 任务 | 先读 |
+|---|---|
+| 写提案、已实施或否决记录 | [references/format.md](references/format.md)、[references/classification.md](references/classification.md) |
+| 归档、封存、删旧笔记 | [references/archiving.md](references/archiving.md) |
+| 启用双语配对 | [references/bilingual.md](references/bilingual.md) |
 
 ## 什么时候写、什么时候不写
 

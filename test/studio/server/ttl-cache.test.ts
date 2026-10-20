@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createTtlProbeCache } from '../../../src/studio/server/ttl-cache.js'
-import { bookRootAliases, listBookKeyedCaches } from '../../../src/studio/server/cache-registry.js'
+import { bookRootAliases, listBookKeyedCaches } from '../../../src/shared/cache-registry.js'
 import '../../../src/studio/server/api/books-lifecycle.js' // 聚合入口（side-effect：触发全部书键缓存自登记）
 
 let now = 1_000_000
@@ -277,7 +277,7 @@ describe('ttl-cache 收敛变体', () => {
 //   禁目录级豁免——豁免清单自身过僵尸检查）；
 // - 反向：登记表每项须来自真实源码（forgetFn.name 非空者必须命中扫描集），
 //   匿名登记（shelf-guard 整表清扫闭包）豁免函数名反查。
-// 扫描面 = src/studio/server/cache-registry.ts + 聚合入口 side-effect import 的求值链。
+// 扫描面 = src/shared/cache-registry.ts + 聚合入口 side-effect import 的求值链。
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 const SRC = join(ROOT, 'src')
@@ -332,11 +332,11 @@ function scanInvalidatorExports(): InvalidatorExport[] {
  *  测试专用导出（零生产调用）/ 前端树（web-next 浏览器侧）。 */
 const EXEMPT_CACHE_INVALIDATORS: ReadonlyArray<{ key: string; why: string }> = [
   {
-    key: 'src/studio/server/cache-registry.ts::forgetBookKeyedCaches',
+    key: 'src/shared/cache-registry.ts::forgetBookKeyedCaches',
     why: '广播本体（登记表遍历）——失效编排入口，非缓存失效项',
   },
   {
-    key: 'src/studio/server/cache-registry.ts::forgetBookKeyedCachesForRoots',
+    key: 'src/shared/cache-registry.ts::forgetBookKeyedCachesForRoots',
     why: '广播本体按别名组遍历——删/改名在 FS 操作前取 bookRoot 别名后调用，非缓存失效项',
   },
   {

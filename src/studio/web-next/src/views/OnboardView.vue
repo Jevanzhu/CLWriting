@@ -197,7 +197,8 @@ onMounted(async () => {
   if (!loaded.error) {
     if (!scoped.stillIn(book)) return
     isShort.value = (loaded.config.kind ?? 'long') === 'short'
-    const leadsEnabled = (loaded.config['leads'] as { enabled?: string[] } | undefined)?.enabled ?? []
+    // 缺省语义：`leads` 缺失（旧配置 / 后端未落）＝没有任何扩展类启用
+    const leadsEnabled = loaded.config.leads?.enabled ?? []
     isGrowthBook.value = leadsEnabled.includes('成长线')
   }
   if (!scoped.stillIn(book)) return

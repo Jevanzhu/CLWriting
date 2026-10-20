@@ -186,3 +186,18 @@
 .spin {
   animation: clw-spin 0.9s linear infinite;
 }
+
+/* 「已省略 N 条」提示行：同一语义的唯一定义点。
+   收敛前 9 个组件各写一份，实测漂移：字号 xs(11px) / xxs(10px) 两档混用、内距 padding
+   与 padding-left / padding-top / margin-left 四种写法、font-style 缺两处、cursor 缺六处。
+   **本规则只收「同一语义必须同形」的三个属性**（颜色 / 字号 / 斜体），布局（内距、外边距、
+   cursor）随各自容器不同，留在组件 scoped 块里作覆盖——scoped 带属性选择器 ≥ (0,2,0)，
+   恒压过本条的 (0,1,0)，故覆盖无需 !important。
+   字号取 xs(11px) 不取 xxs(10px)：提示行是「读者需要读到的信息量」而非装饰，中文在 10px
+   下笔画粘连，取 11px 一档；斜体保留（7/9 原有），它是「这是截断说明」的视觉信号。
+   防复活锚 = test/studio/webnext/styles-single-source.test.ts 源码扫描 */
+.cap-hint {
+  color: var(--text-faint);
+  font-size: var(--font-size-xs);
+  font-style: italic;
+}

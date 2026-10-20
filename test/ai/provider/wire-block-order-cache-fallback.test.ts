@@ -12,7 +12,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
 import { createOpenAIResponsesProvider } from '../../../src/ai/provider/responses-adapter.js'
-import type { GenEvent, GenRequest, ModelProvider, ProviderConf } from '../../../src/ai/provider/index.js'
+import type { ProviderConf } from '../../../src/ai/provider/index.js'
+import { collect } from './adapter-fixtures.js'
 
 const CONF = {
   id: 't1',
@@ -24,12 +25,6 @@ const CONF = {
   apiKey: 'sk-secret-key',
   caps: null,
 } as ProviderConf
-
-async function collect(prov: ModelProvider, req: GenRequest): Promise<GenEvent[]> {
-  const out: GenEvent[] = []
-  for await (const ev of prov.stream(req, new AbortController().signal)) out.push(ev)
-  return out
-}
 
 describe('R51-C-2: responses 线 user 消息块序（function_call_output 先于 text）', () => {
   it('混排 user 消息 → tool 输出项在前、user text 在后（与 openai 线 R31-6 同序）', async () => {

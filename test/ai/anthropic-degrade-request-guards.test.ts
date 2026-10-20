@@ -16,7 +16,8 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 import Anthropic from '@anthropic-ai/sdk'
 import { resolveProvider } from '../../src/ai/runner.js'
 import { createAnthropicProvider } from '../../src/ai/provider/anthropic-adapter.js'
-import type { GenEvent, GenRequest, ProviderConf } from '../../src/ai/provider/index.js'
+import type { GenRequest, ProviderConf } from '../../src/ai/provider/index.js'
+import { collect } from './provider/adapter-fixtures.js'
 
 function tempDir(prefix: string): string {
   return mkdtempTracked(join(tmpdir(), prefix))
@@ -86,12 +87,6 @@ function fakeDegradeClient(): { client: Anthropic; calls: () => number } {
     },
   } as unknown as Anthropic
   return { client, calls: () => n }
-}
-
-async function collect(prov: ReturnType<typeof createAnthropicProvider>, req: GenRequest): Promise<GenEvent[]> {
-  const out: GenEvent[] = []
-  for await (const ev of prov.stream(req, new AbortController().signal)) out.push(ev)
-  return out
 }
 
 describe('R30-4：降级记忆显式 path 贯穿（双库并存互不劫持）', () => {

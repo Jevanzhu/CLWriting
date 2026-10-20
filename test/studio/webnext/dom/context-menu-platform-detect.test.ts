@@ -76,7 +76,6 @@ describe('R37-35: 平台探测三级兜底（userAgentData → navigator.platfor
   })
 })
 
-
 describe('ContextMenu 夹边补全：翻转后仍溢出时落点夹进视口', () => {
   /** 挂一个关闭态菜单 → 装受控尺寸 → 开启（开启拍才测量）→ 返回菜单元素。 */
   async function openWithRect(

@@ -27,7 +27,7 @@ import { readFile, parseFlat, splitFrontMatter, stringifyValue } from '../format
 import { isMdFileName } from '../format/filename.js'
 import type { Revision } from './revision.js'
 import { log, errMsg } from '../log/index.js'
-import { registerBookKeyedCache } from '../studio/server/cache-registry.js' // 书键缓存登记表（登记制单源）
+import { registerBookKeyedCache } from '../shared/cache-registry.js' // 书键缓存登记表（登记制单源）
 
 /** 版本目录名（工作区/ 下，treeskip + 迁移用）。 */
 export const VERSIONS_DIR_NAME = '.版本'

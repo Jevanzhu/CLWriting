@@ -207,4 +207,31 @@ describe('R64-4（十二轮）：配置加载代守卫（R63-3 同款，本组�
     expect((wrapper.find('input[aria-label="本书使用独立设定"]').element as HTMLInputElement).checked).toBe(false)
     wrapper.unmount()
   })
+
+  // 上一档防的是「迟到响应回填」，本档防的是另一半：mutator 闭包在 saveConfig 队列里、
+  // `await getConfig` 之后才执行——若那时才读活 ref，写进去的是切书后新书的生效值。
+  it('生效值在调用时快照：队列里的 mutator 执行时已切书，写进去的仍是发起时那本书的值', async () => {
+    const prefs = usePrefsStore()
+    prefs.set('defaultGenre', '玄幻')
+    prefs.set('defaultVolumeSize', 30)
+    const wrapper = await mountOpen()
+
+    const run = captureMutator()
+    await wrapper.find('input[aria-label="本书使用独立设定"]').setValue(true)
+    await nextTick()
+
+    // 队列还没跑 mutator 时切书——切书触发的重载把书级四键清回「跟随全局」，
+    // 生效值随之变成新书的（科幻/50）。旧实现读活 ref，会把这两个写进甲书。
+    useWorkspaceStore().bookName = '乙书'
+    prefs.set('defaultGenre', '科幻')
+    prefs.set('defaultVolumeSize', 50)
+    await flushPromises() // 让乙书的重载真正落地（否则书级值还停在甲书的快照上，测不出差异）
+    expect((wrapper.find('input[aria-label="本书使用独立设定"]').element as HTMLInputElement).checked).toBe(false)
+
+    const cfg = { book: { title: '甲书' } } as BookConfig
+    run(cfg)
+    expect(cfg.book?.genre).toBe('玄幻')
+    expect(cfg.book?.volume_size).toBe(30)
+    wrapper.unmount()
+  })
 })

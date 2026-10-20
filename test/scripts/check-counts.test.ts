@@ -26,6 +26,7 @@ import {
   missingPageErrorWiring,
   sharedRuntimeVersionDrift,
   walk,
+  README_BADGE_PATTERN,
   // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）。
   // 注记须紧贴 `} from` 行（TS 把 TS7016 报在模块说明符所在行），故放字面量末项之后。
 } from '../../scripts/check-counts.mjs'
@@ -595,5 +596,22 @@ describe('test/ 批号上锚：标题/注释分面计数与超锚判定', () => 
     expect(Number.isInteger(TEST_BATCH_ANCHOR.comments)).toBe(true)
     expect(TEST_BATCH_ANCHOR.titles).toBeGreaterThanOrEqual(0)
     expect(TEST_BATCH_ANCHOR.comments).toBeGreaterThanOrEqual(0)
+  })
+})
+
+// 徽章措辞是判据的一部分：单测数是静态声明数（vitest list 枚举），运行收集数比它多四百余，
+// 且运行汇总含 skipped。徽章写「N 个单测全绿」会被读成「执行了 N 个且全绿」，故形态改为
+// 「N units declared」；本组钉住「只认新形态」——旧措辞不再匹配，退回旧写法即失配报红。
+describe('README 徽章口径形态', () => {
+  it('新形态可匹配并取到数字', () => {
+    const m = 'badge/tests-9511%20units%20declared'.match(README_BADGE_PATTERN)
+    expect(m?.[1]).toBe('9511')
+  })
+
+  it('旧措辞不再匹配（允许它继续有效等于允许口径退回去）', () => {
+    expect('badge/tests-9511%20all%20green'.match(README_BADGE_PATTERN)).toBeNull()
+    // 近似但不对的写法同样不匹配（防「大致像」被放过）
+    expect('badge/tests-9511%20units'.match(README_BADGE_PATTERN)).toBeNull()
+    expect('badge/tests-9511%20declared%20units'.match(README_BADGE_PATTERN)).toBeNull()
   })
 })

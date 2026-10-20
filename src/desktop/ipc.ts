@@ -32,6 +32,7 @@ import { diagnosticsDirOf } from '../diagnostics/index.js' // 诊断包目录单
 import { appDataHomeDir } from '../fs/user-data-path.js' // 诊断包落点是共享根，非实例目录（见 reveal-diagnostics）
 import { isTrustedSender, openLibraryWindow, openShelfWindow, wins } from './windows.js'
 import { spawnLibraryInstance } from './new-instance.js' // 多库多窗·新窗入口：在新窗口中打开书库
+import { UPDATE_REPO_SLUG } from '../update/download.js' // 发布仓 slug 单源（更新检查与外部链接白名单共用）
 import {
   cancelUpdateDownload,
   prepareUpdateApply,
@@ -140,16 +141,17 @@ export const __testHooks = {
  * 为什么要白名单而不是「打开调用方给的 URL」：URL 来自**运行时数据**（更新检查拿到
  * 的 GitHub API 响应，可被中间人/劫持 DNS 篡改），渲染层又把它交回主进程执行系统级
  * 打开动作——不做前缀校验等于把「在用户机器上打开任意网页/协议」的能力交给响应体。
- * 前缀面收在本项目 release 页：`https://github.com/Jevanzhu/CLWriting/releases`。
+ * 前缀面收在本项目 release 页：`https://github.com/<仓 slug>/releases`；slug 取
+ * `UPDATE_REPO_SLUG` 单源——白名单与更新检查的地址派生换仓时必须同步，各写一份即漂移。
  *
  * 判定链（逐条，任一不过即拒）：字符串 → `new URL` 可解析 → `protocol === 'https:'`
  * → `host === 'github.com'` → `pathname` **恰为** releases 前缀或以其 `/` 续段开头。
  * 用 URL 解析而非串前缀比较：`https://github.com.evil.com/...`（host 后缀混淆）、
- * `/Jevanzhu/CLWriting/releasesx`（前缀陷阱）在解析后逐字段可比，串比较逐条都要自己
+ * `/<仓>/releasesx`（前缀陷阱）在解析后逐字段可比，串比较逐条都要自己
  * 写对。末条边界（`===` 或 `前缀 + '/'`）专治后者——裸 `startsWith` 会放行
  * `releasesx` 这类同前缀异目录。
  */
-const ALLOWED_EXTERNAL_PREFIX = '/Jevanzhu/CLWriting/releases'
+const ALLOWED_EXTERNAL_PREFIX = `/${UPDATE_REPO_SLUG}/releases`
 
 export function isAllowedExternalUrl(url: unknown): url is string {
   if (typeof url !== 'string') return false

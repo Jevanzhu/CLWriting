@@ -1,8 +1,11 @@
 # 域1 审计报告:AI 链路与编排(src/ai 等)
 
-审计员:audit-ai(域审员) · 日期:2026-10-19 · 范围:src/ai(84 档)+ src/cache、src/metrics、src/diagnostics、src/learn、src/review;对照 test/ai(168 档)等
-方法:git ls-files 排行定位热点 → 精读核心链路(runner / provider 三协议 / self-heal / chat turns / 流式与记账)→ 红标结构扫描 → 交叉对照测试档名与实现。
-证据面:仅源码、配置、测试、提交记录(docs/、知识层/、README.md 一律未采信)。**未修改任何源码/配置/测试;未跑测试与 coverage**。
+- 定位：**全量代码审计（2026-10-19 第一轮）分域附档**——域1 AI 链路与编排（`src/ai` 及 cache/metrics/diagnostics/learn/review） 的证据面与问题清单；主档 = `全量代码审计-评审-DeepSeek-V4.1-Flash-2026-10-19.md`（同槽位）。不属于本档：汇总结论、修复落地记录与作者拍板。
+- 执行模型：DeepSeek-V4.1-Flash（`ccats/deepseek-v4.1-flash`）域审员子 agent。
+
+- 审计员:audit-ai(域审员) · 日期:2026-10-19 · 范围:src/ai(84 档)+ src/cache、src/metrics、src/diagnostics、src/learn、src/review;对照 test/ai(168 档)等
+- 方法:git ls-files 排行定位热点 → 精读核心链路(runner / provider 三协议 / self-heal / chat turns / 流式与记账)→ 红标结构扫描 → 交叉对照测试档名与实现。
+- 证据面:仅源码、配置、测试、提交记录(docs/、知识层/、README.md 一律未采信)。**未修改任何源码/配置/测试;未跑测试与 coverage**。
 
 > 口径说明:任务书给出的档行数(runner 1200 / calls 753 / self-heal 904 / turns-phases 837 / store 867)与本轮 read 实测总行数(1261 / 790 / 949 / 881 / 931)**不一致**,差异来自统计口径(是否计空行;我首轮的 `Measure-Object -Line` 不计空行)。引用行号一律以 read 实测行号为准,可复核。
 

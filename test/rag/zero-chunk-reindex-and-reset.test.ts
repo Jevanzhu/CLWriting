@@ -17,6 +17,7 @@ import { openRagDb, readAllChunks, getRagMeta, setRagMeta } from '../../src/rag/
 import { writeChapter } from '../helpers/chapter.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 import type { EmbedResult } from '../../src/rag/embed.js'
+import { stubEmbed } from '../helpers/embed.js'
 
 let bookRoot = ''
 
@@ -51,14 +52,6 @@ function paras(_ch: number, n: number, marker: string): string {
 }
 
 /** 桩 embed：文本首字符 charCode 归一化 3 维向量（确定性，不联网） */
-function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> {
-  return Promise.resolve(
-    texts.map((t) => {
-      const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
-      return [norm, norm * 0.5, norm * 0.3]
-    }),
-  )
-}
 
 function withDb<T>(fn: (db: ReturnType<typeof openRagDb>) => T): T {
   const db = openRagDb(bookRoot)

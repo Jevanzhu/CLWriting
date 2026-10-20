@@ -267,7 +267,6 @@ describe('R0916-7-P3-20: 提交前守卫——决断后照常切书', () => {
   })
 })
 
-
 describe('脏路由离书（/book/A → /shelf）与切书同口径：未落盘编辑走可见决断', () => {
   it('保存失败 + 取消 → 回退原书路由，dirty 原封保留（此前静默丢弃）', async () => {
     const doc = useDocStore()

@@ -40,6 +40,7 @@ import type { RagConfig } from './config.js'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ChapterMeta } from '../format/types.js'
 import { log, errMsg } from '../log/index.js'
+import { reclaimFreedSpaceSync } from '../fs/sqlite-vacuum.js'
 import { recordTaskUsage } from '../ai/calls.js'
 import { chunkBody, type TextChunk } from './chunk.js'
 
@@ -197,6 +198,18 @@ export function resetRagIndex(bookRoot: string): void {
       // 回滚句单源 store.ts safeRollback。
       safeRollback(db)
       throw new Error(`清空 RAG 索引失败（已回滚，可重试）：${errStr(e)}`)
+    }
+    // 「清表不删文件」口径下，DELETE 只把页放进空闲表——rag.db 此后按历史峰值占盘，
+    // 而重建索引往往紧接着又要写入同样多的块，等于长期双倍占盘。清完表收一次：
+    // force 档（刚清空，要的就是空间回落，不受空闲页阈值拦）；存活页上限由单源模块封顶。
+    // 用同步版——本函数被 rebuild 端点在交接后台任务前**同步**调用（见上注：改异步要把
+    // 清库挪到后台段、闸时序随之改变，超范围）。清空后的库存活页≈0，走的是「零档 →
+    // 整库重写」这条一步到位的短路径。
+    // 回收失败不上抛：索引已清空（功能目标达成），空间优化失败只是高水位未回落，下次再收。
+    try {
+      reclaimFreedSpaceSync(db, true)
+    } catch (e) {
+      log.warn('rag', `RAG 索引库空间回收失败（清表已完成，仅高水位未回落）：${errStr(e)}`)
     }
   } finally {
     closeRagDb(db)

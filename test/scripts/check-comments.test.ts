@@ -39,6 +39,8 @@ import {
   stripTagSpans,
   tagSpansOf,
   TOKEN_EXCEPTIONS,
+  splitByAnchor,
+  TAG_ANCHORS,
   // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）。
   // 注记须紧贴 `} from` 行（TS 把 TS7016 报在模块说明符所在行），故放字面量末项之后。
 } from '../../scripts/check-comments.mjs'
@@ -607,5 +609,66 @@ describe('判据样例区：唯一豁免形态（逐区锚定 + 逐区理由，�
     const hits = findTagHits(fake, { file: SELF }).filter((h: TagHit) => inSampleZone(h.line, [[100, 200]]))
     expect(hits).toHaveLength(0)
     expect(findTagHits(fake, { file: SELF }).length).toBeGreaterThan(0) // 同文本未落区即红
+  })
+})
+
+// 开发阶段号与审计批次名此前是门与清理器共享的盲区：判据表没有它们，于是「门自报零批号
+// 标签」而实测 100+ 行阶段叙事通过。补判据的同时必须保住「真实术语不误杀」——
+// 母本流水线阶段（起草细纲 / 备料 / 写稿 / 三审）就是撞形的现行概念。
+describe('阶段号与审计批次名（判据盲区补齐）', () => {
+  it('阶段号各形命中：带空格 / 不带空格 / 括注 / 标题行', () => {
+    expect(hits('// 阶段 55：便携包解压')).toHaveLength(1)
+    expect(hits('// 阶段55 自更新解压')).toHaveLength(1)
+    expect(hits('// （阶段 24）：并入回退')).toHaveLength(1)
+    expect(hits('// 阶段 14 §7.2 显式 resolve')).toHaveLength(1)
+  })
+
+  it('母本流水线阶段号不误杀（阶段 1~6 是现行设计概念，不是批次号）', () => {
+    for (const line of [
+      '// 近况快照（供阶段 1 起草细纲 + 阶段 3 备料）',
+      '// 机检红项 > 0 → 自动退回阶段 4 写稿重写',
+      '// 只出候选、不拦截（真伪归阶段 6 三审）',
+      '// 定稿基线迁移（去 git 自管版本系统 · 阶段3）',
+    ]) {
+      expect(hits(line), line).toHaveLength(0)
+    }
+  })
+
+  it('审计批次名命中；批次词那支要求「批」前非汉字，故两者互不吞并', () => {
+    expect(hits('// 审计批8 遗留口径')).toHaveLength(1)
+    expect(hits('// 审计批 12 的结论')).toHaveLength(1)
+    // 对照：真词「审计批次」不入（后随汉字），裸「批 5」照旧由批次词收
+    expect(hits('// 审计批次划分由报告正本给出')).toHaveLength(0)
+    expect(hits('// 批 5 时定的口径')).toHaveLength(1)
+  })
+})
+
+// 上锚判据的判定动作与清零面分离：命中集仍走 tagSpansOf（与清理器同源），
+// 但「超过上限才红」——两个方向都要被钉住，否则总有一个方向永远没被测过。
+describe('上锚分流（超锚红 / 锚下不追）', () => {
+  const tag = (name: string, match: string) => ({ file: 'src/x.ts', line: 1, name, match, text: '' })
+
+  it('锚下不追：存量低于上限时不算红，且不进清零面', () => {
+    const { strict, anchored, over } = splitByAnchor([tag('阶段批号', '阶段 13'), tag('R系批号', 'R1')], {
+      阶段批号: 5,
+    })
+    expect(over).toEqual([])
+    expect(anchored.map((h: TagHit) => h.name)).toEqual(['阶段批号'])
+    expect(strict.map((h: TagHit) => h.name)).toEqual(['R系批号'])
+  })
+
+  it('超出即红：带上限与实际计数，且逐判据分别计', () => {
+    const { over } = splitByAnchor([tag('阶段批号', '阶段 13'), tag('阶段批号', '阶段 24')], { 阶段批号: 1 })
+    expect(over).toEqual([{ name: '阶段批号', count: 2, cap: 1 }])
+  })
+
+  it('未登记上锚的判据一律进清零面（命中即红的口径不被稀释）', () => {
+    const { strict } = splitByAnchor([tag('审计批号', '审计批8'), tag('轮次', '第三轮')], { 阶段批号: 9 })
+    expect(strict.map((h: TagHit) => h.name)).toEqual(['审计批号', '轮次'])
+  })
+
+  it('现行登记只有阶段号一条，且锚值为正（锚被抹掉时该形立刻转为命中即红）', () => {
+    expect(Object.keys(TAG_ANCHORS)).toEqual(['阶段批号'])
+    expect(TAG_ANCHORS.阶段批号).toBeGreaterThan(0)
   })
 })

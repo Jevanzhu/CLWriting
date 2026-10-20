@@ -29,8 +29,9 @@ import { isMdFileName } from '../format/filename.js' // .md 判定大小写不�
 import type { ParseError } from '../format/types.js'
 import { walkMdEach } from '../fs/walk-md.js'
 import { platformCaseFold } from '../fs/safe-path.js'
+import { ensureIncrementalAutoVacuum, reclaimFreedSpaceSync } from '../fs/sqlite-vacuum.js'
 import { isCoarseMtimeNs } from '../fs/mtime-precision.js'
-import { registerBookKeyedCache } from '../studio/server/cache-registry.js' // 书键缓存登记表（登记制单源）
+import { registerBookKeyedCache } from '../shared/cache-registry.js' // 书键缓存登记表（登记制单源）
 import { log, errMsg } from '../log/index.js'
 // -（全量代码）：基础两类单源自 install/data.ts（该模块仅
 // type-only import format/types，无环），与 check/runner enabledLeadTypes 共用同一符号
@@ -436,6 +437,11 @@ export function rebuild(bookRoot: string, cachePath: string, opts?: { throttleSo
     // PRAGMA 挪进 try 守卫——此前在 try 外，exec 抛错（库损坏/锁）
     // 时连接泄漏（只盖住了 BEGIN 失败路径）
     db.exec('PRAGMA busy_timeout = 5000')
+    // auto_vacuum 必须排在 journal_mode=WAL **之前**：切到 WAL 后 auto_vacuum 需先回滚成
+    // 非 WAL 日志模式才接受写值，这里刻意不做那次模式往返（打开期多一次日志模式切换）；
+    // 顺序反了会让本 PRAGMA 静默不生效（实测如此），新库退回「删行不回收空间」的旧形态。
+    // 与事件库同款：新库建成就按增量档，回收走逐块 incremental_vacuum 而非整库重写。
+    ensureIncrementalAutoVacuum(db)
     // 补 WAL——index.db 此前默认 delete 日志：进门/机检
     // 高频读（增量探测只读开库、状态机/AI 工具读账本）与重建写全互斥，掉电残留
     // -journal 热账本还要全量回滚。与事件库（store.ts ）同款收益：读写不互堵、
@@ -529,6 +535,17 @@ export function rebuild(bookRoot: string, cachePath: string, opts?: { throttleSo
       db.close()
     }
     throw e
+  }
+  // 重建是「清空全部表 + 整表重写」，DELETE/替换腾出的页留在空闲表里、主库高水位不回落——
+  // 不做回收的话 index.db 只长不缩（每轮重建都按历史峰值占盘）。这里在 COMMIT 之后、关连接
+  // 之前收一次（force 档：刚清空过，要的就是空间回落，不受空闲页阈值拦）。
+  // 用同步版：rebuild 是同步函数（改 async 会牵动全部调用方），且此处的库刚被整表重写，
+  // 走的正是「零档 → 整库重写」这条一步到位的短路径；存活页上限仍由单源模块封顶。
+  // 回收失败不上抛：空间优化失败不该让一次成功的重建变成失败（缓存全量可重建，下次再收）。
+  try {
+    reclaimFreedSpaceSync(db, true)
+  } catch (e) {
+    log.warn('rebuild', `index.db 空间回收失败（重建已提交，仅高水位未回落）：${errMsg(e)}`)
   }
   db.close()
 

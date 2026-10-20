@@ -68,6 +68,41 @@ function seedLedger(bookRoot: string, chatUsed: number): void {
 
 const RUN_RET = { text: 'ok', usage: { inputTokens: 11, outputTokens: 7 } }
 
+/** 两家 provider 挂同一模型 id、单价不同——计价必须按「谁发的」而不是「当前启用谁」。 */
+function writeTwoProviders(userDataPath: string, currentId: string): void {
+  writeFileSync(
+    join(userDataPath, 'providers.json'),
+    JSON.stringify({
+      providers: [
+        {
+          id: 'pa',
+          name: 'A',
+          protocol: 'openai',
+          auth: 'bearer',
+          baseUrl: 'http://127.0.0.1:1',
+          apiKey: 'sk-a',
+          caps: { connected: true, streaming: false },
+          models: [{ id: 'shared-model' }],
+          pricing: { inputPerMTok: 1, outputPerMTok: 1 },
+        },
+        {
+          id: 'pb',
+          name: 'B',
+          protocol: 'openai',
+          auth: 'bearer',
+          baseUrl: 'http://127.0.0.1:1',
+          apiKey: 'sk-b',
+          caps: { connected: true, streaming: false },
+          models: [{ id: 'shared-model' }],
+          pricing: { inputPerMTok: 100, outputPerMTok: 100 },
+        },
+      ],
+      currentId,
+      currentModel: 'shared-model',
+    }),
+  )
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
   processProviderRuntime().__resetForTest()
@@ -143,6 +178,42 @@ describe('chat 按书预算闸（budget.chat_max_calls）', () => {
     const gateWarns = warnSpy.mock.calls.map((c) => String(c[1])).filter((m) => m.includes('chat 任务预算闸拦截'))
     expect(gateWarns).toHaveLength(1)
     expect(JSON.parse(gateWarns[0]!)).toMatchObject({ code: 'BUDGET_EXCEEDED', used: 2, task: 'chat' })
+  })
+
+  it('闸按 task 分账：别的 task 用量不吃本 task 的配额（两键同吃一个上限，但各计各的）', async () => {
+    // 上一档已把 chat 顶到上限；本例把上限全花在另一任务上，chat 自己的计数为 0
+    const root = tempBook('spec_version: 1\n\nhost: cc\n\nbook:\n  title: X\n\nbudget:\n  chat_max_calls: 2\n')
+    mkdirSync(join(root, '.cache'), { recursive: true })
+    writeFileSync(
+      join(root, '.cache', 'ai-calls.json'),
+      JSON.stringify({
+        chapter: { num: 0, used: 0, inputTokens: 0, outputTokens: 0 },
+        // 压缩摘要已用掉 2 次——若闸按「全库合计」算，本次 chat 就会被误拦
+        tasks: { chat_compact: { used: 2, inputTokens: 0, outputTokens: 0 } },
+      }),
+      'utf-8',
+    )
+    const ud = tempUserData()
+    writeProviders(ud)
+    vi.spyOn(log, 'warn').mockImplementation(() => {})
+    let calls = 0
+    const out = await runTask<{ text: string }>({
+      userDataPath: ud,
+      task: 'chat',
+      bookRoot: root,
+      run: () => {
+        calls++
+        return Promise.resolve(RUN_RET)
+      },
+    })
+    expect(out.ok).toBe(true)
+    expect(calls).toBe(1)
+    // 且本次入的是 chat 自己那块，不落进 chat_compact
+    const ledger = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf-8')) as {
+      tasks: Record<string, { used: number }>
+    }
+    expect(ledger.tasks.chat!.used).toBe(1)
+    expect(ledger.tasks.chat_compact!.used).toBe(2)
   })
 
   it('键值非法 → parse 面 fail-closed 落 0 = 全部阻断（宁拦勿放）', async () => {
@@ -313,5 +384,27 @@ describe('chat_max_calls schema 三面形态', () => {
     const text = stringifyBookConfig(cfg.config)
     expect(text).toContain('budget:')
     expect(text).toContain('chat_max_calls: 3')
+  })
+
+  // 计价按实际发送者：currentId 指 A，但本次调用由 B 发出（runTask 的 providerId 覆盖）——
+  // 落账金额必须是 B 的价。此前计价点只拿得到模型名，于是按 A 的价记账（金额错且不留痕）。
+  it('计价按发送者：currentId 是 A 而调用由 B 发出 → 按 B 的单价落账', async () => {
+    const root = tempBook('spec_version: 1\n\nhost: cc\n\nbook:\n  title: X\n')
+    const ud = tempUserData()
+    writeTwoProviders(ud, 'pa')
+    vi.spyOn(log, 'warn').mockImplementation(() => {})
+    const out = await runTask<{ text: string }>({
+      userDataPath: ud,
+      task: 'chat',
+      bookRoot: root,
+      providerId: 'pb',
+      run: () => Promise.resolve(RUN_RET),
+    })
+    expect(out.ok).toBe(true)
+    const ledger = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf-8')) as {
+      tasks: Record<string, { costAccum?: number }>
+    }
+    // 11 输入 + 7 输出 × 100 元/Mtok = 18 × 1e-4 = 0.0018；若按 A 的 1 元/Mtok 会是 0.000018
+    expect(ledger.tasks.chat!.costAccum).toBeCloseTo((11 + 7) * 100 * 1e-6, 10)
   })
 })

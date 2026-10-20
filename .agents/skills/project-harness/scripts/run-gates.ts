@@ -317,6 +317,7 @@ const textGates: Gate[] = [
   { id: 'comment-hygiene', label: 'Comment hygiene', command: 'node', args: [join(HARNESS, 'verify-comment-hygiene.ts')], quick: true },
   { id: 'test-hygiene', label: 'Focused and skipped tests', command: 'node', args: [join(HARNESS, 'verify-test-hygiene.ts')], quick: true },
   { id: 'doc-claims', label: 'Documented claims versus their sources', command: 'node', args: [join(HARNESS, 'verify-doc-claims.ts')], quick: true },
+  { id: 'skill-catalog', label: 'Skill catalog readiness', command: 'node', args: [join(HARNESS, 'verify-skill-catalog.ts')], quick: true },
 ]
 
 /**

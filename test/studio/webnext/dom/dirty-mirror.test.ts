@@ -543,7 +543,6 @@ describe('R59 清偿批（R57-E-3）：镜像清理属主判定', () => {
   })
 })
 
-
 describe('镜像超限降级必须可见（不再只留 debug 日志）', () => {
   it('单条镜像超限 → 触发 onOversize 且不写 localStorage', async () => {
     vi.useFakeTimers()

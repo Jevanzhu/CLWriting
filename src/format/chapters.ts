@@ -14,7 +14,7 @@ import type { ChapterMeta, ParseError, HookType, HookLevel, Emotion, SceneType }
 import { driveToEnd } from '../async.js'
 import { preludeYieldStats } from '../shared/yield-stats.js'
 import { isCoarseMtimeNs } from '../fs/mtime-precision.js'
-import { registerBookKeyedCache } from '../studio/server/cache-registry.js' // 书键缓存登记表（登记制单源）
+import { registerBookKeyedCache } from '../shared/cache-registry.js' // 书键缓存登记表（登记制单源）
 
 /** #7 第 3 节枚举值校验集 */
 const HOOK_TYPES: HookType[] = ['危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩']

@@ -7,13 +7,15 @@
  */
 import { describe, it, expect } from 'vitest'
 import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { REPO_ROOT, readRepoFile } from '../helpers/repo-root.js'
 import {
   DECLARED_EMPTY,
   problemsForCopyVersion,
   problemsForManifestShapes,
+  problemsForVerifierWiring,
+  wiredVerifiersFrom,
   // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）。
   // 注记须紧贴 `} from` 行（TS 把 TS7016 报在模块说明符所在行），故放字面量末项之后。
 } from '../../scripts/check-harness-copy.mjs'
@@ -103,6 +105,54 @@ describe('空判据门申报：实文形状必须与申报一致', () => {
   })
 })
 
+// 副本整体替换会把上游新增的校验器一起拷进来，但门表是上游声明的清单：文件在盘上、
+// 却没有任何 mode 跑它，此时「副本完整」与「门全绿」同时为真而那块面没人查。本组锚定
+// 这条对账的判据本身（两侧都取实文，没有声明面可以失守）。
+describe('副本校验器接线对账：盘上有 ⇔ 门表在跑', () => {
+  it('两侧一致 → 无问题', () => {
+    expect(problemsForVerifierWiring(['verify-a.ts', 'verify-b.ts'], ['verify-a.ts', 'verify-b.ts'])).toEqual([])
+  })
+
+  it('盘上有而门表没接线 → 红（静默失去覆盖）', () => {
+    const problems = problemsForVerifierWiring(['verify-a.ts', 'verify-new.ts'], ['verify-a.ts'])
+    expect(problems).toHaveLength(1)
+    expect(problems[0]).toContain('verify-new.ts')
+    expect(problems[0]).toContain('没有任何门跑它')
+  })
+
+  it('门表接线而盘上没有 → 红（门去跑不存在的脚本）', () => {
+    const problems = problemsForVerifierWiring(['verify-a.ts'], ['verify-a.ts', 'verify-gone.ts'])
+    expect(problems).toHaveLength(1)
+    expect(problems[0]).toContain('verify-gone.ts')
+    expect(problems[0]).toContain('在盘上不存在')
+  })
+
+  it('只从 join(HARNESS, …) 的实参取接线面——注释/散文里提到名字不算接线', () => {
+    const source = [
+      "// 以前跑过 join(HARNESS, 'verify-commented-out.ts')，已停用",
+      "const a = { args: [join(HARNESS, 'verify-real.ts')] },",
+      'const b = { args: [join(HARNESS, "verify-double.ts")] },',
+      "/* join(HARNESS, 'verify-block-comment.ts') */",
+    ].join('\n')
+    // 块注释也算注释：本函数不做词法分析，故「取到注释里的名字」这一风险由此用例显性化——
+    // 若将来 run-gates.ts 真的在注释里写 join(HARNESS, …)，该形态会被判为接线。
+    expect(wiredVerifiersFrom(source)).toContain('verify-real.ts')
+    expect(wiredVerifiersFrom(source)).toContain('verify-double.ts')
+    expect(wiredVerifiersFrom(source)).toContain('verify-commented-out.ts')
+  })
+
+  it('真实仓库：盘上每个校验器都在门表里，且门表不指向缺失文件', () => {
+    const onDisk = readdirSync(join(REPO_ROOT, 'scripts', 'harness')).filter(
+      (name) => name.startsWith('verify-') && name.endsWith('.ts'),
+    )
+    const wired = wiredVerifiersFrom(readRepoFile('scripts/harness/run-gates.ts'))
+    expect(problemsForVerifierWiring(onDisk, wired)).toEqual([])
+    // 自证扫描面没空转：本仓确实有校验器、也确实抓到了一批接线
+    expect(onDisk.length).toBeGreaterThan(5)
+    expect(wired.length).toBeGreaterThanOrEqual(onDisk.length)
+  })
+})
+
 describe('真实仓库实跑', () => {
   it('本仓申报与实文一致、两处版本号一致 → 退出 0 并打印通过行', () => {
     const r = spawnSync(process.execPath, [scriptPath], { cwd: REPO_ROOT, encoding: 'utf8' })
@@ -121,5 +171,21 @@ describe('真实仓库实跑', () => {
     expect(readFileSync(join(REPO_ROOT, '.agents', 'skills', 'VERSION'), 'utf8').trim()).toBe(
       JSON.parse(readRepoFile('scripts/harness/version.json')).version,
     )
+  })
+
+  // 那四份 manifest 只能写 `{}`（各自解析器按字段白名单拒未知键，`{}` 是它们承认的「刻意
+  // 空置」形态），所以理由无处落在文件里。门输出是它唯一的机器可读之家——这条锚住「必须
+  // 打出来」：删掉打印逻辑或漏打某一份，读门的人就又回到「空置还是漏配」的原问题。
+  it('跑门时复述四份空置申报及其理由（文件内写不下的那部分）', () => {
+    const r = spawnSync(process.execPath, [scriptPath], { cwd: REPO_ROOT, encoding: 'utf8' })
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('空判据门申报')
+    for (const entry of declaredEntries) {
+      expect(r.stdout, `门输出未复述 ${entry.file} 的申报`).toContain(entry.file)
+      expect(r.stdout, `门输出未带 ${entry.file} 的理由`).toContain(entry.reason)
+    }
+    // 四份齐备而不是只打一部分：按申报条数核对输出里的 manifest 行
+    const lines = r.stdout.split('\n').filter((line) => line.trim().endsWith('.json') || /\.json — /.test(line))
+    expect(lines).toHaveLength(declaredEntries.length)
   })
 })

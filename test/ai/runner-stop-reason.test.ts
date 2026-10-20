@@ -108,14 +108,14 @@ describe('R0916-7-P3-15：runTask 抽 stopReason（无静默兜底）', () => {
     expect(stepEnd['reason']).toBe('completed')
   })
 
-  it("显式 'unknown'（流缺 done 的归类值）原样透出，不再被二次改写、不留域外痕", async () => {
+  it("显式 'unknown'（流缺 done 的归类值）原样透出，step/end 记 interrupted（半截产出不标正常收尾）", async () => {
     const spy = vi.spyOn(log, 'warn')
     const { call, stepEnd } = await runWithResult({
       stopReason: 'unknown',
       usage: { inputTokens: 1, outputTokens: 1 },
     })
     expect(call['stopReason']).toBe('unknown')
-    expect(stepEnd['reason']).toBe('completed')
+    expect(stepEnd['reason']).toBe('interrupted')
     expect(stopReasonWarns(spy)).toHaveLength(0)
   })
 
@@ -123,7 +123,7 @@ describe('R0916-7-P3-15：runTask 抽 stopReason（无静默兜底）', () => {
     const spy = vi.spyOn(log, 'warn')
     const { call, stepEnd } = await runWithResult({ stopReason: 'eos', usage: { inputTokens: 1, outputTokens: 1 } })
     expect(call['stopReason']).toBe('unknown')
-    expect(stepEnd['reason']).toBe('completed')
+    expect(stepEnd['reason']).toBe('interrupted')
     const warns = stopReasonWarns(spy)
     expect(warns).toHaveLength(1)
     expect(warns[0]).toMatchObject({ task: 'chat', reason: 'off-union', stopReason: 'eos' })
@@ -133,7 +133,7 @@ describe('R0916-7-P3-15：runTask 抽 stopReason（无静默兜底）', () => {
     const spy = vi.spyOn(log, 'warn')
     const { call, stepEnd } = await runWithResult({ usage: { inputTokens: 2, outputTokens: 3 } })
     expect(call['stopReason']).toBe('unknown')
-    expect(stepEnd['reason']).toBe('completed')
+    expect(stepEnd['reason']).toBe('interrupted')
     const warns = stopReasonWarns(spy)
     expect(warns).toHaveLength(1)
     expect(warns[0]).toMatchObject({ reason: 'absent', stopReason: null })

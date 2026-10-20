@@ -308,7 +308,9 @@ async function doBookTitleChange(): Promise<void> {
         <SettingItem name="事件库">
           <template #desc>
             <span v-if="eventStore?.overThreshold" data-testid="event-store-hint">
-              已达提示阈值（{{ eventStoreThresholdText }}）：对话、审计与机检历史只增不减——可在「审计」页「清除事件史」、
+              已达提示阈值（{{
+                eventStoreThresholdText
+              }}）：对话、审计与机检历史只增不减——可在「审计」页「清除事件史」、
               或在对话面板「清空对话」回收这部分空间。
             </span>
             <span v-else>对话、审计与机检历史的数据库，不自动清理。</span>

@@ -38,7 +38,14 @@ export const BUNDLED_SOURCE_PREFIX = '知识层(内置)/'
 /** 单篇读取上限防护:超此字节数不读(病态大文件不进 prompt;正常速查篇仅数 KB) */
 const MAX_CORPUS_BYTES = 256 * 1024
 
-/** 读文件为规范正文(剥 fm + trim);不存在/为空/超限/读失败 → null。 */
+/**
+ * 读文件为规范正文(剥 fm + trim);不存在/为空/超限/读失败/编码可疑 → null。
+ *
+ * 编码判定不可省：知识层是**书根下的作者可改文件**（也是同步盘常客），GBK/UTF-16 存盘或
+ * 半写都会让 utf-8 解码产出成片 U+FFFD——这些替换符会原样进 prompt，模型读到乱码而作者
+ * 零感知。判据取「含 BOM 或含替换符」两条（都是解码已失真的确定证据），命中即跳过该篇并
+ * 留痕；不猜编码去转码（猜错比跳过更坏：作者以为注入成功）。
+ */
 function readCorpusBody(abs: string): string | null {
   if (!existsSync(abs)) return null
   try {
@@ -46,8 +53,18 @@ function readCorpusBody(abs: string): string | null {
       log.warn('knowledge-corpus', `语料文件超限跳过(>${MAX_CORPUS_BYTES}B):${abs}`)
       return null
     }
-    const body = bodyOf(readFileSync(abs, 'utf-8')).trim()
-    return body === '' ? null : body
+    const raw = readFileSync(abs, 'utf-8')
+    if (raw.charCodeAt(0) === 0xfeff) {
+      log.warn('knowledge-corpus', `语料文件带 BOM（疑非 UTF-8 存盘），跳过:${abs}`)
+      return null
+    }
+    const body = bodyOf(raw).trim()
+    if (body === '') return null
+    if (body.includes('\uFFFD')) {
+      log.warn('knowledge-corpus', `语料文件解码出现替换符（疑 GBK/UTF-16 或被半写），跳过:${abs}`)
+      return null
+    }
+    return body
   } catch (e) {
     log.warn('knowledge-corpus', `语料读取失败跳过:${abs}(${e instanceof Error ? e.message : String(e)})`)
     return null
@@ -201,7 +218,10 @@ export function bundledCorpusIntegrityReport(): BundledCorpusIntegrityReport | n
  * 缺料只该降级并留痕(与 readCorpusBody / scanKnowledgeEntries 的 best-effort 同族)。
  * 显式给 rels / root = 强制现算(测试与排障面),不动快照。
  */
-export function ensureBundledCorpusChecked(opts?: { rels?: readonly string[]; root?: string }): BundledCorpusIntegrityReport {
+export function ensureBundledCorpusChecked(opts?: {
+  rels?: readonly string[]
+  root?: string
+}): BundledCorpusIntegrityReport {
   if (opts?.rels || opts?.root) return auditBundledCorpus(opts)
   if (bundledCorpusSnapshot === null) bundledCorpusSnapshot = auditBundledCorpus({})
   return bundledCorpusSnapshot

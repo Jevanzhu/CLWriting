@@ -558,7 +558,44 @@ export const TAG_PATTERNS = [
   },
   { name: '日期戳', re: /\b20\d{2}-\d{1,2}-\d{1,2}\b|20\d{2}\s*年/g, why: '修订日期应归 git 历史（blame 可查）' },
   { name: '评审过程词', re: /复审|重审|重评/g, why: '评审沿革叙事应归报告正本' },
+  {
+    // 开发阶段号（`阶段 13`/`阶段 55：便携包下载链`/`（阶段 24）`）。此前只在切除期的前缀表里
+    // 出现，检测面没有它——于是「门自报零批号标签」而实测 120+ 行阶段叙事通过，是门与清理器
+    // 共享的又一处盲区（同族：二级域号、连字条目号、孤儿斜杠）。
+    //
+    // 与 `母本` 的流水线阶段（起草细纲 / 备料 / 写稿 / 三审）撞形：`阶段 1`…`阶段 6` 是**设计
+    // 文档的现行概念**，不是批次号，故进 `TOKEN_EXCEPTIONS`（照「真实技术术语撞形一律显式放行、
+    // 不靠大概不会撞」的既有纪律）。批次号实测都落在两位以上，两者不重叠。
+    //
+    // 本形受**上锚**控制（见 TAG_ANCHORS）：存量不清，超出上限才红。
+    name: '阶段批号',
+    re: /(?<![\u4e00-\u9fa5])阶段\s*\d{1,3}(?![\d\u4e00-\u9fa5])/g,
+    why: '开发阶段号叙事应归 commit message',
+  },
+  {
+    // 审计批次名（`审计批8`）。与 `批次词` 不重叠：那支要求「批」前非汉字，本形恰是汉字起首，
+    // 是同一族的另一半。当前零存量，故与其余判据一样「命中即红」，不设上锚。
+    name: '审计批号',
+    re: /审计\s*批\s*[\dA-Za-z]{1,3}(?![\u4e00-\u9fa5\dA-Za-z])/g,
+    why: '审计批次叙事应归报告正本 / commit message',
+  },
 ]
+
+/**
+ * 上锚控制的判据（判据名 → 允许的存量上限）。
+ *
+ * 为什么不全清零：`阶段批号` 存量 120+ 行、散布 60+ 文件，一次性清是纯叙述面的大 diff，
+ * 与功能改动正交、review 成本极高；而清理器有「把真实术语当批号删掉」的实测前例（见头注
+ * 「形态表的边界是实测出来的」）。故照 `check-counts` 的 test 面批号上锚先例
+ * （`TEST_BATCH_ANCHOR`）冻结实测数为上限：**超出即红**（写一条新的就得先清掉一条存量，
+ * 或改写成本门之外的表述），**低于锚不追**（存量清理不强制）。与那道门唯一的差别是这里
+ * 「超过」按逐条判据分别计数，而不是全库合计。
+ *
+ * 锚只随实测**手动下调**；上调须在同一次提交里说明理由（例如判据面扩大导致存量重算）。
+ * 判据面与清零面仍共用同一张 TAG_PATTERNS——上锚只改判定动作，不改命中集，
+ * 故 `tagSpansOf` 的切除覆盖面不受影响。
+ */
+export const TAG_ANCHORS = { 阶段批号: 118 }
 
 /**
  * 「切除后残形」判据表——与上面的标签形态表**分工不同**，故分表。
@@ -788,6 +825,21 @@ export const TOKEN_EXCEPTIONS = new Set([
   // Windows 保留设备名的**区间**写法（`COM1-9`/`LPT1-9`）——同一术语的缩写形
   'COM1-9',
   'LPT1-9',
+  // 设计文档（母本）的流水线阶段号：起草细纲 / 备料 / 写稿 / 三审等**现行概念**，不是开发
+  // 批次号。带空格与不带空格两种书写都要放行（同一注释里两种形态都出现）。批次号实测都
+  // 是两位以上，与这六个不重叠；故不必担心把真批次叙事放过去。
+  '阶段 1',
+  '阶段 2',
+  '阶段 3',
+  '阶段 4',
+  '阶段 5',
+  '阶段 6',
+  '阶段1',
+  '阶段2',
+  '阶段3',
+  '阶段4',
+  '阶段5',
+  '阶段6',
 ])
 
 /**
@@ -1428,6 +1480,28 @@ export function scanRepo(base = root) {
   return { tags, residues, problems }
 }
 
+/**
+ * 按上锚口径分流命中：返回 `{ strict, anchored, over }`。
+ *
+ * `strict` = 受「命中即红」约束的命中（未登记上锚的全部判据）；`anchored` = 受上锚控制的
+ * 命中（存量，超上限才有意义）；`over` = 超锚的判据与计数。
+ *
+ * 抽成纯函数是为了让「超锚红 / 锚下不追」两个方向都能直测——本仓的锚门先例
+ * （`check-counts` 的 `batchAnchorViolations`）同样按纯函数判，理由相同：门若只能靠
+ * 跑全库观察，两个方向里总有一个永远没被测过。
+ */
+export function splitByAnchor(tags, anchors = TAG_ANCHORS) {
+  const names = new Set(Object.keys(anchors))
+  const strict = tags.filter((h) => !names.has(h.name))
+  const anchored = tags.filter((h) => names.has(h.name))
+  const over = []
+  for (const [name, cap] of Object.entries(anchors)) {
+    const n = anchored.filter((h) => h.name === name).length
+    if (n > cap) over.push({ name, count: n, cap })
+  }
+  return { strict, anchored, over }
+}
+
 export function main() {
   const { tags, residues, problems } = scanRepo()
   if (problems.length) {
@@ -1436,23 +1510,39 @@ export function main() {
     for (const p of problems) console.error(`  • ${p}`)
     process.exit(1)
   }
-  if (tags.length || residues.length) {
+  const { strict, anchored, over } = splitByAnchor(tags)
+  if (strict.length || residues.length || over.length) {
     console.error('源码注释门未过（comment-surface）。')
-    if (tags.length) {
+    if (strict.length) {
       console.error('① 注释里出现批号标签 / 轮次 / 日期戳 / 评审史：')
       console.error('  纪律：注释只留约束、不变量、平台差与语义说明；修复史正本 = git 历史（commit message）。')
       let lastFile = ''
-      for (const h of tags) {
+      for (const h of strict) {
         if (h.file !== lastFile) {
           console.error(`  ${h.file}`)
           lastFile = h.file
         }
         console.error(`    :${h.line} [${h.name}「${h.match}」] ${h.text}`)
       }
-      console.error(`  共 ${tags.length} 处。承重锚注（被测试钉住、不得删改）经 ANCHOR_ALLOWLIST 登记。`)
+      console.error(`  共 ${strict.length} 处。承重锚注（被测试钉住、不得删改）经 ANCHOR_ALLOWLIST 登记。`)
+    }
+    if (over.length) {
+      console.error('② 上锚判据的存量已超上限（新写入的这批要清到上限以内）：')
+      console.error('  纪律：同一判据的存量是冻结值，写一条新的就得清掉一条旧的；锚只随实测手动下调。')
+      for (const { name, count, cap } of over) {
+        console.error(`  ${name}：${count} 处 > 上锚 ${cap}`)
+        let lastFile = ''
+        for (const h of anchored.filter((x) => x.name === name)) {
+          if (h.file !== lastFile) {
+            console.error(`  ${h.file}`)
+            lastFile = h.file
+          }
+          console.error(`    :${h.line} 「${h.match}」 ${h.text}`)
+        }
+      }
     }
     if (residues.length) {
-      console.error('② 注释出现「切除后残形」——原句被清理器切走一半，剩下的残片本身不含标签：')
+      console.error('③ 注释出现「切除后残形」——原句被清理器切走一半，剩下的残片本身不含标签：')
       console.error('  纪律：残形不可机械修补。逐处 `git log -L` / `git blame` 反查父版原文后按原意重写，')
       console.error('  或整句删净；切勿再跑一遍清理脚本（第三轮清理制造第四轮残片，已有两轮前例）。')
       let lastFile = ''
@@ -1467,8 +1557,16 @@ export function main() {
     }
     process.exit(1)
   }
+  const anchorNote = anchored.length
+    ? `；上锚判据存量 ${Object.entries(TAG_ANCHORS)
+        .map(([name, cap]) => {
+          const n = anchored.filter((h) => h.name === name).length
+          return `${name} ${n}/${cap}`
+        })
+        .join('、')}（冻结值，超才红）`
+    : ''
   console.log(
-    `check:comments 通过：src 与 scripts 及根配置注释零批号标签、零切除残形（扫描 ${collectFiles().files.length} 个文件）。`,
+    `check:comments 通过：src 与 scripts 及根配置注释零批号标签、零切除残形（扫描 ${collectFiles().files.length} 个文件）${anchorNote}。`,
   )
 }
 

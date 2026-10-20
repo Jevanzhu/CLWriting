@@ -132,15 +132,6 @@ describe('buildIndex + recall（桩 embed）', () => {
   })
 
   /** 桩 embed：把文本首字符的 charCode 归一化成 3 维向量（确定性，不联网） */
-  function stubEmbed(_endpoint: string, _model: string, _key: string, texts: string[]): Promise<EmbedResult> {
-    return Promise.resolve(
-      texts.map((t) => {
-        const code = t.charCodeAt(0) || 1
-        const norm = 1 / (code + 1)
-        return [norm, norm * 0.5, norm * 0.3]
-      }),
-    )
-  }
 
   function twoDimEmbed(_endpoint: string, _model: string, _key: string, texts: string[]): Promise<EmbedResult> {
     return Promise.resolve(texts.map(() => [0.1, 0.2]))
@@ -448,15 +439,6 @@ describe('buildIndex 去重与事务（V-P2-3）', () => {
     rmSync(bookRoot, { recursive: true, force: true })
   })
 
-  function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> {
-    return Promise.resolve(
-      texts.map((t) => {
-        const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
-        return [norm, norm * 0.5, norm * 0.3]
-      }),
-    )
-  }
-
   it('游标被重置（模拟崩溃：块已入库但游标未推进）→ 重跑不产生重复块', async () => {
     const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
     const r1 = await buildIndex(bookRoot, config, 'key', stubEmbed)
@@ -547,15 +529,6 @@ describe('cc批4（P1-9 分批 / P1-31 空库 / P1-28 删除残留）', () => {
   afterEach(() => {
     rmSync(bookRoot, { recursive: true, force: true })
   })
-
-  function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> {
-    return Promise.resolve(
-      texts.map((t) => {
-        const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
-        return [norm, norm * 0.5, norm * 0.3]
-      }),
-    )
-  }
 
   it('P1-9：超 100 块分多批 embed，每批 ≤100（修复前单次全量 POST 必超端点上限）', async () => {
     // 2 章 × 每章 60 块（无空行 6 万字段细分）= 120 块 → 必须 ≥2 批
@@ -671,6 +644,7 @@ vi.mock('../../src/format/frontmatter.js', async (importOriginal) => {
 })
 
 import { openRagDb as openRagDbForMeta, getRagMeta } from '../../src/rag/store.js'
+import { stubEmbed } from '../helpers/embed.js'
 
 describe('buildIndex 游标自愈（RB-IF-P1-3）', () => {
   let bookRoot: string
@@ -688,15 +662,6 @@ describe('buildIndex 游标自愈（RB-IF-P1-3）', () => {
     readFailState.seen = 0
     rmSync(bookRoot, { recursive: true, force: true })
   })
-
-  function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> {
-    return Promise.resolve(
-      texts.map((t) => {
-        const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
-        return [norm, norm * 0.5, norm * 0.3]
-      }),
-    )
-  }
 
   function addChapter(n: number): void {
     const meta: ChapterMeta = {
@@ -928,15 +893,6 @@ describe('R73-12：recallDetailed 截断标记上抛', () => {
     rmSync(bookRoot, { recursive: true, force: true })
   })
 
-  function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> {
-    return Promise.resolve(
-      texts.map((t) => {
-        const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
-        return [norm, norm * 0.5, norm * 0.3]
-      }),
-    )
-  }
-
   it('未超阈值：truncated=false，totalBlocks=参与召回块数', async () => {
     const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
     await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
@@ -991,15 +947,6 @@ describe('R73-5：commitIndexBatch 部分成功续传', () => {
   afterEach(() => {
     rmSync(bookRoot, { recursive: true, force: true })
   })
-
-  function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> {
-    return Promise.resolve(
-      texts.map((t) => {
-        const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
-        return [norm, norm * 0.5, norm * 0.3]
-      }),
-    )
-  }
 
   it('第 2 批 embed 失败 → 首批覆盖的整章（ch1）续传落库，ch2 半章不提交；错误文案带续传说明', async () => {
     const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }

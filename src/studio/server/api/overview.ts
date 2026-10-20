@@ -31,7 +31,7 @@ import { detectState, STATE_NAMES, type DetectedState } from '../../../state/sta
 import { trackInFlightWork } from './in-flight-work.js' // rebuild Worker 退出收尾登记
 import { computeProgressAsync, yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js'
 import { createTtlProbeCache } from '../ttl-cache.js' // TTL+探针+FIFO 缓存壳单源
-import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
+import { registerBookKeyedCache } from '../../../shared/cache-registry.js' // 书键缓存登记表（登记制单源）
 import { sigStatFor } from './rhythm.js' // （SRV 域）：size:mtimeMs 签名单源（原本地同构副本收敛）
 import { redactSecret } from '../../../ai/provider/redact.js' // API 错误脱敏
 import type { OverviewResult } from '../../../shared/contract/overview.js'

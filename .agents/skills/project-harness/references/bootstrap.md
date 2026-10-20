@@ -3,14 +3,16 @@
 `bootstrap.ts` 只做机械的事，并且刻意**不做**需要判断的事。理解这条边界，就不会指望它替你想清架构。
 
 ```sh
-node ~/.agents/skills/project-harness/scripts/bootstrap.ts --target ~/myproj --dry-run
-node ~/.agents/skills/project-harness/scripts/bootstrap.ts --target ~/myproj
+node <skill-dir>/scripts/bootstrap.ts --target <repo> --dry-run
+node <skill-dir>/scripts/bootstrap.ts --target <repo>
 ```
+
+`<skill-dir>` 是已安装副本 `<repo>/.agents/skills/project-harness`（本仓源码布局为 `skills/project-harness`）。不要写死 `~/.agents/skills/...`：用户级技能根可能整棵不存在，逐字执行会 ENOENT。
 
 中文语料在第一次铺的时候声明语言，别等铺完再改：
 
 ```sh
-node ~/.agents/skills/project-harness/scripts/bootstrap.ts --target ~/myproj --notes-language zh
+node <skill-dir>/scripts/bootstrap.ts --target <repo> --notes-language zh
 ```
 
 `--notes-language`（缺省 `en`）一次定下四件事：`harness.json` 里的 `primaryLanguage`、决策记录树的目录名（`提案中/已实施/已否决` × `功能/缺陷修复/简化/架构/流程/测试`、归档容器 `归档/`）、归档说明书用的语言、以及起步模板取哪一版（`AGENTS`、`docs/AGENTS`、`lefthook` 各按语言两版）。它只在**首次铺树**时生效：目标已经有 `harness.json` 时以声明为准，旗标与声明不符会直接报错退出——换语言要移动整棵树，那是独立的一次改动，不是重跑的副作用。工作语言该定哪一种，见 [language-policy.md](language-policy.md)。
@@ -20,7 +22,7 @@ node ~/.agents/skills/project-harness/scripts/bootstrap.ts --target ~/myproj --n
 **空仓库**直接跑。**已有内容的仓库**加 `--adopt`，这是两种情况的唯一区别，但它是关键区别：
 
 ```sh
-node ~/.agents/skills/project-harness/scripts/bootstrap.ts --target ~/myproj --adopt
+node <skill-dir>/scripts/bootstrap.ts --target <repo> --adopt
 ```
 
 不加 `--adopt`，装完立刻跑门禁会撞上一堵红墙——link 门禁会抓住你几年积累下来的所有死链，而它**没有能力区分「历史遗留」和「你这次改坏的」**。一堵第一天就全红的门禁，第二天就会被关掉。
@@ -64,7 +66,7 @@ node ~/.agents/skills/project-harness/scripts/bootstrap.ts --target ~/myproj --a
 
 `--dry-run` 只打印计划，不写任何文件。默认不覆盖任何已存在文件。
 
-`--force` 用于升级后刷新校验器副本，**只覆盖校验器**。五份 manifest（文档预算、文档索引、注释卫生、测试面、宣称）装的是你自己的申报，不在它的覆盖面里；`run-gates.ts` 底部的门表也是申报——它改过就默认保留（不改动的副本照常升级），覆盖它同样是 `--reset-manifests` 的事。
+`--force` 用于升级后刷新校验器副本，**只覆盖校验器**。六份 manifest（文档预算、文档索引、注释卫生、测试面、宣称、技能目录）装的是你自己的申报，不在它的覆盖面里；`run-gates.ts` 底部的门表也是申报——它改过就默认保留（不改动的副本照常升级），覆盖它同样是 `--reset-manifests` 的事。
 
 要重新生成 manifest，用 `--reset-manifests`：它把每一份按当前实测的树重播一遍，门表一并还原成预置的，**你写在里面的申报会被覆盖**。破坏性动作有自己的名字，就不该是升级的顺带效果——`--force` 曾经连它们一起重置，一次例行升级能让索引与宣称清单变成空文件、注释规则退回起步形状，而采用方不会收到任何提示，门禁只是安静地少管一片地方。
 

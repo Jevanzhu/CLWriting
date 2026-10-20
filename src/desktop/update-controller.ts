@@ -138,40 +138,42 @@ export async function startUpdateDownload(opts: {
     return { ok: false, reason: '当前平台不提供应用内下载，请用「去下载」到发布页获取' }
   }
   if (activeDownload) return { ok: false, reason: '已有一次下载正在进行中' }
-
-  const home = appDataHomeDir()
-  const outcome = await resolveLatestRelease(netFetch, RELEASE_FETCH_TIMEOUT_MS).catch((e: unknown) => {
-    log.warn('update', `发布信息拉取异常：${errMsg(e)}`)
-    return { kind: 'error' as const, reason: errMsg(e) }
-  })
-  if (outcome.kind !== 'release') return { ok: false, reason: releaseFetchFailure(outcome) }
-  const release = outcome.release
-  const version = release.tag.replace(/^v/, '')
-  if (version !== opts.version.replace(/^v/, '')) {
-    return { ok: false, reason: '发布页版本已变化，请重新检查更新' }
-  }
-  const asset: UpdateAsset | null = pickPortableAsset(release.assets, version)
-  if (!asset) return { ok: false, reason: '该版本未提供便携包，请改用「去下载」' }
-
-  const destDir = updateCacheDir(home, version)
-  const zipPath = join(destDir, asset.name)
-  if (existsSync(zipPath)) {
-    const actual = await sha256OfFile(zipPath).catch(() => null)
-    if (actual && asset.sha256 && actual === asset.sha256) {
-      lastZipPath = zipPath
-      setPending({ zipPath, sha256: actual, toVersion: version })
-      return { ok: true }
-    }
-    try {
-      rmSync(zipPath, { force: true })
-    } catch {
-      /* 删不掉就交给下一步的覆盖写：打开同名文件写会失败 → 报 disk，用户可见 */
-    }
-  }
-
+  // 单飞占位必须**同步**预置：占位若放在 await 之后，双击/快捷键重入会在发布信息 RTT
+  // 窗口内穿过上面这道判据，两路并发写同一缓存目标（交错写必致校验失配，或一路 rename
+  // 时另一路仍在写）。释放唯一出口在下方的 finally。
   const controller = new AbortController()
   activeDownload = controller
   try {
+    const home = appDataHomeDir()
+    const outcome = await resolveLatestRelease(netFetch, RELEASE_FETCH_TIMEOUT_MS).catch((e: unknown) => {
+      log.warn('update', `发布信息拉取异常：${errMsg(e)}`)
+      return { kind: 'error' as const, reason: errMsg(e) }
+    })
+    if (outcome.kind !== 'release') return { ok: false, reason: releaseFetchFailure(outcome) }
+    const release = outcome.release
+    const version = release.tag.replace(/^v/, '')
+    if (version !== opts.version.replace(/^v/, '')) {
+      return { ok: false, reason: '发布页版本已变化，请重新检查更新' }
+    }
+    const asset: UpdateAsset | null = pickPortableAsset(release.assets, version)
+    if (!asset) return { ok: false, reason: '该版本未提供便携包，请改用「去下载」' }
+
+    const destDir = updateCacheDir(home, version)
+    const zipPath = join(destDir, asset.name)
+    if (existsSync(zipPath)) {
+      const actual = await sha256OfFile(zipPath).catch(() => null)
+      if (actual && asset.sha256 && actual === asset.sha256) {
+        lastZipPath = zipPath
+        setPending({ zipPath, sha256: actual, toVersion: version })
+        return { ok: true }
+      }
+      try {
+        rmSync(zipPath, { force: true })
+      } catch {
+        /* 删不掉就交给下一步的覆盖写：打开同名文件写会失败 → 报 disk，用户可见 */
+      }
+    }
+
     const r = await downloadUpdateZip({
       // tag 与资产名是规范地址的两半：下载链据此校验响应给的地址确实是本仓该 tag 的该资产
       tag: release.tag,

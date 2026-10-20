@@ -195,7 +195,6 @@ describe('X-6 · SSE 退避接管协议', () => {
   })
 })
 
-
 describe('SSE 非 JSON 帧不再静默丢弃', () => {
   it('首条非 JSON 帧 → toast 一次；同连接第二条不再重复', async () => {
     const { useUiStore } = await import('../../../../src/studio/web-next/src/stores/ui')

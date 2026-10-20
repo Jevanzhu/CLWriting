@@ -124,4 +124,12 @@ describe('R-P3-4 / 0918二轮修复批 F102：两壳接线（源码文本锚定�
     expect(src).toContain('selected.size === shelf.books.length && shelf.books.length > SHELF_RENDER_CAP')
     expect(src).toContain('含列表显示上限之外')
   })
+  it('整页壳同款提示：同一交互两壳形态一致（页版曾缺这一行 = 已发生的功能差）', () => {
+    const src = read('pages/Shelf.vue')
+    expect(src).toContain('selected.size === shelf.books.length && shelf.books.length > SHELF_RENDER_CAP')
+    expect(src).toContain('含列表显示上限之外')
+    // 提示样式两边同名同形（各写一份就无从对照，形态漂移会被当成设计差异）
+    expect(src).toContain('.sel-all-hint')
+    expect(read('components/ui/ShelfModal.vue')).toContain('.sel-all-hint')
+  })
 })

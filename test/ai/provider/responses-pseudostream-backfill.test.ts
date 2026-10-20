@@ -11,7 +11,8 @@ import { describe, expect, it } from 'vitest'
 import OpenAI from 'openai'
 import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
 import { createOpenAIResponsesProvider } from '../../../src/ai/provider/responses-adapter.js'
-import type { GenEvent, GenRequest, ModelProvider, ProviderConf } from '../../../src/ai/provider/index.js'
+import type { ProviderConf } from '../../../src/ai/provider/index.js'
+import { collect } from './adapter-fixtures.js'
 
 const CONF = {
   id: 't1',
@@ -29,12 +30,6 @@ function fakeSend(events: unknown[]): () => AsyncGenerator<unknown> {
   return async function* () {
     for (const e of events) yield e
   }
-}
-
-async function collect(prov: ModelProvider, req: GenRequest): Promise<GenEvent[]> {
-  const out: GenEvent[] = []
-  for await (const ev of prov.stream(req, new AbortController().signal)) out.push(ev)
-  return out
 }
 
 describe('R35-18: Responses 伪流式（只回终态）completed 从 message item 回填 text', () => {

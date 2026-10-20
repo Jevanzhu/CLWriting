@@ -222,6 +222,16 @@ export function useChapterTreeActions(deps: { bookName: () => string; openError:
     // 书名入口捕获——批量定稿逐章 git 提交可达数秒，在途切书后不刷 B 书树、
     // toast 不落 B 书界面（同文件其余动作同款「已切书」复检）
     const book = deps.bookName()
+    // 定稿按盘上字节结算 → 逐章先落盘（doc.flushBeforeSettle 单源；不在缓存的章直接放行）。
+    // 任一章落不下去即整批中止且零请求：放行会让该章的定稿版本缺末段、章状态随后被
+    // autosave 降级为待定稿，而批量 toast 已报成功。
+    for (const id of docIds) {
+      if (await doc.flushBeforeSettle(id)) continue
+      if (!stillIn(book)) return
+      ui.toast('有章节未保存的修改无法自动落盘（保存失败或版本冲突），请先处理后再定稿', 'error')
+      return
+    }
+    if (!stillIn(book)) return
     await mutateAndReload(book, () => batchFinalizeDocs(book, docIds), {
       // 汇总面随刷树前落：逐条计数 → 单行 toast → 重扫刷树（refresh=true，服务端已
       // invalidate 缓存但重扫保证 git 状态/字数同窗推进）。次序即原实现次序。

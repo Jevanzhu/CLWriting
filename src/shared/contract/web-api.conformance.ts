@@ -22,6 +22,7 @@ import type {
   ForeshadowTrail as ServerForeshadowTrail,
 } from '../../document/foreshadow.js'
 import type {
+  BookConfig as ServerBookConfig,
   EntryKind as ServerEntryKind,
   EntrySource as ServerEntrySource,
   StyleEntry as ServerStyleEntry,
@@ -42,6 +43,7 @@ import type { CheckItem, CheckLevel, CheckReport, CheckSection, CheckResult } fr
 import type { QuoteCandidate, SampleCandidate } from './learn.js'
 import type { DiffLine } from './rewrite.js'
 import type { Foreshadow, ForeshadowHit, ForeshadowTrail } from './foreshadows.js'
+import type { BookConfigRequiredKey, BookLeadsConfig } from './books.js'
 import type { EntryKind, EntrySource, StyleCandidate, StyleEntry, StyleTrend } from './style.js'
 import type {
   CollectedReview,
@@ -99,3 +101,11 @@ export type _CollectedReview = Assert<SameShape<CollectedReview, ServerCollected
 
 // 端点回包字面量由服务端 `satisfies` 接入多余属性检查；此处只钉场上的 CheckResult 形状。
 export type _CheckResultShape = CheckResult
+
+// ── books（书配置面：配置域是整个 web-api 契约里最后补的一块）──
+// 契约形状 ↔ 服务端权威 `format/types.ts` 的 `BookConfig`：任一方向改字段名/改类型即红。
+export type _BookLeadsConfig = Assert<SameShape<BookLeadsConfig, ServerBookConfig['leads']>>
+// 「前端必须显式声明」的那份清单，键必须在服务端权威类型上真实存在——
+// 服务端改名而清单没跟上时，前端探针会「通过」（它对的是清单），故这条对账必须在这里。
+export type _BookConfigRequiredKeysExist = Assert<BookConfigRequiredKey extends keyof ServerBookConfig ? true : false>
+export type _BookSpecVersionServer = Assert<SameUnion<ServerBookConfig['spec_version'], number>>

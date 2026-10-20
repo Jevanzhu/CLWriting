@@ -17,6 +17,7 @@ import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapte
 import { createOpenAIResponsesProvider } from '../../../src/ai/provider/responses-adapter.js'
 import { withChunkStallTimeout } from '../../../src/ai/gen.js'
 import type { GenEvent, GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
+import { collect } from './adapter-fixtures.js'
 
 const CONF = {
   id: 't1',
@@ -30,15 +31,6 @@ const CONF = {
 } as ProviderConf
 
 const REQ: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] }
-
-async function collect(
-  prov: { stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> },
-  req: GenRequest,
-): Promise<GenEvent[]> {
-  const out: GenEvent[] = []
-  for await (const ev of prov.stream(req, new AbortController().signal)) out.push(ev)
-  return out
-}
 
 function fakeSend(events: unknown[]): () => AsyncGenerator<unknown> {
   return async function* () {

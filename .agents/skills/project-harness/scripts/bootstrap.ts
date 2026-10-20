@@ -95,6 +95,7 @@ const VERIFIER_FILES: ReadonlyArray<readonly [file: string, sourceDir: string, p
   ['verify-doc-index.ts', SCRIPT_DIR],
   ['verify-md-links.ts', SCRIPT_DIR],
   ['verify-md-wrap.ts', SCRIPT_DIR],
+  ['verify-skill-catalog.ts', SCRIPT_DIR],
   ['verify-test-hygiene.ts', SCRIPT_DIR],
   ['run-gates.ts', SCRIPT_DIR],
 ]
@@ -300,8 +301,9 @@ async function main(): Promise<void> {
     console.error(`
 Refusing to continue: the verifiers copied from that skill are called by the copied
 run-gates.ts, so the target would end up with gates that die on MODULE_NOT_FOUND.
-The two skills are installed as a pair: copy both directories side by side into your
-skill directory (~/.agents/skills/agent-notes and ~/.agents/skills/project-harness).`)
+The two skills are installed as a pair: copy both directories side by side into the
+target repository's .agents/skills/ (<repo>/.agents/skills/agent-notes and
+<repo>/.agents/skills/project-harness).`)
     process.exit(1)
   }
 
@@ -508,7 +510,18 @@ skill directory (~/.agents/skills/agent-notes and ~/.agents/skills/project-harne
     notes.push('doc-claims.manifest.json declares no claims yet; when a document states a number or a list a command can measure (how many gates, which directories), declare the claim so a stale copy fails the gate')
   }
 
-  // 9. Write the starter templates on the first scaffold only. The starters are
+  // 9. Seed the skill-catalog manifest empty. `{}` declares no skill roots, so the gate
+  // stays quiet in a repository that ships no skills; a repository that keeps skills of
+  // its own declares their root and gets the name and description checks.
+  const catalogPath = join(options.target, HARNESS_DIR, 'skill-catalog.manifest.json')
+  if (existsSync(catalogPath) && !options.resetManifests) {
+    skipped.push(relative(options.target, catalogPath))
+  } else {
+    write(join(HARNESS_DIR, 'skill-catalog.manifest.json'), '{}\n', options.resetManifests)
+    notes.push('skill-catalog.manifest.json declares no skill roots yet; after installing skills into .agents/skills, add that directory to `roots` so the gate checks their names and description budgets')
+  }
+
+  // 10. Write the starter templates on the first scaffold only. The starters are
   // language-paired, and the same resolution that spells the notes tree picks them:
   // the standing orders an adopter reads are written in the repository's working
   // language, never in the skill author's. A template for a language the bundle does
@@ -542,7 +555,7 @@ skill directory (~/.agents/skills/agent-notes and ~/.agents/skills/project-harne
     }
   }
 
-  // 10. Adoption: record the debt that predates the harness. Without this an existing
+  // 11. Adoption: record the debt that predates the harness. Without this an existing
   // repository goes red on its own history, and a gate that is red on day one gets
   // switched off on day two. The ledger is the difference between "this repository is
   // dirty" and "this change made it dirtier".

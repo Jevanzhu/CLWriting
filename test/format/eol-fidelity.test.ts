@@ -51,6 +51,49 @@ describe('MP2-4→批一：patchTopSection 行尾规范形', () => {
       'book:\n  title: 甲\n\nreview:\n  enabled: true\n',
     )
   })
+
+  it('段末作者注释随整段替换保留（尾块原样接回，段间空行照旧）', () => {
+    const raw = [
+      'book:',
+      '  title: 甲',
+      '',
+      'review:',
+      '  enabled: true',
+      '  # 下面两个键是审稿强度，别乱调',
+      '  # 第二行说明',
+      '',
+      'export:',
+      '  enabled: false',
+      '',
+    ].join('\n')
+    // 键值被替换，但段末那两行注释不属于任何键——连同段间空行一起接回
+    const out = patchTopSection(raw, 'review', '  enabled: false')
+    expect(out).toContain('# 下面两个键是审稿强度，别乱调')
+    expect(out).toContain('  # 第二行说明')
+    expect(out).toBe(
+      [
+        'book:',
+        '  title: 甲',
+        '',
+        'review:',
+        '  enabled: false',
+        '  # 下面两个键是审稿强度，别乱调',
+        '  # 第二行说明',
+        '',
+        'export:',
+        '  enabled: false',
+        '',
+      ].join('\n'),
+    )
+  })
+
+  it('夹在键之间的注释仍随被替换的键消失（不张冠李戴）', () => {
+    const raw = ['review:', '  # 这句描述 enabled', '  enabled: true', 'export:', '  enabled: false', ''].join('\n')
+    const out = patchTopSection(raw, 'review', '  enabled: false')
+    // 段中注释不属尾块——不保留（它描述的那一行已经不存在了）
+    expect(out).not.toContain('这句描述 enabled')
+    expect(out).toBe(['review:', '  enabled: false', 'export:', '  enabled: false', ''].join('\n'))
+  })
 })
 
 describe('MP2-4→批一：setTopSectionKey 行尾规范形', () => {

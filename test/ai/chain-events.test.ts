@@ -39,6 +39,12 @@ function writeProviders(userDataPath: string): void {
   )
 }
 
+/** 成功路径桩的返回值形（stopReason 缺省即 unknown → step/end 记 interrupted，故成功桩须给值） */
+interface GenOk {
+  stopReason: string
+  text: string
+}
+
 function readChainEvents(userDataPath: string, bookRoot: string) {
   const store = openSessionStore(userDataPath, bookRoot)!
   try {
@@ -57,11 +63,13 @@ describe('F1-P2 runTask 链事件', () => {
     const ud = tempUserData()
     writeProviders(ud)
     const root = tempBookRoot()
-    const out = await runTask<string>({
+    // 成功路径的桩须给出确定结局（stopReason）：缺失即归 unknown，那是「流未收到 done」
+    // 的半截态，按 interrupted 落账——不是本条要锚的成功面
+    const out = await runTask<GenOk>({
       userDataPath: ud,
       bookRoot: root,
       task: 'chat',
-      run: () => Promise.resolve('ok'),
+      run: () => Promise.resolve({ stopReason: 'end_turn', text: 'ok' }),
     })
     expect(out.ok).toBe(true)
     const evs = readChainEvents(ud, root)
@@ -234,14 +242,14 @@ describe('F1-P2 runTask 链事件', () => {
     writeProviders(ud)
     const root = tempBookRoot()
     let calls = 0
-    const out = await runTask<string>({
+    const out = await runTask<GenOk>({
       userDataPath: ud,
       bookRoot: root,
       task: 'self-heal',
       run: () => {
         calls++
         if (calls < 2) throw new GenError('429 limit', true)
-        return Promise.resolve('ok')
+        return Promise.resolve({ stopReason: 'end_turn', text: 'ok' })
       },
     })
     expect(out.ok).toBe(true)

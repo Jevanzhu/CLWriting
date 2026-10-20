@@ -10,6 +10,8 @@
  * 地址单源：资产的响应地址非规范即降级 null，清单地址一律由 tag 派生（不回声响应）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   runUpdateCheckOnce,
   resolveLatestRelease,
@@ -80,7 +82,11 @@ const RELEASES = [
         size: 4096,
       },
       // 清单地址故意给成非规范形态：结果里的地址必须来自 tag 派生（不回声响应）
-      { name: 'SHA256SUMS.txt', browser_download_url: 'https://objects.githubusercontent.com/SHA256SUMS.txt', size: 120 },
+      {
+        name: 'SHA256SUMS.txt',
+        browser_download_url: 'https://objects.githubusercontent.com/SHA256SUMS.txt',
+        size: 120,
+      },
     ],
   },
   { tag_name: 'nightly', draft: false },
@@ -156,8 +162,7 @@ describe('runUpdateCheckOnce 正常路径', () => {
           },
           {
             name: 'SHA256SUMS.txt',
-            browser_download_url:
-              'https://github.com/attacker/CLWriting/releases/download/v1.0.0/SHA256SUMS.txt',
+            browser_download_url: 'https://github.com/attacker/CLWriting/releases/download/v1.0.0/SHA256SUMS.txt',
           },
         ],
       },
@@ -386,5 +391,24 @@ describe('发布资产解析（asset.ts 纯函数面）', () => {
     expect(parseChecksums(sum, 'my app.zip')).toBe('d'.repeat(64))
     expect(parseChecksums(sum, 'missing.zip')).toBeNull()
     expect(parseChecksums('', 'CLWriting-1.0.0-x64.zip')).toBeNull()
+  })
+})
+
+// 发布仓 slug 单源：地址派生面（releases 列表 / 页面链 / 外部链接白名单）各写一份字面量时，
+// 换仓或改名漏改一处即恒 404（列表面）或恒拒（白名单面）。判据按源码形状——两处地址都不从
+// 响应体取（见 download.ts 头注），slug 私有于模块内部，无外部行为面可观测。
+describe('发布仓 slug 单源', () => {
+  const srcRoot = join(import.meta.dirname, '../../src')
+
+  it('check.ts 与 desktop/ipc.ts 不自持 slug 字面量，一律经 UPDATE_REPO_SLUG', () => {
+    for (const rel of ['update/check.ts', 'desktop/ipc.ts']) {
+      const src = readFileSync(join(srcRoot, rel), 'utf8')
+      expect(src, `${rel} 残留发布仓 slug 字面量（换仓漏改即漂移）`).not.toContain('Jevanzhu/CLWriting')
+      expect(src, `${rel} 须引用 UPDATE_REPO_SLUG 单源`).toContain('UPDATE_REPO_SLUG')
+    }
+    // 单源本体仍只此一处
+    expect(readFileSync(join(srcRoot, 'update', 'download.ts'), 'utf8')).toContain(
+      "export const UPDATE_REPO_SLUG = 'Jevanzhu/CLWriting'",
+    )
   })
 })

@@ -18,15 +18,7 @@ import { openRagDb, readAllChunks } from '../../src/rag/store.js'
 import { writeChapter } from '../helpers/chapter.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 import type { EmbedResult } from '../../src/rag/embed.js'
-
-function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> {
-  return Promise.resolve(
-    texts.map((t) => {
-      const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
-      return [norm, norm * 0.5, norm * 0.3]
-    }),
-  )
-}
+import { stubEmbed } from '../helpers/embed.js'
 
 describe('R35-43：重复章号——保目录序（walk 序）首个 + warn + recall 指纹校验同口径', () => {
   let bookRoot: string

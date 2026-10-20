@@ -229,6 +229,22 @@ describe('downloadUpdateZip（阶段 55）', () => {
     expect(readFileSync(join(dir, 'CLWriting-1.0.0-x64.zip')).equals(ZIP_BODY)).toBe(true)
   })
 
+  it('并发两路下载同一包：中间文件不同名、互不覆盖，终态只留一份正式名', async () => {
+    // 两路各持自己的响应流（同一内容的两个连接）——中间文件若同名，两路写会交织
+    const base = await serve({ '/pkg.zip': sendBody(ZIP_BODY), '/pkg2.zip': sendBody(ZIP_BODY) })
+    const dir = destDir()
+    const [a, b] = await Promise.all([
+      downloadUpdateZip({ tag: TAG, url: `${base}/pkg.zip`, destDir: dir, fileName: ASSET_NAME, sha256: ZIP_SHA }),
+      downloadUpdateZip({ tag: TAG, url: `${base}/pkg2.zip`, destDir: dir, fileName: ASSET_NAME, sha256: ZIP_SHA }),
+    ])
+    // 两路都成功：中间文件唯一 → 无交错写 → 各自校验通过
+    expect(a.ok).toBe(true)
+    expect(b.ok).toBe(true)
+    // 终态干净：只剩一份正式名（无 .part 残迹）
+    expect(entries(dir)).toEqual([ASSET_NAME])
+    expect(readFileSync(join(dir, ASSET_NAME)).equals(ZIP_BODY)).toBe(true)
+  })
+
   it('sha256OfFile：与流式实测一致（助手换目录前的包体复核用）', async () => {
     const dir = destDir()
     const file = join(dir, 'a.bin')
@@ -336,8 +352,32 @@ describe('地址判据（规范地址单源 + 仅回环放行）', () => {
       fetchImpl: fetchStub,
     })
     expect(r.ok).toBe(true)
-    expect(calls).toEqual([canonicalZip, canonicalSums])
+    // 清单先于包体：期望值必须在开始下包体之前就解析出来（下完才报「无法校验」=白等）
+    expect(calls).toEqual([canonicalSums, canonicalZip])
     expect(entries(dir)).toEqual([ASSET_NAME])
+  })
+
+  it('校验值拿不到 → 包体零出站（不在注定失败时下三百兆）', async () => {
+    const dir = destDir()
+    const calls: string[] = []
+    const fetchStub = (async (input: RequestInfo | URL) => {
+      calls.push(String(input))
+      return { ok: true, status: 200, headers: { get: () => null }, text: async () => 'other.zip  ' + ZIP_SHA }
+    }) as unknown as typeof fetch
+    const r = await downloadUpdateZip({
+      tag: TAG,
+      url: releaseAssetUrl(TAG, ASSET_NAME),
+      destDir: dir,
+      fileName: ASSET_NAME,
+      sha256: null,
+      checksumsUrl: releaseChecksumsUrl(TAG),
+      fetchImpl: fetchStub,
+    })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.failure.reason).toBe('checksum')
+    // 只有清单那一次出站，包体一次都没有
+    expect(calls).toEqual([releaseChecksumsUrl(TAG)])
+    expect(existsSync(join(dir, ASSET_NAME))).toBe(false)
   })
 
   it('资产名含路径分隔符 / 相对段 / 控制字符 → 拒且零出站、不建目录（落盘路径纵深防御）', async () => {

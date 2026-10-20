@@ -33,10 +33,11 @@ import { testableConst } from '../shared/testable.js'
 import { log, errMsg } from '../log/index.js'
 import { compareSemver, pickLatestStable } from './semver.js'
 import { hasChecksumsAsset, pickPortableAsset, type UpdateAsset } from './asset.js'
-import { isAcceptedReleaseUrl, releaseAssetUrl, releaseChecksumsUrl } from './download.js'
+import { isAcceptedReleaseUrl, releaseAssetUrl, releaseChecksumsUrl, UPDATE_REPO_SLUG } from './download.js'
 
-/** GitHub releases 列表（公开仓匿名；per_page 上限 100，20 足够覆盖正式版 + 若干 rc） */
-const RELEASES_URL = 'https://api.github.com/repos/Jevanzhu/CLWriting/releases?per_page=20'
+/** GitHub releases 列表（公开仓匿名；per_page 上限 100，20 足够覆盖正式版 + 若干 rc）。
+ *  仓 slug 取 `UPDATE_REPO_SLUG` 单源——换仓时三处字面量漏改会导致恒 404。 */
+const RELEASES_URL = `https://api.github.com/repos/${UPDATE_REPO_SLUG}/releases?per_page=20`
 
 /** 单次请求超时（设计 §3.3：5s；超时即静默放弃，不重试） */
 const UPDATE_CHECK_TIMEOUT_MS = 5000
@@ -174,7 +175,7 @@ export async function runUpdateCheckOnce(opts?: {
   const picked = pickPortableAsset(outcome.release.assets, version)
   setCheckResult({
     version,
-    url: `https://github.com/Jevanzhu/CLWriting/releases/tag/${encodeURIComponent(tag)}`,
+    url: `https://github.com/${UPDATE_REPO_SLUG}/releases/tag/${encodeURIComponent(tag)}`,
     // 资产面与版本同一响应内解析——`asset` 为 null 即前端只给「去下载」链接。
     // 地址必须逐字等于规范地址：响应给的任意路径（发布域主机上的攻击者仓也算）不降级
     // 就会变成前端手里的出站地址，故非规范一律按「无可用资产」收口。

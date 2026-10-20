@@ -112,9 +112,6 @@ const { state, render, ops } = useRelationGraph(props.bookName)
 /* 渲染上限省略提示（纯展示不可点；弱化色与 TrashPanel/ForeshadowPanel cap-hint 同式） */
 .cap-hint {
   margin-left: var(--size-4-2);
-  font-size: var(--font-size-xxs);
-  color: var(--text-faint);
-  font-style: italic;
   cursor: default;
 }
 .show-all-btn {

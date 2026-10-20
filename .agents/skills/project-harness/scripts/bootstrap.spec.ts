@@ -73,6 +73,7 @@ describe('bootstrapping a fresh repository', () => {
       'verify-doc-index.ts',
       'verify-md-links.ts',
       'verify-md-wrap.ts',
+      'verify-skill-catalog.ts',
       'verify-test-hygiene.ts',
       'run-gates.ts',
     ]) {
@@ -89,7 +90,7 @@ describe('bootstrapping a fresh repository', () => {
     // A missing import surfaces as MODULE_NOT_FOUND; the gates must get far enough
     // to report their own verdicts instead.
     assert.doesNotMatch(out, /MODULE_NOT_FOUND|Cannot find module/)
-    assert.match(out, /10 passed, 0 failed, 0 skipped/, out)
+    assert.match(out, /11 passed, 0 failed, 0 skipped/, out)
   })
 
   test('runs the modes the starter AGENTS.md tells the adopter to run', () => {
@@ -103,7 +104,7 @@ describe('bootstrapping a fresh repository', () => {
       })
       const out = `${run.stdout ?? ''}${run.stderr ?? ''}`
       assert.equal(run.status, 0, `${mode}: ${out}`)
-      assert.match(out, /10 passed, 0 failed, 0 skipped/, out)
+      assert.match(out, /11 passed, 0 failed, 0 skipped/, out)
     }
   })
 
@@ -159,6 +160,21 @@ describe('bootstrapping a fresh repository', () => {
   test('seeds an empty claim manifest, since which numbers a document states is a judgement', () => {
     assert.deepEqual(JSON.parse(readFileSync(join(target, 'scripts/harness/doc-claims.manifest.json'), 'utf8')), {})
     assert.match(result.stdout ?? '', /doc-claims\.manifest\.json declares no claims yet/)
+  })
+
+  test('seeds an empty skill-catalog manifest, so the catalog gate runs on day one', () => {
+    // `{}` declares no skill roots: the gate reports a pass without scanning, because a
+    // target that ships no skills has nothing to check. The copy of the verifier ships
+    // beside it, and invoking it reaches its own report line — a gate that silently
+    // exits green is the failure the entry-point guard exists to prevent.
+    assert.deepEqual(JSON.parse(readFileSync(join(target, 'scripts/harness/skill-catalog.manifest.json'), 'utf8')), {})
+    assert.match(result.stdout ?? '', /skill-catalog\.manifest\.json declares no skill roots yet/)
+    const copy = join(target, 'scripts/harness/verify-skill-catalog.ts')
+    assert.ok(existsSync(copy), 'verify-skill-catalog.ts was not copied')
+    const run = spawnSync(process.execPath, [copy], { cwd: target, encoding: 'utf8' })
+    const out = `${run.stdout ?? ''}${run.stderr ?? ''}`
+    assert.equal(run.status, 0, out)
+    assert.match(out, /verify-skill-catalog: .*declares no skill roots; nothing to check/)
   })
 
   test('seeds comment rules against the measured tree, never against a guessed root', () => {
@@ -336,6 +352,7 @@ const SEEDED_MANIFESTS = [
   'comment-hygiene.manifest.json',
   'test-hygiene.manifest.json',
   'doc-claims.manifest.json',
+  'skill-catalog.manifest.json',
 ] as const
 
 /** An installation that has been used since: edited copies plus real declarations. */
@@ -508,6 +525,7 @@ describe('re-seeding with --reset-manifests', () => {
     assert.deepEqual(seeded('doc-index.manifest.json'), {})
     assert.deepEqual(seeded('doc-claims.manifest.json'), {})
     assert.deepEqual(seeded('test-hygiene.manifest.json'), {})
+    assert.deepEqual(seeded('skill-catalog.manifest.json'), {})
     const comments = seeded('comment-hygiene.manifest.json')
     assert.deepEqual(comments.scan, ['scripts'])
     assert.equal((comments.labels as unknown[]).length, 4)
@@ -565,7 +583,7 @@ describe('adopting a repository that already has violations', () => {
       cwd: target,
       encoding: 'utf8',
     })
-    assert.match(`${run.stdout ?? ''}${run.stderr ?? ''}`, /10 passed, 0 failed, 0 skipped/)
+    assert.match(`${run.stdout ?? ''}${run.stderr ?? ''}`, /11 passed, 0 failed, 0 skipped/)
   })
 
   test('but a newly broken link still fails', () => {
@@ -598,7 +616,7 @@ describe('adopting a repository whose comments already carry history', () => {
 
   test('passes on history alone, and still fails on a comment added later', () => {
     const before = spawnSync(process.execPath, [join(target, 'scripts/harness/run-gates.ts'), 'doc-quick'], { cwd: target, encoding: 'utf8' })
-    assert.match(`${before.stdout ?? ''}${before.stderr ?? ''}`, /10 passed, 0 failed, 0 skipped/)
+    assert.match(`${before.stdout ?? ''}${before.stderr ?? ''}`, /11 passed, 0 failed, 0 skipped/)
 
     writeFileSync(join(target, 'src/app.ts'), 'export const a = 1 // 2026-10-13: switched the writer\nexport const b = 2 // 第 2 轮: retry budget\n')
     const after = spawnSync(process.execPath, [join(target, 'scripts/harness/run-gates.ts'), 'doc-quick'], { cwd: target, encoding: 'utf8' })

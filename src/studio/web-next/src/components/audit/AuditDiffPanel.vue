@@ -83,10 +83,7 @@ const nodeCap = computed(() => capView(diffNodes.value, RENDER_CAP))
 }
 /* 渲染上限省略提示行（对齐 CommandPalette pg-more 口径） */
 .cap-hint {
-  color: var(--text-faint);
-  font-size: var(--font-size-xs);
   padding: 2px 8px;
-  font-style: italic;
 }
 
 /* 与 settings-shared 全局 .seg 药丸同名异形，改名隔离防全局规则渗入 */

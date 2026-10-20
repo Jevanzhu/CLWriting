@@ -1,5 +1,8 @@
 # 域4 审计报告:桌面壳 / 安装更新 / 知识层与检索 / 共享层
 
+- 定位：**全量代码审计（2026-10-19 第一轮）分域附档**——域4 桌面壳 / 安装更新 / 知识层与检索 / 共享层 的证据面与问题清单；主档 = `全量代码审计-评审-DeepSeek-V4.1-Flash-2026-10-19.md`（同槽位）。不属于本档：汇总结论、修复落地记录与作者拍板。
+- 执行模型：DeepSeek-V4.1-Flash（`ccats/deepseek-v4.1-flash`）域审员子 agent。
+
 - 审计对象:CLWriting-Main(G:\02^Workspace\01^Codes\CLWriting\CLWriting-Main),HEAD 1160 commits。
 - 范围:src/desktop(28 档)、src/install(12 档)、src/update(6 档)、src/knowledge(11 档)、src/rag(8 档)、src/shared(22 档);对照 test/desktop(60 档)、test/install(35)、test/update(4)、test/knowledge(13)、test/rag(41)。
 - 证据纪律:仅源码/配置/测试/提交记录;docs/、知识层/、.agents/notes/、README.md 的结论与数字一律未采信。所有结论可复核(file:line)。

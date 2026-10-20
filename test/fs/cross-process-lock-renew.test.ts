@@ -151,10 +151,9 @@ describe('续期失败分级处置', () => {
     expect(release).not.toBeNull()
     try {
       rmSync(p, { force: true })
-      await vi.waitFor(
-        () => expect(spy.mock.calls.some((c) => String(c[1]).includes('锁续期连续失败'))).toBe(true),
-        { timeout: 10_000 },
-      )
+      await vi.waitFor(() => expect(spy.mock.calls.some((c) => String(c[1]).includes('锁续期连续失败'))).toBe(true), {
+        timeout: 10_000,
+      })
     } finally {
       release!()
       spy.mockRestore()

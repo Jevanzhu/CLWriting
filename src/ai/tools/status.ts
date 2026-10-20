@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { assembleStatus, formatStatus } from '../../process/assemble.js'
+import { closeWithPrepared } from '../../shared/sqlite-prepared.js'
 import { readBookConfig } from '../../format/yaml.js'
 import { applyGlobalDefaults } from '../../format/global-defaults.js'
 import { finalizedChapterSetOfBook } from '../../document/manifest.js'
@@ -42,6 +43,8 @@ export function chapterStatus(ctx: ToolContext, _input: Record<string, unknown>)
   } catch (e) {
     return { ok: false, summary: '读取章节状态失败：' + errMsg(e) }
   } finally {
-    db.close()
+    // 关库经单源摘缓存——assembleStatus 面用的语句进的是 prepared 缓存，
+    // 裸 close 断不开 StatementSync→DatabaseSync 的 ephemeron 环，每次工具调用滞留一份语句。
+    closeWithPrepared(db)
   }
 }

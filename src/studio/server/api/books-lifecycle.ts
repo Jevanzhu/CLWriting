@@ -34,7 +34,7 @@ import {
   forgetBookKeyedCaches as forgetRegisteredBookKeyedCaches,
   forgetBookKeyedCachesForRoots,
   bookRootAliases,
-} from '../cache-registry.js' // 书键缓存登记表（登记制单源；见下方聚合入口段）
+} from '../../../shared/cache-registry.js' // 书键缓存登记表（登记制单源；见下方聚合入口段）
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import { removeBookEntryAsync } from '../../../install/books.js'
 import { resolveBookOrReply } from '../book-context.js'

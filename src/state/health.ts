@@ -10,7 +10,7 @@
  * 模块边界：近况复述族 → recap.ts；状态机残核（detectState/routeState/enter 与状态类型）→ state.ts。
  * 原私有而 state.ts/recap.ts 跨模块消费项就此导出，其余保持私有。
  * 依赖单向（无环）：document/format/fs/git/process/log 既有出边（只出不进，不 import ai/studio）；
- * 唯一 studio 出边 = ../studio/server/cache-registry.js 零依赖登记表叶子件（顶层自登记，无环）；
+ * 唯一横向出边 = ../shared/cache-registry.js 零依赖登记表叶子件（顶层自登记，无环）；
  * 本文件不 import 同批任何模块——顶层求值常量（节流表/HAND_EDIT_PREFIXES/DEFAULT_VOLUME_SIZE 等）
  * 一律单源本文件，绝不经环回引。
  */
@@ -57,7 +57,7 @@ import { safeManifestPath, docJoinKey, normalizeWinSeparators } from '../fs/safe
 import { walkMdEach } from '../fs/walk-md.js'
 import type { BookConfig } from '../format/types.js'
 import { log, errMsg } from '../log/index.js'
-import { registerBookKeyedCache } from '../studio/server/cache-registry.js' // 书键缓存登记表（登记制单源）
+import { registerBookKeyedCache } from '../shared/cache-registry.js' // 书键缓存登记表（登记制单源）
 
 // sweep/网盘副本/finalizedLost 三张每书 TTL 节流表（内存态，key = bookRoot）。条目每书
 // 一条、量级小，但长期多书库/换库只增不减——与 events/store-retention.ts 的 TABLE_MAX

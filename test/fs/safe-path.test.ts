@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { safeManifestPath, resolveWithinRoot, isWithinRoot } from '../../src/fs/safe-path.js'
+import {
+  safeManifestPath,
+  resolveWithinRoot,
+  isWithinRoot,
+  safeDocId,
+  isWinUnsafePathSegment,
+} from '../../src/fs/safe-path.js'
 import { rmSync, symlinkSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -183,5 +189,53 @@ describe('L-D1（第八轮）：isWithinRoot 段级越出判定（与 resolveWit
 
   it('root 自身 → 放行（rel 为空不越出）', () => {
     expect(isWithinRoot(dir, dir)).toBe(true)
+  })
+})
+
+// docId 在版本面被当作目录名（`join(versionsDir, docId)`）——清单是本地可篡改数据面，
+// 手改成 win 不可用形态时该文档的保存恒 WRITE_ERROR，作者只能看到「写入失败」而无从自查。
+describe('safeDocId：穿越 + 段级 Windows 形态双面', () => {
+  it('系统生成的 id 与常规扩展形态放行', () => {
+    for (const id of ['01J8Z5QK2M9V4N6P8R0T2W4Y6A', 'legacy:9f2c1a4b7d3e5f60', 'doc_1', 'a.b.c']) {
+      expect(safeDocId(id), `应放行：${id}`).toBe(true)
+    }
+  })
+
+  it('穿越形态仍拒（原判据不变）', () => {
+    for (const id of ['a\0b', 'a/b', 'a\\b', '../x', 'a..b']) {
+      expect(safeDocId(id), `应拒：${JSON.stringify(id)}`).toBe(false)
+    }
+  })
+
+  it('段级 Windows 不可用形态拒（保留设备名 / 尾点尾空格 / 非法字符）；冒号放行（legacy 前缀）', () => {
+    for (const id of ['NUL', 'CON', 'COM1', 'nul.txt', 'name.', 'name ', 'a*b', 'a?b', 'a"b', 'a<b', 'a|b']) {
+      expect(safeDocId(id), `应拒：${JSON.stringify(id)}`).toBe(false)
+    }
+    // legacy:<hex> 是既有真实 id 形态，落盘为目录名时冒号由编码面换成下划线
+    expect(safeDocId('legacy:9f2c1a4b7d3e5f60')).toBe(true)
+  })
+})
+
+describe('isWinUnsafePathSegment：判据边界', () => {
+  it('保留名按首个点前的词干判（大小写不敏感），带扩展名同样拒', () => {
+    expect(isWinUnsafePathSegment('NUL.txt')).toBe(true)
+    expect(isWinUnsafePathSegment('aux.md')).toBe(true)
+    expect(isWinUnsafePathSegment('lpt9')).toBe(true)
+    // 词干不是保留名即放行（前缀相近不算）
+    expect(isWinUnsafePathSegment('NULL')).toBe(false)
+    expect(isWinUnsafePathSegment('CONSOLE')).toBe(false)
+  })
+
+  it('尾点/尾空格只在段尾判，段中不算', () => {
+    expect(isWinUnsafePathSegment('a.')).toBe(true)
+    expect(isWinUnsafePathSegment('a ')).toBe(true)
+    expect(isWinUnsafePathSegment('a .b')).toBe(false) // 尾空格在段中：落盘名与声明名一致
+    expect(isWinUnsafePathSegment('a.b.')).toBe(true)
+  })
+
+  it('常规文件名放行', () => {
+    for (const seg of ['app.asar', 'CLWriting.exe', '正文', 'a-b_c.md']) {
+      expect(isWinUnsafePathSegment(seg), `应放行：${seg}`).toBe(false)
+    }
   })
 })
