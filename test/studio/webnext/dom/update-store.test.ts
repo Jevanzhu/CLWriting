@@ -47,16 +47,25 @@ interface BridgeOptions {
   capability?: { canDownload: boolean; canInstall: boolean }
   downloadResult?: { ok: true } | { ok: false; reason: string }
   applyResult?: { ok: true } | { ok: false; reason: string }
+  /** 手动检查回执（缺省 = 跑成功且无新版） */
+  checkReply?: { ok: true; hasUpdate: boolean; error: string | null } | { ok: false; reason: string }
+  /** 手动检查在飞时挂住（验「检查中」回执与按钮禁用） */
+  checkGate?: Promise<void>
 }
 
 /** 完整桌面桥假件：能力/下载/取消/应用/打开目录 + 两个订阅回调的可编程出口 */
 function installBridge(over: BridgeOptions = {}) {
-  const calls = { download: [] as string[], cancel: 0, apply: [] as string[], reveal: 0 }
+  const calls = { download: [] as string[], cancel: 0, apply: [] as string[], reveal: 0, check: 0 }
   let progressCb: ((p: { received: number; total: number | null }) => void) | null = null
   let cancelledCb: (() => void) | null = null
   const bridge = {
     platform: 'win32',
     updateCapability: async () => over.capability ?? { canDownload: true, canInstall: true },
+    updateCheck: async () => {
+      calls.check += 1
+      if (over.checkGate) await over.checkGate
+      return over.checkReply ?? { ok: true as const, hasUpdate: false, error: null }
+    },
     updateDownload: async (v: string) => {
       calls.download.push(v)
       return over.downloadResult ?? { ok: true as const }
@@ -419,5 +428,80 @@ describe('自更新 store：下载 / 应用 / 出口链', () => {
     ;(window as unknown as { clwritingDesktop: { openExternal?: unknown } }).clwritingDesktop.openExternal = undefined
     await s.openDownload() // 无桥 → 复制，抛错被吞
     expect(s.copied).toBe(true)
+  })
+})
+
+// 手动检查入口：按钮点下去必须有可见反馈——「无新版时界面什么都不变」正是这轮要修的原
+// 症状，故判据落在文案的两次跃迁（尚未 → 正在 → 落定）上，而不是只看桥被调过。
+describe('自更新 store：手动检查入口', () => {
+  it('checkNow：点击期间「正在检查更新…」，回执后按端点落定态出「已是最新」', async () => {
+    mocks.getAppInfo.mockResolvedValueOnce({ version: '1.0.0', update: null, updateAttempt: null })
+    mocks.getAppInfo.mockResolvedValueOnce({
+      version: '1.0.0',
+      update: null,
+      updateAttempt: null,
+      updateCheck: { state: 'done', checkedAt: Date.now(), lastError: null },
+    })
+    let release!: () => void
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    const b = installBridge({ checkGate: gate })
+    const u = useUpdateStore()
+    u.ensureInit()
+    await flush()
+    expect(u.checkStatusText).toBe('尚未检查更新')
+
+    const pending = u.checkNow()
+    await nextTick()
+    expect(u.checkStatusText).toBe('正在检查更新…')
+    expect(u.checkInFlight).toBe(true)
+
+    release()
+    await pending
+    await flush()
+    expect(b.calls.check).toBe(1)
+    expect(u.checkInFlight).toBe(false)
+    expect(u.checkStatusText).toMatch(/^已是最新版本 v1\.0\.0 · (今天|昨天|\d\d-\d\d) \d\d:\d\d$/)
+  })
+
+  it('回执 tooSoon：给「刚刚检查过」且不重取端点（不制造第二次请求）', async () => {
+    mocks.getAppInfo.mockResolvedValue({ version: '1.0.0', update: null, updateAttempt: null })
+    installBridge({ checkReply: { ok: false, reason: 'tooSoon' } })
+    const u = useUpdateStore()
+    u.ensureInit()
+    await flush()
+    const before = mocks.getAppInfo.mock.calls.length
+    await u.checkNow()
+    await flush()
+    expect(u.checkStatusText).toBe('刚刚检查过，请稍后再试')
+    expect(mocks.getAppInfo.mock.calls.length).toBe(before)
+  })
+
+  it('桥缺 updateCheck（浏览器版）：回「更新检查不可用」而不是静默', async () => {
+    mocks.getAppInfo.mockResolvedValue({ version: '1.0.0', update: null, updateAttempt: null })
+    installBridge()
+    // 抹掉该入口模拟旧桥/浏览器版
+    delete (window as unknown as { clwritingDesktop?: { updateCheck?: unknown } }).clwritingDesktop?.updateCheck
+    const u = useUpdateStore()
+    u.ensureInit()
+    await flush()
+    await u.checkNow()
+    expect(u.checkStatusText).toBe('更新检查不可用')
+  })
+
+  it('有更新且落定过：检查面文案指向新版本，与更新面状态行分工不重叠', async () => {
+    mocks.getAppInfo.mockResolvedValue({
+      version: '1.0.0',
+      update: UPDATE_FULL,
+      updateAttempt: null,
+      updateCheck: { state: 'done', checkedAt: Date.now(), lastError: null },
+    })
+    installBridge()
+    const u = useUpdateStore()
+    u.ensureInit()
+    await flush()
+    expect(u.checkStatusText).toMatch(/^发现新版本 v1\.0\.0 · /)
+    expect(u.statusText).toContain('当前 v1.0.0')
   })
 })

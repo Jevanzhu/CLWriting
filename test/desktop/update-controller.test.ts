@@ -31,7 +31,6 @@ import {
 } from '../../src/desktop/update-controller.js'
 import {
   __resetUpdateCheckForTest,
-  __setUpdateCheckMetaForTest,
   applyUpdateCheckResult,
   UPDATE_CHECK_DISABLE_ENV,
   UPDATE_RESULT_MESSAGE_TYPE,
@@ -687,7 +686,6 @@ describe('createUpdateCheckHost（主进程检查宿主：延迟跑一次 + 结�
   })
 })
 
-
 // 调度节奏（周期 / 节流 / 退避 / 手动入口）：全部走假时钟——真实定时器下 6 小时一档
 // 无法测，而这几条正是「开着应用不重启也能发现新版本」的全部依据。
 describe('createUpdateCheckHost 调度节奏（周期 / 节流 / 退避 / 手动入口）', () => {
@@ -722,12 +720,13 @@ describe('createUpdateCheckHost 调度节奏（周期 / 节流 / 退避 / 手动
       currentVersion: () => '1.0.0',
       runCheck: async () => {
         runs += 1
-        __setUpdateCheckMetaForTest({
+        // 直接用生产写入路径（child 收到下发那条）造落定态，不另开测试钩子——
+        // 钩子数有全树锚，能用已有路径表达就不新增
+        applyUpdateCheckResult(null, {
           checkedAt: Date.now(),
           lastError: opts.fail ? 'network down' : null,
           failures: opts.fail ? runs : 0,
         })
-        applyUpdateCheckResult(null)
       },
     })
 
@@ -804,7 +803,7 @@ describe('createUpdateCheckHost 调度节奏（周期 / 节流 / 退避 / 手动
     await vi.advanceTimersByTimeAsync(0)
     expect(runs).toBe(1)
     // 造出「已连续失败四次」的落定态：档位表 = 30m/1h/2h/4h…（index = failures-1），此即 4h 档
-    __setUpdateCheckMetaForTest({ checkedAt: Date.now(), lastError: 'network down', failures: 4 })
+    applyUpdateCheckResult(null, { checkedAt: Date.now(), lastError: 'network down', failures: 4 })
     // 3 小时 59 分：未到 4 小时档
     await vi.advanceTimersByTimeAsync(4 * 60 * 60 * 1000 - 60 * 1000)
     expect(runs).toBe(1)

@@ -2,7 +2,7 @@
 
 写给中文网文作者的桌面写作软件，长篇和短篇集都能写。
 
-[![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org) [![Test](https://img.shields.io/badge/tests-9535%20units%20declared-4FC08D?logo=vitest&logoColor=white)](#技术栈) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org) [![Test](https://img.shields.io/badge/tests-9548%20units%20declared-4FC08D?logo=vitest&logoColor=white)](#技术栈) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 先说清楚一件事：这是写作软件，不是 AI 工具。建书、大纲、设定、正文、审稿、定稿，整套流程都在这个应用里。AI 只是其中一环——起草、改写、分析它可以代劳，读稿和拍板永远是你自己。
 
@@ -89,7 +89,7 @@ macOS 版没有自动替换这一步，不会出现这种现场；应用打不�
 
 ## 技术栈
 
-Node 24+，TypeScript strict。界面 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；数据是 node:sqlite（检索索引）加 JSON/YAML 文件；AI 接三个协议（Anthropic、OpenAI Chat、OpenAI Responses），统一走 runTask 编排，重试、超时、用量都在这一层管。测试 vitest（9535 单测）+ Playwright（36 specs / 60 用例）——1289 个测试文件 / 9535 单测是合入门槛，CI 会核对本文件声称的数字，对不上直接红。这里的 9511 是**静态声明数**（`vitest list` 枚举，`describe.each` 表行与循环内声明按调用点计一次），全平台同数；实际运行收集约 9900 个（差值即表行展开等多出来的部分），故两数不可互校，勿用运行汇总行核对本数。
+Node 24+，TypeScript strict。界面 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；数据是 node:sqlite（检索索引）加 JSON/YAML 文件；AI 接三个协议（Anthropic、OpenAI Chat、OpenAI Responses），统一走 runTask 编排，重试、超时、用量都在这一层管。测试 vitest（9548 单测）+ Playwright（36 specs / 60 用例）——1289 个测试文件 / 9548 单测是合入门槛，CI 会核对本文件声称的数字，对不上直接红。这里的 9511 是**静态声明数**（`vitest list` 枚举，`describe.each` 表行与循环内声明按调用点计一次），全平台同数；实际运行收集约 9900 个（差值即表行展开等多出来的部分），故两数不可互校，勿用运行汇总行核对本数。
 
 ## 致谢
 

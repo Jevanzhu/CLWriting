@@ -17,7 +17,13 @@ const u = useUpdateStore()
       </button>
     </p>
     <p v-if="u.statusText" class="ua-status">{{ u.statusText }}</p>
+    <p v-if="u.checkStatusText" class="ua-check">{{ u.checkStatusText }}</p>
     <div class="ua-btns">
+      <!-- 检查更新恒在首位且不依赖 primaryAction：无新版时「关于」页只剩这一个可点入口，
+           缺它用户就只能重启应用等自动检查。 -->
+      <button class="ua-check-btn" :disabled="u.checkInFlight" @click="u.checkNow()">
+        {{ u.checkInFlight ? '检查中…' : '检查更新' }}
+      </button>
       <button v-if="u.primaryAction" class="ua-primary" @click="u.primaryAction.run()">
         {{ u.primaryAction.label }}
       </button>
@@ -74,6 +80,24 @@ const u = useUpdateStore()
   font-size: var(--font-size-s);
   border-radius: var(--radius-s);
   cursor: pointer;
+}
+/* 检查面状态行：弱于更新提示一级（它讲的是过程，不是可操作的结果） */
+.ua-check {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+}
+.ua-check-btn {
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+.ua-check-btn:hover:not(:disabled) {
+  background: var(--background-modifier-hover);
+}
+.ua-check-btn:disabled {
+  cursor: default;
+  color: var(--text-faint);
 }
 .ua-primary {
   border: 1px solid var(--text-accent);

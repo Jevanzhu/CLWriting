@@ -500,8 +500,7 @@ export const UPDATE_BACKOFF_MS = [
 
 /** 手动入口的结局（前端据 reason 区分「检查中」「刚刚检查过」「已禁用」三种回执） */
 export type UpdateCheckNowResult =
-  | { ok: true; hasUpdate: boolean; error: string | null }
-  | { ok: false; reason: 'checking' | 'tooSoon' | 'disabled' }
+  { ok: true; hasUpdate: boolean; error: string | null } | { ok: false; reason: 'checking' | 'tooSoon' | 'disabled' }
 
 /** IPC 回执：`unavailable` 只由 ipc 层在宿主未登记（尚未 bootstrap）时合成，
  *  `checkNow` 自身不产生它——两者分开，免得宿主侧多出一个永不发生的分支。 */

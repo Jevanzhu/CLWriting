@@ -15,8 +15,8 @@
 // 放行本项目发布页）；浏览器版无桥 → 降级复制链接（剪贴板不可用时连复制也不提）。
 // 取不到版本/接口失败一律静默（更新提示不阻塞应用）。
 import { defineStore } from 'pinia'
-import { computed, ref, type Ref } from 'vue'
-import { getAppInfo, type AppInfo, type UpdateAttempt, type UpdateInfo } from '../api/app-info'
+import { computed, ref, type ComputedRef, type Ref } from 'vue'
+import { getAppInfo, type AppInfo, type UpdateAttempt, type UpdateCheckMeta, type UpdateInfo } from '../api/app-info'
 import { useUiStore } from './ui'
 
 /** 忽略记忆键（按版本号）：同版本忽略后角标不再出现，出新版再出现 */
@@ -76,7 +76,7 @@ interface UpdatePipelineHooks {
 
 /** 取数与桥订阅的时序机制（模块级工厂）：启动位 / 重取计时器 / 节拍与渲染态无耦合，
  *  且 store setup 已到 max-lines-per-function 上限。hooks 只做写入。 */
-function createUpdatePipeline(hooks: UpdatePipelineHooks): { ensureInit: () => void } {
+function createUpdatePipeline(hooks: UpdatePipelineHooks): { ensureInit: () => void; refetch: () => void } {
   let started = false
   let pollTimer: ReturnType<typeof setTimeout> | null = null
   let pollStep = 0
@@ -125,7 +125,7 @@ function createUpdatePipeline(hooks: UpdatePipelineHooks): { ensureInit: () => v
     void fetchInfo()
   }
 
-  return { ensureInit }
+  return { ensureInit, refetch: (): void => void fetchInfo() }
 }
 
 /** 一次性更新告示的合并规则（服务端读后即删）：取到新告示即替换——旧值非空不得成为丢弃
@@ -232,6 +232,82 @@ function createUpdateActions(d: UpdateActionsDeps): {
   return { startDownload, cancelDownload, applyUpdate, revealZip, openDownload }
 }
 
+/** 检查面（状态行文案 + 手动入口）的工厂：只拿一组 ref 与重取回调，不碰 store 本体。 */
+interface UpdateCheckDeps {
+  version: Ref<string | null>
+  latest: Ref<UpdateInfo | null>
+  checkMeta: Ref<UpdateCheckMeta | null>
+  checkInFlight: Ref<boolean>
+  checkNote: Ref<string | null>
+  refetch: () => void
+}
+
+/**
+ * 检查时刻的短文案（今天 14:32 / 昨天 09:10 / 10-18 20:00）——只按本机时区读，跨时不重算：
+ * 它服务的是「上次检查离现在多远」这一眼判断，不是时间戳展示。
+ */
+function fmtCheckedAt(ms: number): string {
+  const d = new Date(ms)
+  const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  const today = new Date()
+  if (d.toDateString() === today.toDateString()) return `今天 ${hhmm}`
+  const yesterday = new Date(today.getTime() - 86_400_000)
+  if (d.toDateString() === yesterday.toDateString()) return `昨天 ${hhmm}`
+  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${hhmm}`
+}
+
+function createUpdateCheck(d: UpdateCheckDeps): {
+  checkStatusText: ComputedRef<string>
+  checkNow: () => Promise<void>
+} {
+  /** 检查面状态行（与 statusText 分工：本条讲「检查这件事」，statusText 讲「更新这件事」）。
+   *  无更新时也要有一句——否则「关于」页在无新版时只剩一个孤零零的按钮，用户看不出上次
+   *  检查是何时、成没成。 */
+  const checkStatusText = computed<string>(() => {
+    if (d.checkNote.value !== null) return d.checkNote.value
+    if (d.checkInFlight.value || d.checkMeta.value?.state === 'checking') return '正在检查更新…'
+    const meta = d.checkMeta.value
+    if (meta?.checkedAt == null) return '尚未检查更新'
+    const when = fmtCheckedAt(meta.checkedAt)
+    if (meta.lastError !== null) return `上次检查未成功（${meta.lastError}）· ${when}`
+    if (d.latest.value !== null) return `发现新版本 v${d.latest.value.version} · ${when}`
+    return `已是最新版本 v${d.version.value ?? '未知'} · ${when}`
+  })
+
+  /** 手动检查一次（按钮入口）。检查在主进程出站，结果不下浮——回执只说「跑了」，正式结论
+   *  一律重读端点取，避免两处各自维护一份结果。 */
+  async function checkNow(): Promise<void> {
+    if (d.checkInFlight.value) return
+    d.checkInFlight.value = true
+    d.checkNote.value = null
+    try {
+      const bridge = window.clwritingDesktop
+      if (!bridge?.updateCheck) {
+        d.checkNote.value = '更新检查不可用'
+        return
+      }
+      const r = await bridge.updateCheck()
+      if (!r.ok) {
+        d.checkNote.value =
+          r.reason === 'tooSoon'
+            ? '刚刚检查过，请稍后再试'
+            : r.reason === 'checking'
+              ? '检查已在进行中'
+              : r.reason === 'disabled'
+                ? '更新检查已停用'
+                : '更新检查不可用'
+        return
+      }
+      d.refetch()
+    } catch {
+      d.checkNote.value = '更新检查失败'
+    } finally {
+      d.checkInFlight.value = false
+    }
+  }
+
+  return { checkStatusText, checkNow }
+}
 export const useUpdateStore = defineStore('update', () => {
   const version = ref<string | null>(null)
   const latest = ref<UpdateInfo | null>(null)
@@ -244,6 +320,12 @@ export const useUpdateStore = defineStore('update', () => {
   const attempt = ref<UpdateAttempt | null>(null)
   /** 结果条仅本会话内可关（服务端已消费，重开窗口不会再来） */
   const attemptHidden = ref(false)
+  /** 检查过程态（服务端落定态）与「点下去到回执之间」的本地在飞态，两者分开：
+   *  前者会被别处触发（自动周期）改变，后者只由本页点击置位。 */
+  const checkMeta = ref<UpdateCheckMeta | null>(null)
+  const checkInFlight = ref(false)
+  /** 手动检查的一句回执（「刚刚检查过」「检查已停用」等）；取到新落定态即清 */
+  const checkNote = ref<string | null>(null)
 
   // ── 动作 ──
   // 下载 / 取消 / 安装 / 出口住模块级工厂（见 createUpdateActions）：工厂只拿这一组 ref，
@@ -330,10 +412,11 @@ export const useUpdateStore = defineStore('update', () => {
   const showDismiss = computed(() => hasUpdate.value && (phase.value === 'idle' || phase.value === 'failed'))
 
   // ── 初始化（取数与桥订阅的时序机制住模块级工厂，见 createUpdatePipeline）──
-  const { ensureInit } = createUpdatePipeline({
+  const { ensureInit, refetch } = createUpdatePipeline({
     applyInfo: (info) => {
       version.value = info.version
       latest.value = info.update
+      checkMeta.value = info.updateCheck ?? null
       // 一次性信箱（服务端读后即删）取到即上屏——合并规则见 mergeUpdateAttempt
       const merged = mergeUpdateAttempt(attempt.value, info.updateAttempt ?? null)
       if (merged !== attempt.value) {
@@ -355,6 +438,16 @@ export const useUpdateStore = defineStore('update', () => {
     },
   })
 
+  // 检查面（状态行文案 + 手动入口）住模块级工厂：setup 本体已贴 max-lines-per-function
+  // 上限，加在这一层会被 lint 拦；与 createUpdateActions / createUpdatePipeline 同口径。
+  const { checkStatusText, checkNow } = createUpdateCheck({
+    version,
+    latest,
+    checkMeta,
+    checkInFlight,
+    checkNote,
+    refetch,
+  })
   /** 忽略该版本（角标不再出现，出新版再出现）；「去下载」等出口不受影响 */
   function dismissUpdate(): void {
     const v = latest.value?.version
@@ -388,6 +481,9 @@ export const useUpdateStore = defineStore('update', () => {
     errorText,
     attempt,
     attemptHidden,
+    checkMeta,
+    checkInFlight,
+    checkNote,
     hasUpdate,
     showAttempt,
     visible,
@@ -396,6 +492,7 @@ export const useUpdateStore = defineStore('update', () => {
     attemptText,
     progressText,
     statusText,
+    checkStatusText,
     primaryAction,
     showDownloadLink,
     showDismiss,
@@ -408,5 +505,6 @@ export const useUpdateStore = defineStore('update', () => {
     dismissUpdate,
     hideAttempt,
     resetCopied,
+    checkNow,
   }
 })

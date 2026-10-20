@@ -295,11 +295,6 @@ export function __setUpdateCheckResultForTest(next: UpdateCheckResult | null): v
   setCheckMeta({ checkedAt: Date.now(), lastError: null, failures: 0 })
 }
 
-/** 测试钩子：直置元信息（退避与节流用例绕开真实时钟） */
-export function __setUpdateCheckMetaForTest(next: UpdateCheckMeta): void {
-  setCheckMeta(next)
-}
-
 /** 检查是否已跑过（端点 update 三态判定「未完成」与测试判别用）。
  *  生产路由不直接调它——端点读 getUpdateCheckResult 的 null 即「未完成/查无新版」
  *  合并态；本函数只被测试用作非空基断言（= 检查真跑过而非被开关短路）。 */

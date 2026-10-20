@@ -308,15 +308,19 @@ describe('R54-A-1/A-2: flush 超时留痕 + switch-library 可达性预探', () 
       ;(firstChild as unknown as { emit: (e: string, c: number) => void }).emit('exit', 1)
       await vi.advanceTimersByTimeAsync(3_000) // 退避 0 → doRestart → 新 child ready → 补发（< 检查延迟）
       const newChild = M.forkChildren.at(-1) as unknown as { posted: unknown[] }
-      expect(newChild.posted).toContainEqual({
-        type: 'update-check-result',
-        result: {
-          version: '9.9.9',
-          url: 'https://github.com/Jevanzhu/CLWriting/releases/tag/v9.9.9',
-          asset: null,
-          checksumsUrl: null,
-        },
-      })
+      // 载荷随结果带 meta（child 侧端点「上次检查」靠它）；此处只锚补发这条路径本身，
+      // 故按 contains + 子集匹配，不把 meta 的内部形状钉进来
+      expect(newChild.posted).toContainEqual(
+        expect.objectContaining({
+          type: 'update-check-result',
+          result: {
+            version: '9.9.9',
+            url: 'https://github.com/Jevanzhu/CLWriting/releases/tag/v9.9.9',
+            asset: null,
+            checksumsUrl: null,
+          },
+        }),
+      )
     } finally {
       vi.useRealTimers()
     }

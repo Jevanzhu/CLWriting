@@ -18,7 +18,12 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { reply } from '../http.js'
-import { resolveAppVersion, getUpdateCheckMeta, getUpdateCheckResult, getUpdateCheckState } from '../../../update/check.js'
+import {
+  resolveAppVersion,
+  getUpdateCheckMeta,
+  getUpdateCheckResult,
+  getUpdateCheckState,
+} from '../../../update/check.js'
 import { takeUpdateAttemptNote } from '../../../update/cache.js'
 
 export function registerAppInfoRoutes(opts: { userDataPath: string | null }): void {
