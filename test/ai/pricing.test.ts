@@ -262,6 +262,51 @@ describe('D2 pricing 解析与金额计算', () => {
     expect(resolveModelPricing(ud, 'shared-model')).toEqual({ inputPerMTok: 1 })
   })
 
+  // 上一档按「当前启用方」计价，但真实发送者是 resolveProvider 定的——缓存中在途期间
+  // 切 currentId 就会出现「B 发的调用按 A 的价记账」。给了 providerId 就只认发送者自己的表。
+  it('给 providerId → 按发送者计价（不受 currentId 影响）；不在其表内则不跨界借价', async () => {
+    const ud = tmpDir('clw-pricing-sender-')
+    const mk = (currentId: string): ProviderStore =>
+      ({
+        providers: [
+          {
+            id: 'pa',
+            name: 'A',
+            protocol: 'openai',
+            auth: 'bearer',
+            baseUrl: 'https://a.example',
+            models: [{ id: 'shared-model' }, { id: 'only-in-a' }],
+            pricing: { inputPerMTok: 1 },
+            modelCaps: {},
+          },
+          {
+            id: 'pb',
+            name: 'B',
+            protocol: 'openai',
+            auth: 'bearer',
+            baseUrl: 'https://b.example',
+            models: [{ id: 'shared-model' }],
+            pricing: { inputPerMTok: 5 },
+            modelCaps: {},
+          },
+        ],
+        currentId,
+        revision: 0,
+        modelCaps: {},
+      }) as unknown as ProviderStore
+    // currentId 指 A，但这次调用其实是 B 发的
+    await saveProviders(ud, mk('pa'))
+    expect(resolveModelPricing(ud, 'shared-model', 'pb')).toEqual({ inputPerMTok: 5 })
+    expect(resolveModelPricing(ud, 'shared-model', 'pa')).toEqual({ inputPerMTok: 1 })
+    // 不传 providerId → 沿用「按当前启用方」的既有口径（两个既有调用点走此路）
+    expect(resolveModelPricing(ud, 'shared-model')).toEqual({ inputPerMTok: 1 })
+    // 发送者 B 的 models[] 里没有这个模型 → 按 B 的 provider 级价（B 自己有价，
+    // 就不该去 A 的 1 上借）——这是「按发送者计价」的实质：单价来自发送方，而非命中行
+    expect(resolveModelPricing(ud, 'only-in-a', 'pb')).toEqual({ inputPerMTok: 5 })
+    // 发送者 id 已不存在（provider 被删）→ 按「这家没配价」处理，不借别家
+    expect(resolveModelPricing(ud, 'shared-model', 'gone')).toBeNull()
+  })
+
   // R42-23（四十二轮）：行 pricing 仅设 currency（无单价）——currency 参与浅合并生效
   // （此前 isPriced 判定把整行丢弃，currency 永不生效）；但合并后无单价 → 不计费
   it('R42-23：currency-only 行 override 参与合并（currency 生效）；provider 无价时行 currency-only 仍不计费', async () => {

@@ -68,6 +68,41 @@ function seedLedger(bookRoot: string, chatUsed: number): void {
 
 const RUN_RET = { text: 'ok', usage: { inputTokens: 11, outputTokens: 7 } }
 
+/** 两家 provider 挂同一模型 id、单价不同——计价必须按「谁发的」而不是「当前启用谁」。 */
+function writeTwoProviders(userDataPath: string, currentId: string): void {
+  writeFileSync(
+    join(userDataPath, 'providers.json'),
+    JSON.stringify({
+      providers: [
+        {
+          id: 'pa',
+          name: 'A',
+          protocol: 'openai',
+          auth: 'bearer',
+          baseUrl: 'http://127.0.0.1:1',
+          apiKey: 'sk-a',
+          caps: { connected: true, streaming: false },
+          models: [{ id: 'shared-model' }],
+          pricing: { inputPerMTok: 1, outputPerMTok: 1 },
+        },
+        {
+          id: 'pb',
+          name: 'B',
+          protocol: 'openai',
+          auth: 'bearer',
+          baseUrl: 'http://127.0.0.1:1',
+          apiKey: 'sk-b',
+          caps: { connected: true, streaming: false },
+          models: [{ id: 'shared-model' }],
+          pricing: { inputPerMTok: 100, outputPerMTok: 100 },
+        },
+      ],
+      currentId,
+      currentModel: 'shared-model',
+    }),
+  )
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
   processProviderRuntime().__resetForTest()
@@ -349,5 +384,27 @@ describe('chat_max_calls schema 三面形态', () => {
     const text = stringifyBookConfig(cfg.config)
     expect(text).toContain('budget:')
     expect(text).toContain('chat_max_calls: 3')
+  })
+
+  // 计价按实际发送者：currentId 指 A，但本次调用由 B 发出（runTask 的 providerId 覆盖）——
+  // 落账金额必须是 B 的价。此前计价点只拿得到模型名，于是按 A 的价记账（金额错且不留痕）。
+  it('计价按发送者：currentId 是 A 而调用由 B 发出 → 按 B 的单价落账', async () => {
+    const root = tempBook('spec_version: 1\n\nhost: cc\n\nbook:\n  title: X\n')
+    const ud = tempUserData()
+    writeTwoProviders(ud, 'pa')
+    vi.spyOn(log, 'warn').mockImplementation(() => {})
+    const out = await runTask<{ text: string }>({
+      userDataPath: ud,
+      task: 'chat',
+      bookRoot: root,
+      providerId: 'pb',
+      run: () => Promise.resolve(RUN_RET),
+    })
+    expect(out.ok).toBe(true)
+    const ledger = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf-8')) as {
+      tasks: Record<string, { costAccum?: number }>
+    }
+    // 11 输入 + 7 输出 × 100 元/Mtok = 18 × 1e-4 = 0.0018；若按 A 的 1 元/Mtok 会是 0.000018
+    expect(ledger.tasks.chat!.costAccum).toBeCloseTo((11 + 7) * 100 * 1e-6, 10)
   })
 })

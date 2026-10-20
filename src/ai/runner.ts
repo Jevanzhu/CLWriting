@@ -573,6 +573,10 @@ interface RunRuntime {
   forwardAbort: () => void
   totalTimer: ReturnType<typeof setTimeout>
   tier: TierSlot
+  /** 本次调用实际由哪个 provider 发出（resolveProvider 已 resolve 出的 id）。
+   *  计价要按「谁发的」查价——双 provider 挂同一模型 id 不同价时，只看模型名会把
+   *  一次由 B 发出的调用按 A 的价记账（金额错且错得不留痕）。 */
+  providerId: string | null
   /** 全 attempt 可得 usage 累计（记账助手逐 attempt 写，终态封套读） */
   attemptsUsage: TokenUsage | null
 }
@@ -888,7 +892,8 @@ async function runAttemptLoop<T>(opts: RunTaskOpts<T>, ctx: RunCtx, r: ResolvedP
   }, timeoutMs)
 
   // 运行期句柄：段 3 的收尾（清定时器/摘监听/封套）与记账助手共用同一份
-  const rt: RunRuntime = { external, forwardAbort, totalTimer, tier, attemptsUsage: null }
+  // providerId 在此钉死：resolveProvider 的 ok 臂已给出，计价点直接取用
+  const rt: RunRuntime = { external, forwardAbort, totalTimer, tier, providerId: r.providerId, attemptsUsage: null }
 
   try {
     for (let attempt = 0; ; attempt++) {
@@ -1184,7 +1189,12 @@ function recordUsageSafe(
     // 时计价，chat/摘要这类 task-only 调用的 tasks 块永无金额，只能事后按当下价表
     // 重算事件库（调价即历史漂移）。查价按 attempt 时刻模型快照（rt.tier.model）——
     // 事后重算拿不到这个时点，故落账即钉死。
-    const cost = usage ? computeCallCost(resolveModelPricing(opts.userDataPath, rt.tier.model), usage) : undefined
+    // providerId 一并传入：同一模型 id 挂在两家 provider 下且价格不同时，要按「这次由
+    // 谁发出」计价（rt.providerId 来自本次 resolveProvider，缓存在途期间切 currentId
+    // 也不会把它换掉）。
+    const cost = usage
+      ? computeCallCost(resolveModelPricing(opts.userDataPath, rt.tier.model, rt.providerId ?? undefined), usage)
+      : undefined
     recordUsageBoth(ctx.bookRoot, ctx.task, opts.chapter, usage, cost ?? undefined, attempt)
   } catch (e) {
     noteLedgerWriteFailure(ctx.bookRoot, { task: ctx.task, chapter: opts.chapter, attempt }, 'sync', e)

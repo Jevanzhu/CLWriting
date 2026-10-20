@@ -94,21 +94,47 @@ function providersPricingSig(userDataPath: string): string {
   }
 }
 
-export function resolveModelPricing(userDataPath: string | null | undefined, model: string): PricingConf | null {
+/**
+ * 查某模型的价格表。
+ *
+ * `providerId` 给了就**先在该 provider 的 models[] 内**找归属——双 provider 挂同一模型 id
+ * 但价格不同时，按「这次调用实际由谁发出」计价。不传则按当前启用的 provider 归属（既有
+ * 行为，`cost-stats` 与 `self-heal-generate` 两个调用点即走此路：它们的口径是
+ * 「这模型在这份配置里值多少」，不是「这次由谁发出」）。
+ *
+ * 为什么要这个参数：runner 的 `resolveProvider` 早就 resolve 出 `providerId` 了，但计价
+ * 点只拿得到 model 名，于是「谁发的」这层信息在计价处丢失——作者切了 currentId 之后，
+ * 一次由 B 发出的调用会被按 A 的价记账（金额错、且错得不留痕）。
+ */
+export function resolveModelPricing(
+  userDataPath: string | null | undefined,
+  model: string,
+  providerId?: string,
+): PricingConf | null {
   if (!userDataPath || !model) return null
-  const memoKey = `${userDataPath}\u0000${model}`
+  // memo 键要把 providerId 算进去：否则先查 A 再查 B 会命中同一格
+  const memoKey = `${userDataPath}\u0000${providerId ?? ''}\u0000${model}`
   const sig = providersPricingSig(userDataPath)
   const memoHit = pricingMemo.get(memoKey)
   if (memoHit && memoHit.sig === sig) return memoHit.value
   try {
     const store = loadProviders(userDataPath)
+    // 发送者已知时只认它自己的 models[]：模型不在它的表里 = 这家没配该模型的归属行，
+    // 就用这家的 provider 级价。**不回落别家**——回落就回到「按别人家的价记账」这个错上。
+    // 注意区分「没传 providerId」（= 沿用按 currentId 的既有口径）与「传了但查无此家」
+    // （provider 已被删）：后者同样是「这家没配价」，不得静默借别家的价。
+    const explicitlyAddressed = providerId !== undefined
+    const sender = explicitlyAddressed ? store.providers.find((p) => p.id === providerId) : undefined
+    if (explicitlyAddressed && !sender) return null
     // 归属查表先在当前启用 provider 的 models[] 内找归属行——双
     // provider 挂同模型 id 不同价时按当前启用的那家计价（此前全局首归属 find 固定命中
     // 数组靠前的 provider，切 currentId 后计价不换）；未命中再回落全局首归属 find
     const current = store.providers.find((p) => p.id === store.currentId)
-    const owner = current?.models?.some((m) => m.id === model)
-      ? current
-      : store.providers.find((p) => p.models?.some((m) => m.id === model))
+    const owner = sender
+      ? sender
+      : current?.models?.some((m) => m.id === model)
+        ? current
+        : store.providers.find((p) => p.models?.some((m) => m.id === model))
     const resolved = owner ? pricingForProvider(owner, model) : current ? pricingForProvider(current, model) : null
     if (pricingMemo.size >= PRICING_MEMO_MAX) {
       const oldest = pricingMemo.keys().next().value
