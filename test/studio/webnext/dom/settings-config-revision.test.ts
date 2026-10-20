@@ -57,7 +57,12 @@ vi.mock('../../../../src/studio/web-next/src/stores/workspace', () => ({
 vi.mock('lucide-vue-next', () => new Proxy({}, { get: () => ({ template: '<i/>' }) }))
 
 import SettingsModal from '../../../../src/studio/web-next/src/components/ui/SettingsModal.vue'
-import { SAVE_CONFIG_KEY, type SaveConfig } from '../../../../src/studio/web-next/src/components/ui/settings-context'
+import {
+  SAVE_CONFIG_KEY,
+  SAVE_FAILURES_KEY,
+  type SaveConfig,
+} from '../../../../src/studio/web-next/src/components/ui/settings-context'
+import type { Ref } from 'vue'
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -65,7 +70,11 @@ beforeEach(() => {
 })
 
 /** 挂壳（tab 子组件全 stub——测试点在 provide 的 saveConfig，不在任何 tab 内容）。 */
-function mountModal(): { save: SaveConfig; unmount: () => void } {
+function mountModal(): {
+  save: SaveConfig
+  unmount: () => void
+  failures: Ref<Map<string, string>>
+} {
   const w = mount(SettingsModal, {
     global: {
       stubs: {
@@ -81,11 +90,12 @@ function mountModal(): { save: SaveConfig; unmount: () => void } {
       },
     },
   })
-  const save = (w.vm.$ as unknown as { provides: Record<symbol, unknown> }).provides[
-    SAVE_CONFIG_KEY as unknown as symbol
-  ] as SaveConfig
+  const provides = (w.vm.$ as unknown as { provides: Record<symbol, unknown> }).provides
+  const save = provides[SAVE_CONFIG_KEY as unknown as symbol] as SaveConfig
+  const failures = provides[SAVE_FAILURES_KEY as unknown as symbol] as Ref<Map<string, string>>
   expect(typeof save).toBe('function')
-  return { save, unmount: () => w.unmount() }
+  expect(failures).toBeDefined()
+  return { save, unmount: () => w.unmount(), failures }
 }
 
 describe('R34D-25: SettingsModal saveConfig 乐观锁穿线', () => {
@@ -131,6 +141,48 @@ describe('R34D-25: SettingsModal saveConfig 乐观锁穿线', () => {
 
     expect(mocks.putConfig).toHaveBeenCalledWith('书A', expect.anything(), 7)
     expect(mocks.toast).toHaveBeenCalledWith('书籍配置已在其他窗口被修改，请刷新', 'error')
+    unmount()
+  })
+
+  // 写失败后 UI 已置位而 book.yaml 未变——不标记的话作者眼里「已生效」与「没存上」
+  // 长得一模一样。不做自动回滚（多窗口下回滚会覆盖他窗刚写的值），只如实登记。
+  it('写失败 → 该设置项进未保存清单并带项名；同一项重存成功即销账', async () => {
+    mocks.getConfigWithRevision.mockResolvedValue({
+      config: { book: { title: '原标题' } } as BookConfig,
+      revision: 7,
+    })
+    mocks.putConfig.mockRejectedValueOnce(Object.assign(new Error('磁盘只读'), { status: 500 }))
+    const { save, unmount, failures } = mountModal()
+
+    const ok = await save(
+      (cfg) => {
+        cfg.book = { ...(cfg.book ?? {}), genre: '玄幻' }
+      },
+      { label: '题材' },
+    )
+    expect(ok).toBe(false)
+    expect(failures.value.get('题材')).toBe('磁盘只读')
+
+    // 重做一次并成功 → 该项自动销账（不留「已修好但仍显示未保存」的假警告）
+    mocks.putConfig.mockResolvedValue(undefined)
+    const ok2 = await save(
+      (cfg) => {
+        cfg.book = { ...(cfg.book ?? {}), genre: '玄幻' }
+      },
+      { label: '题材' },
+    )
+    expect(ok2).toBe(true)
+    expect(failures.value.has('题材')).toBe(false)
+    unmount()
+  })
+
+  it('未给 label 的失败归入 book.yaml（不丢进无名桶）', async () => {
+    mocks.getConfigWithRevision.mockResolvedValue({ config: {} as BookConfig, revision: 1 })
+    mocks.putConfig.mockRejectedValue(new Error('写盘失败'))
+    const { save, unmount, failures } = mountModal()
+
+    await save(() => {})
+    expect(failures.value.get('book.yaml')).toBe('写盘失败')
     unmount()
   })
 })

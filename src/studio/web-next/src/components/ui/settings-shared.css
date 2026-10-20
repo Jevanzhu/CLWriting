@@ -231,6 +231,46 @@
   min-height: 100%;
 }
 
+/* 未保存项提示条：写失败时面板控件已显示新值而 book.yaml 未变——这条是作者唯一能看出
+   「没存上」的地方，故用警示色、常驻、不给关闭按钮（它本身就是待办）。
+   失败原因（服务端 409 / 解析错误）可能很长，故允许任意处折行而非横向滚动——
+   撑宽会把右侧设置项挤出可视区。 */
+.settings-content .save-failures {
+  margin-bottom: var(--size-4-4);
+  padding: var(--size-4-3) var(--size-4-4);
+  border: 1px solid var(--text-error);
+  border-left-width: 3px;
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--text-error) 8%, transparent);
+}
+.settings-content .save-failures-title {
+  display: block;
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  color: var(--text-error);
+}
+.settings-content .save-failures-list {
+  margin: var(--size-4-1) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+.settings-content .save-failures-list li {
+  display: flex;
+  gap: var(--size-4-2);
+  line-height: 1.5;
+}
+.settings-content .save-failures-label {
+  flex-shrink: 0;
+  color: var(--text-normal);
+  font-weight: 500;
+}
+.settings-content .save-failures-reason {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* tab 切换过渡（并行模式）：离开面板绝对定位浮于上层 → 与进入面板交叉淡出，无双面板堆叠。
    离开快（120ms 消失）→ 进入缓（200ms 浮现），形成干净的前后交接感。 */
 .tab-fade-enter-active {

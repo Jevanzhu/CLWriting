@@ -24,7 +24,7 @@ import { notifyCrossWindow } from '../../shared/cross-window'
 import { friendlyError } from '../../shared/error'
 import { afterPaint } from '../../shared/after-paint'
 import { useFocusTrap } from '../../composables/useFocusTrap'
-import { SAVE_CONFIG_KEY } from './settings-context'
+import { SAVE_CONFIG_KEY, SAVE_FAILURES_KEY, type SaveConfigOpts } from './settings-context'
 import { isImeComposing } from '../../shared/ime'
 import ModalMask from './ModalMask.vue'
 // settings-shared.css 已提升至 main.ts 全局装载——.val/.save-btn 等共享类被设置域外
@@ -107,6 +107,12 @@ const tabComponents = {
 const currentTabComponent = computed(() => tabComponents[activeTab.value])
 
 // 容器：管理 tab 切换 + 提供 saveConfig（串行化读写 book.yaml）。
+/** 未保存项清单（项名 → 失败原因）——写失败时登记、成功时销账，容器面渲染成常驻提示条。
+ *  为什么不自动回滚：多窗口并发下 A 窗口回滚可能覆盖 B 窗口刚写的值，比不回滚更坏；
+ *  而「显示着新值却什么都没存」是静默错误，故改为如实标记。 */
+const saveFailures = ref(new Map<string, string>())
+provide(SAVE_FAILURES_KEY, saveFailures)
+
 /** 通用：读 → 改 → 写 book.yaml。silent=true 不弹 toast（range 拖动等高频场景）。
  * 串行化防竞态——快速连续修改时 getConfig 可能在前一 putConfig 完成前发出，
  * 读到旧值覆盖前一修改。用 Promise 队列保证读改写原子序列。
@@ -117,24 +123,38 @@ const currentTabComponent = computed(() => tabComponents[activeTab.value])
  * 读写走 getConfigWithRevision/putConfig 原语（本处必须拿 revision 做乐观锁，
  * 故不经书级配置读缓存 loadBookConfig——那只服务「读一眼配置」的消费方）。
  * 写入落定即失效本窗缓存 + 广播 book-config 失效：书内消费方（目标字数等）须见新值，
- * 他窗只丢缓存、值各自重取。 */
+ * 他窗只丢缓存、值各自重取。
+ * 失败面：登记进 saveFailures（项名取 opts.label）并 toast，返回 false；
+ * 成功则销掉该项的登记——作者重做一次即自动清除标记，不需要额外的「我知道了」。 */
 let saveChain: Promise<void> = Promise.resolve()
-function saveConfig(mutate: (cfg: BookConfig) => void, silent = false): Promise<void> {
+async function saveConfig(mutate: (cfg: BookConfig) => void, opts: SaveConfigOpts = {}): Promise<boolean> {
+  // 书名在**调用时**取值：排队期间作者切书时，这一次改动仍落在发起它的那本书上，
+  // 不会因为队列延后而写进新书
   const name = ws.bookName
-  if (!name) return Promise.resolve()
-  saveChain = saveChain.then(async () => {
+  if (!name) return false
+  const label = opts.label ?? 'book.yaml'
+  let saved = false
+  // 队列句柄取局部量再 await：`saveChain` 会在下一次调用时被重新赋值，直接 await 它会
+  // 变成等后面的那次（先到的调用被后来的调用拖住，返回值的归属也就错了）
+  const run = saveChain.then(async () => {
     try {
       const { config: cfg, revision } = await getConfigWithRevision(name)
       mutate(cfg)
       await putConfig(name, cfg, revision)
       ws.invalidateBookConfig(name)
       notifyCrossWindow(['book-config'])
-      if (!silent) ui.toast('已保存', 'success')
+      saveFailures.value.delete(label)
+      saved = true
+      if (!opts.silent) ui.toast('已保存', 'success')
     } catch (e) {
-      ui.toast(friendlyError(e), 'error')
+      const reason = friendlyError(e)
+      saveFailures.value.set(label, reason)
+      ui.toast(reason, 'error')
     }
   })
-  return saveChain
+  saveChain = run
+  await run
+  return saved
 }
 provide(SAVE_CONFIG_KEY, saveConfig)
 
@@ -229,6 +249,19 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
           <!-- 右侧设置内容：data-tab-scope 驱动整页徽章（book 页条目得「本书」，其余 9 页得「全局」） -->
           <div class="settings-content" :data-tab-scope="tabScope">
+            <!-- 未保存项提示条：写失败时面板上的控件已显示新值而 book.yaml 未变，
+                 不在这里如实说的话，作者眼里「已生效」与「没存上」长得一模一样。
+                 常驻到该项重存成功（saveConfig 成功即销账），不设关闭按钮——
+                 它的存在本身就是待办。 -->
+            <div v-if="saveFailures.size" class="save-failures" role="alert">
+              <span class="save-failures-title">{{ saveFailures.size }} 项修改未保存</span>
+              <ul class="save-failures-list">
+                <li v-for="[label, reason] in [...saveFailures]" :key="label">
+                  <span class="save-failures-label">{{ label }}</span>
+                  <span class="save-failures-reason">{{ reason }}</span>
+                </li>
+              </ul>
+            </div>
             <div class="tab-pane">
               <!-- mode="out-in" + keep-alive +:key 是 Vue 3 已知竞态组合：
                    快速切 tab 时缓存命中跳过挂载，但过渡仍等离开动画 → 内容区永久空白。
