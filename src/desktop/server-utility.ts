@@ -154,10 +154,10 @@ export function runUtilityEntry(
   watchParentLiveness(parentPort, shutdownAndExit, deps.parentLiveness)
   // main → child：shutdown 指令（before-quit 下发）
   parentPort.on('message', (event: { data?: unknown }) => {
-    const msg = event.data as { type?: string; result?: unknown } | undefined
+    const msg = event.data as { type?: string; result?: unknown; meta?: unknown } | undefined
     // 更新检查结果下发（主进程跑完检查后送；见文件头「更新检查归主进程」）
     if (msg?.type === UPDATE_RESULT_MESSAGE_TYPE) {
-      applyUpdateCheckResult(parsePushedUpdateCheckResult(msg.result))
+      applyUpdateCheckResult(parsePushedUpdateCheckResult(msg.result), msg.meta)
       return
     }
     if (msg?.type !== 'shutdown') return

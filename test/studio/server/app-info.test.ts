@@ -21,6 +21,7 @@ import {
   getUpdateCheckState,
   __resetUpdateCheckForTest,
   __setUpdateCheckResultForTest,
+  applyUpdateCheckResult,
   UPDATE_CHECK_DISABLE_ENV,
 } from '../../../src/update/check.js'
 import { UPDATE_CACHE_DIRNAME, UPDATE_RESULT_FILENAME } from '../../../src/update/cache.js'
@@ -49,6 +50,7 @@ interface AppInfo {
   version?: string
   update?: { version: string; url: string; asset: unknown; checksumsUrl: string | null } | null
   updateAttempt?: { outcome: string; reason: string; from: string; to: string; at: string } | null
+  updateCheck?: { state: string; checkedAt: number | null; lastError: string | null }
 }
 
 async function bootReady(): Promise<{ baseUrl: string; userData: string }> {
@@ -92,6 +94,21 @@ describe('GET /api/app-info（阶段 53 S2）', () => {
     expect(r.body.update).toBeNull()
     expect(r.body.updateAttempt).toBeNull()
     expect(r.body.version).toMatch(/^\d+\.\d+\.\d+/)
+  })
+
+  // 检查过程态随端点下浮：前端「上次检查」文案与按钮「检查中」都靠它，缺则手动按钮点了
+  // 界面无从反馈（只剩按钮自己转一下，用户以为没生效）。
+  it('检查元信息：未跑过时 state=idle、checkedAt=null；落定后带时刻', async () => {
+    const { baseUrl } = await bootReady()
+    const before = await getAppInfo(baseUrl)
+    expect(before.body.updateCheck).toEqual({ state: 'idle', checkedAt: null, lastError: null })
+    applyUpdateCheckResult(null)
+    const after = await getAppInfo(baseUrl)
+    const meta = after.body.updateCheck
+    expect(meta).toBeDefined()
+    expect(meta!.state).toBe('done')
+    expect(typeof meta!.checkedAt).toBe('number')
+    expect(meta!.lastError).toBeNull()
   })
 
   it('有更新态：update = { version, url, asset, checksumsUrl }（去 v + release tag 页）', async () => {

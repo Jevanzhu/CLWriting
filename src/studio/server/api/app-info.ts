@@ -1,10 +1,10 @@
 /**
  * 阶段 53：应用信息端点（`GET /api/app-info`）；阶段 55 扩更新链两字段。
  *
- * 无入参、无凭据落地：回 `{ version, update, updateAttempt }`——`version` 走 update/check
- * 的版本单源（env `CLW_APP_VERSION` 优先，缺省回退 package.json），`update` 为进程内
- * 检查结果（含便携资产面；`null` = 未完成或已查无新版），`updateAttempt` 为上次更新
- * 尝试的结果条（见下）。
+ * 无入参、无凭据落地：回 `{ version, update, updateAttempt, updateCheck }`——`version` 走
+ * update/check 的版本单源（env `CLW_APP_VERSION` 优先，缺省回退 package.json），`update` 为
+ * 进程内检查结果（含便携资产面；`null` = 未完成或已查无新版），`updateAttempt` 为上次更新
+ * 尝试的结果条（见下），`updateCheck` 为检查过程态（状态 / 上次落定时刻 / 上次失败原因）。
  *
  * 端点不持任何检查状态：检查由起服链延迟触发（`src/studio/server/index.ts`），
  * 本端点只是读口——故无需 ctx（与 registerStartupNoticeRoutes 需 sink 的区别）。
@@ -18,7 +18,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { reply } from '../http.js'
-import { resolveAppVersion, getUpdateCheckResult } from '../../../update/check.js'
+import { resolveAppVersion, getUpdateCheckMeta, getUpdateCheckResult, getUpdateCheckState } from '../../../update/check.js'
 import { takeUpdateAttemptNote } from '../../../update/cache.js'
 
 export function registerAppInfoRoutes(opts: { userDataPath: string | null }): void {
@@ -27,10 +27,18 @@ export function registerAppInfoRoutes(opts: { userDataPath: string | null }): vo
     path: '/api/app-info',
     handler: (_ctx, _req: IncomingMessage, res: ServerResponse) => {
       const note = opts.userDataPath ? takeUpdateAttemptNote(opts.userDataPath) : null
+      const meta = getUpdateCheckMeta()
       reply(res, 200, {
         version: resolveAppVersion(),
         update: getUpdateCheckResult(),
         updateAttempt: note && note.outcome !== 'applied' ? note : null,
+        // 检查元信息（只加不改：老前端忽略此字段即可）。`checkedAt` 供「上次检查」文案，
+        // `state` 供按钮在在飞期间显示「检查中」——两者都是过程态，不进结果契约。
+        updateCheck: {
+          state: getUpdateCheckState(),
+          checkedAt: meta.checkedAt,
+          lastError: meta.lastError,
+        },
       })
     },
   })

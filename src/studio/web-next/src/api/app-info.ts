@@ -44,6 +44,16 @@ export interface UpdateAttempt {
     | 'unknown'
 }
 
+/** 检查过程态（服务端 getUpdateCheckState + meta；结果本身在 `update` 里）。 */
+export interface UpdateCheckMeta {
+  /** `idle` = 从未跑过；`checking` = 正在出站；`done` = 已落定 */
+  state: 'idle' | 'checking' | 'done'
+  /** 上次落定时刻（epoch ms）；null = 从未落定 */
+  checkedAt: number | null
+  /** 上次失败原因（success 或未跑时为 null） */
+  lastError: string | null
+}
+
 export interface AppInfo {
   /** 当前应用版本（服务端 resolveAppVersion：env 注入优先，缺省 package.json） */
   version: string
@@ -51,9 +61,11 @@ export interface AppInfo {
   update: UpdateInfo | null
   /** 上次更新未完成的说明（无则 null；服务端取一次即删） */
   updateAttempt: UpdateAttempt | null
+  /** 检查过程态（老服务端无此字段——读侧按缺省 `idle` 兜底） */
+  updateCheck?: UpdateCheckMeta
 }
 
-/** GET /api/app-info → { version, update, updateAttempt } */
+/** GET /api/app-info → { version, update, updateAttempt, updateCheck } */
 export async function getAppInfo(): Promise<AppInfo> {
   return await apiJson<AppInfo>('/api/app-info')
 }

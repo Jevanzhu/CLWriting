@@ -71,8 +71,21 @@ export interface LatestRelease {
  *  换装 testableConst 工厂——生产写入/读取与测试注入走同一元组，模块面无裸可变量。
  * 写入两路：主进程跑完经 parentPort 下发（`applyUpdateCheckResult`，生产唯一路径）；
  * 测试直置（`__setUpdateCheckResultForTest`）。子进程不自行出站，见文件头。 */
-const [getCheckState, setCheckState] = testableConst<'idle' | 'done'>('idle')
+
+/** 检查状态：`checking` 只在一次检查在飞期间成立（手动入口据此禁用按钮并回「检查中」）。 */
+export type UpdateCheckState = 'idle' | 'checking' | 'done'
+
+/** 检查元信息：落定时刻与失败计（调度侧节流/退避、端点侧「上次检查」文案共用）。
+ *  `checkedAt` 为 null 即从未落定；`failures` 连续成功一次即清零。 */
+export interface UpdateCheckMeta {
+  checkedAt: number | null
+  lastError: string | null
+  failures: number
+}
+
+const [getCheckState, setCheckState] = testableConst<UpdateCheckState>('idle')
 const [getCheckResult, setCheckResult] = testableConst<UpdateCheckResult | null>(null)
+const [getCheckMeta, setCheckMeta] = testableConst<UpdateCheckMeta>({ checkedAt: null, lastError: null, failures: 0 })
 
 /**
  * 当前版本号**单源**（设计 §3.1）：`CLW_APP_VERSION`（主进程 app.getVersion 经
@@ -161,13 +174,19 @@ export async function runUpdateCheckOnce(opts?: {
   if (process.env[UPDATE_CHECK_DISABLE_ENV] === '1') return
 
   const current = opts?.currentVersion ?? resolveAppVersion()
+  // 在飞态先行：手动入口据此回「检查中」，且调度侧不再叠加第二次出站
+  setCheckState('checking')
   const outcome = await resolveLatestRelease(opts?.fetchImpl ?? fetch, opts?.timeoutMs ?? UPDATE_CHECK_TIMEOUT_MS)
   setCheckState('done')
   if (outcome.kind === 'error') {
-    // 静默口径（§3.3）：只留一行 info（非 warn）——详见文件头与 embed.ts 的差异说明
+    // 静默口径（§3.3）：只留一行 info（非 warn）——详见文件头与 embed.ts 的差异说明。
+    // 失败计进元信息供调度侧退避；连续失败不清零，成功路径才清。
+    const prev = getCheckMeta()
+    setCheckMeta({ checkedAt: Date.now(), lastError: outcome.reason, failures: prev.failures + 1 })
     log.info('update', `更新检查未完成（${outcome.reason}）——静默跳过，不重试`)
     return
   }
+  setCheckMeta({ checkedAt: Date.now(), lastError: null, failures: 0 })
   if (outcome.kind === 'none' || current === '0.0.0') return
   if (compareSemver(current, outcome.release.tag) >= 0) return
   const version = outcome.release.tag.replace(/^v/, '')
@@ -194,10 +213,26 @@ export function getUpdateCheckResult(): UpdateCheckResult | null {
  *  `server-utility` 收）。只在检查真跑完后下发——收到即「已检查」，result null 即无新版。 */
 export const UPDATE_RESULT_MESSAGE_TYPE = 'update-check-result'
 
-/** 下发消息载荷（`{ type, result }`；result 形状校验见 `parsePushedUpdateCheckResult`） */
+/** 下发消息载荷（`{ type, result, meta }`；result 形状校验见 `parsePushedUpdateCheckResult`，
+ *  meta 见 `parsePushedCheckMeta`）。`meta` 可选：缺省时 child 按接收时刻兜底。 */
 export interface UpdateResultMessage {
   type: typeof UPDATE_RESULT_MESSAGE_TYPE
   result: unknown
+  meta?: unknown
+}
+
+/** 下发载荷的元信息 → 内部形态（形状抽查后收下；不合形回 null 由调用方按接收时刻兜底）。
+ *  与 result 同一条契约：本方主进程构造，此处只防字段漂移与半截对象。 */
+export function parsePushedCheckMeta(raw: unknown): UpdateCheckMeta | null {
+  if (raw === null || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+  const checkedAt = r['checkedAt']
+  const lastError = r['lastError'] ?? null
+  const failures = r['failures']
+  if (checkedAt !== null && typeof checkedAt !== 'number') return null
+  if (lastError !== null && typeof lastError !== 'string') return null
+  if (typeof failures !== 'number' || !Number.isInteger(failures) || failures < 0) return null
+  return { checkedAt, lastError, failures }
 }
 
 /**
@@ -233,27 +268,41 @@ export function parsePushedUpdateCheckResult(raw: unknown): UpdateCheckResult | 
 }
 
 /** 落主进程下发的检查结果（子进程侧生产写入唯一路径；收到即「已检查」——内部自跑已随
- *  迁主进程移除，端点三态语义不变）。 */
-export function applyUpdateCheckResult(result: UpdateCheckResult | null): void {
+ *  迁主进程移除，端点三态语义不变）。`meta` 缺省（老载荷）时按接收时刻兜底：落定时刻
+ *  对端点只用于「上次检查」文案，毫秒级延迟不影响语义。 */
+export function applyUpdateCheckResult(result: UpdateCheckResult | null, meta?: unknown): void {
   setCheckState('done')
   setCheckResult(result)
+  setCheckMeta(parsePushedCheckMeta(meta) ?? { checkedAt: Date.now(), lastError: null, failures: 0 })
+}
+
+/** 检查元信息（端点「上次检查」与调度节流/退避共用同一份） */
+export function getUpdateCheckMeta(): UpdateCheckMeta {
+  return getCheckMeta()
 }
 
 /** 测试钩子：复位为未完成态（模块内存态跨用例隔离用） */
 export function __resetUpdateCheckForTest(): void {
   setCheckState('idle')
   setCheckResult(null)
+  setCheckMeta({ checkedAt: null, lastError: null, failures: 0 })
 }
 
 /** 测试钩子：直接置于「已查到某版本」态（端点三态形状用例用，不打网） */
 export function __setUpdateCheckResultForTest(next: UpdateCheckResult | null): void {
   setCheckState('done')
   setCheckResult(next)
+  setCheckMeta({ checkedAt: Date.now(), lastError: null, failures: 0 })
+}
+
+/** 测试钩子：直置元信息（退避与节流用例绕开真实时钟） */
+export function __setUpdateCheckMetaForTest(next: UpdateCheckMeta): void {
+  setCheckMeta(next)
 }
 
 /** 检查是否已跑过（端点 update 三态判定「未完成」与测试判别用）。
  *  生产路由不直接调它——端点读 getUpdateCheckResult 的 null 即「未完成/查无新版」
  *  合并态；本函数只被测试用作非空基断言（= 检查真跑过而非被开关短路）。 */
-export function getUpdateCheckState(): 'idle' | 'done' {
+export function getUpdateCheckState(): UpdateCheckState {
   return getCheckState()
 }
