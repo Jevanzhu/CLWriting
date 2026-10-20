@@ -109,6 +109,58 @@ describe('R0916-7-P3-26: --text-warning 不留回退值', () => {
   })
 })
 
+// 「已省略 N 条」提示行在 9 个组件里各写一份，收敛前实测漂移：字号 xs(11px)/xxs(10px)
+// 两档混用、内距 padding 与 padding-left/padding-top/margin-left 四种写法、font-style
+// 缺两处。同一语义的提示行给出四种视觉，读者无从判断是「样式不同」还是「含义不同」。
+//
+// 判据分两层，缺一层都漏：
+//   ①语义属性（颜色/字号/斜体）只许在 utilities.css 出现——组件里再写即红；
+//   ②布局属性（内距/外边距/cursor）各随容器，允许留，但必须留在组件里，不许写进
+//     utilities.css（否则全局内距会串味到所有调用方）。
+describe('省略提示行 .cap-hint 语义单源', () => {
+  const SEMANTIC = ['color', 'font-size', 'font-style', 'font-weight']
+  const UTILITIES_CAP = `${UTILITIES}`
+
+  /** 取出某文件里 .cap-hint 规则块的声明体（无该块返回 null）。 */
+  function capHintBody(rel: string): string | null {
+    const block = ruleBlocks(readRules(rel)).find(({ selector }) => /^\.cap-hint$/.test(selector.trim()))
+    return block?.body ?? null
+  }
+
+  it('语义属性只在 utilities.css 定义，组件内不得再出现', () => {
+    const offenders: string[] = []
+    for (const rel of files) {
+      if (rel === UTILITIES_CAP) continue
+      const body = capHintBody(rel)
+      if (body === null) continue
+      const hit = SEMANTIC.filter((prop) => new RegExp(`(?:^|[;{\\s])${prop}\\s*:`).test(body))
+      if (hit.length > 0) offenders.push(`${rel} 里 .cap-hint 仍声明 ${hit.join(' / ')}`)
+    }
+    expect(
+      offenders,
+      '省略提示行的颜色/字号/斜体是「同一语义同形」的部分，只能在 styles/utilities.css 定义；' +
+        '组件 scoped 块只留内距/外边距/cursor 这类随容器变化的布局覆盖:\n' +
+        offenders.join('\n'),
+    ).toEqual([])
+  })
+
+  it('utilities.css 的 .cap-hint 三项语义齐备（漏一项则组件必须自己补，单源即破）', () => {
+    const body = capHintBody(UTILITIES_CAP)
+    expect(body, `styles/utilities.css 缺 .cap-hint 定义`).not.toBeNull()
+    for (const prop of ['color', 'font-size', 'font-style']) {
+      expect(body, `utilities.css 的 .cap-hint 缺 ${prop}`).toMatch(new RegExp(`(?:^|[;{\\s])${prop}\\s*:`))
+    }
+  })
+
+  it('内距类布局属性不得写进 utilities.css 的 .cap-hint（全局内距会串味到全部调用方）', () => {
+    const body = capHintBody(UTILITIES_CAP) ?? ''
+    const layout = ['padding', 'padding-left', 'padding-top', 'margin', 'margin-left', 'cursor'].filter((prop) =>
+      new RegExp(`(?:^|[;{\\s])${prop}\\s*:`).test(body),
+    )
+    expect(layout, `utilities.css 的 .cap-hint 不应带布局属性：${layout.join(' / ')}`).toEqual([])
+  })
+})
+
 /**
  * 章节六态状态点的色类（dot-green|red|yellow|gray）单源。
  *
@@ -168,6 +220,55 @@ describe('书架两壳交互同形（整页 / 浮层）', () => {
       expect(src, `${label} 缺提示文本里的「对全集生效」语义`).toContain('批量操作对全集生效')
       // 样式类两壳同名：形态不一致本身就是功能差（字号/颜色取舍不同）
       expect(src, `${label} 缺 .sel-all-hint 样式类`).toMatch(/\.sel-all-hint\s*\{/)
+    }
+  })
+})
+
+// 「智能分析」有两页：全局默认页（SettingsAnalysis）与本书覆盖页（SettingsBookAnalysis）。
+// 两页**不是重复实现**——实测标签序列不同（全局 34 / 本书 25），全局直写 prefs store
+// （0 处 saveConfig、含 5 个数值阈值项），本书走「本书使用独立设定」覆盖开关 + 15 处
+// saveConfig 写 book.yaml，没有那 5 个阈值项。合并会把两条失败语义不同的写路径揉进同一个
+// 组件的条件分支，去重收益为零。
+//
+// 但两页必须覆盖**同一组组名**（同一功能在两层各有入口）——一边加组、另一边忘加，作者在
+// 那一层就找不到设置，而两页各自看着都正常。本组锚定这条同集约束。
+describe('智能分析两页组名同集（全局默认 / 本书覆盖）', () => {
+  const PAGES = {
+    global: 'components/ui/SettingsAnalysis.vue',
+    book: 'components/ui/SettingsBookAnalysis.vue',
+  } as const
+
+  /** 抽模板里 cfg-card-head 的组名文本（去掉尾部徽章等子元素）。 */
+  function groupNames(rel: string): string[] {
+    const src = read(rel)
+    const out: string[] = []
+    for (const m of src.matchAll(/class="cfg-card-head"[^>]*>([\s\S]*?)<\/div>/g)) {
+      const text = (m[1] ?? '')
+        .replace(/<[^>]*>/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+      if (text !== '') out.push(text)
+    }
+    return out
+  }
+
+  it('两页组名集合相同（顺序不限——全局页把知识层排在关系图之前）', () => {
+    const g = groupNames(PAGES.global)
+    const b = groupNames(PAGES.book)
+    expect(g.length, `全局页没取到组名，扫描面可能失效`).toBeGreaterThan(0)
+    expect([...g].sort(), `全局页组名：${g.join(' / ')}；本书页组名：${b.join(' / ')}`).toEqual([...b].sort())
+  })
+
+  it('四个已知组都在两页里各出现一次（组名改名即红）', () => {
+    const expected = ['AI 机检', '关系图', '知识检索', '知识层']
+    for (const [label, rel] of Object.entries(PAGES)) {
+      const names = groupNames(rel)
+      for (const name of expected) {
+        expect(
+          names.filter((n) => n === name),
+          `${label} 缺组「${name}」（或重复）`,
+        ).toHaveLength(1)
+      }
     }
   })
 })
