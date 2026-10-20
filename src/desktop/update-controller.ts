@@ -26,11 +26,13 @@ import { errMsg, log } from '../log/index.js'
 import { appDataHomeDir, instanceKeyForDir } from '../fs/user-data-path.js'
 import { compareSemver } from '../update/semver.js'
 import {
+  getUpdateCheckMeta,
   getUpdateCheckResult,
   getUpdateCheckState,
   resolveLatestRelease,
   runUpdateCheckOnce,
   UPDATE_CHECK_DELAY_MS,
+  UPDATE_CHECK_DISABLE_ENV,
   UPDATE_RESULT_MESSAGE_TYPE,
   type LatestReleaseOutcome,
 } from '../update/check.js'
@@ -469,6 +471,41 @@ export function scheduleUpdateMaintenance(): void {
 
 // ── 更新检查宿主（主进程侧）────────────────────────────
 
+/** 周期检查间隔：6 小时。GitHub 未认证 API 限流 60 请求/小时/IP，此值一天至多 4 次出站，
+ *  余量极大；独立软件的发版频率远低于此，再密没有收益。 */
+export const UPDATE_RECHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
+
+/** 调度 tick 粒度：60 秒。**不用 6 小时长定时器**——系统休眠时 Node 定时器不走，醒来后
+ *  首个 tick 即由「距上次落定已超期」判定补跑，长定时器则要再等满一个周期。tick 本身只做
+ *  一次数字比较，开销可忽略。 */
+export const UPDATE_CHECK_TICK_MS = 60 * 1000
+
+/** 自动触发的最小间隔（防多触发源叠加与频繁重启抖动）：5 分钟 */
+export const UPDATE_AUTO_MIN_GAP_MS = 5 * 60 * 1000
+
+/** 手动触发的最小间隔（防连点）：30 秒。窗口内点击回「刚刚检查过」而非静默不出站。 */
+export const UPDATE_MANUAL_MIN_GAP_MS = 30 * 1000
+
+/** 连续失败后的退避间隔（下标 = 连续失败次数 - 1，末位封顶）：断网或被墙时不再按 6 小时
+ *  死磕，一次成功即回到正常周期。 */
+export const UPDATE_BACKOFF_MS = [
+  30 * 60 * 1000,
+  60 * 60 * 1000,
+  2 * 60 * 60 * 1000,
+  4 * 60 * 60 * 1000,
+  8 * 60 * 60 * 1000,
+  16 * 60 * 60 * 1000,
+  24 * 60 * 60 * 1000,
+] as const
+
+/** 手动入口的结局（前端据 reason 区分「检查中」「刚刚检查过」「已禁用」三种回执） */
+export type UpdateCheckNowResult =
+  { ok: true; hasUpdate: boolean; error: string | null } | { ok: false; reason: 'checking' | 'tooSoon' | 'disabled' }
+
+/** IPC 回执：`unavailable` 只由 ipc 层在宿主未登记（尚未 bootstrap）时合成，
+ *  `checkNow` 自身不产生它——两者分开，免得宿主侧多出一个永不发生的分支。 */
+export type UpdateCheckReply = UpdateCheckNowResult | { ok: false; reason: 'unavailable' }
+
 export interface UpdateCheckHostDeps {
   /** 结果下发通道（main 接 `serverManager.postMessage`）；返回是否送达 */
   push: (message: unknown) => boolean
@@ -477,14 +514,22 @@ export interface UpdateCheckHostDeps {
   /** 检查实现（缺省真件：`netFetch` 走 Chromium 网络栈受系统代理，与下载腿同通道）；
    *  测试注入桩免打网 */
   runCheck?: () => Promise<void>
+  /** 时钟（测试注入假时钟；缺省 Date.now） */
+  now?: () => number
 }
 
 export interface UpdateCheckHost {
-  /** 延迟跑一次检查并下发结果（幂等：本 app 生命周期只排一次；缺省延时 UPDATE_CHECK_DELAY_MS） */
+  /** 延迟跑一次检查并下发结果（幂等：本 app 生命周期只排一次；缺省延时 UPDATE_CHECK_DELAY_MS）。
+   *  同时启动周期 tick——首次排程是启动那一刀，tick 负责之后的周期与唤醒补跑。 */
   scheduleCheck(delayMs?: number): void
   /** 补发最近一次检查结果（child 崩溃重启 / session-end 自愈拉起新进程后调用——新 child 的
    *  模块态是空的，不补发则「已检查」结论随重启丢失）。返回是否送达。 */
   pushLastResult(): boolean
+  /** 立即检查一次（手动入口）。检查中 / 距上次落定不足手动间隔 / 开关关闭三种情形各自
+   *  回 reason，前端据此给回执而不是静默。 */
+  checkNow(): Promise<UpdateCheckNowResult>
+  /** 停表（app 退出时清 tick；幂等） */
+  stop(): void
 }
 
 /**
@@ -495,41 +540,121 @@ export interface UpdateCheckHost {
  * 代理。检查搬到主进程后两腿同通道，代理面一并收敛；子进程经 parentPort 收结果落态
  * （server-utility），端点（api/app-info.ts）仍是只读口。
  *
- * 下发时机两处：延迟跑完一次（scheduleCheck）；child 重启后补发（pushLastResult——见其注）。
- * 未跑过检查（未到点 / 开关短路）不下发：子进程保持「未完成」态，端点语义同从前。
+ * 下发时机三处：启动延迟跑完一次（scheduleCheck）；手动检查跑完（checkNow）；child 重启后
+ * 补发（pushLastResult——见其注）。未跑过检查（未到点 / 开关短路）不下发：子进程保持
+ * 「未完成」态，端点语义同从前。
+ *
+ * 出站闸：`inFlight` 保证任一时刻至多一次在飞——自动 tick 与手动点击可能同帧撞上，两者都
+ * 走 `runOnce`，后者见在飞即回「检查中」而不排队（排队会让连点攒出多次出站）。
  */
 export function createUpdateCheckHost(deps: UpdateCheckHostDeps): UpdateCheckHost {
   const currentVersion = deps.currentVersion ?? (() => app.getVersion())
+  const now = deps.now ?? (() => Date.now())
   const runCheck =
     deps.runCheck ?? (() => runUpdateCheckOnce({ fetchImpl: netFetch, currentVersion: currentVersion() }))
+  /** 启动那一刀是否已排（只闸启动路径，不闸手动与周期——手动入口必须能绕过它） */
   let scheduled = false
+  let inFlight = false
+  let ticker: ReturnType<typeof setInterval> | null = null
+  /** 首次落定前的基准时刻：未检查过时按「启动时刻 + 间隔」判超期，避免 `Date.now() - 0`
+   *  让首个 tick 立刻出站、与启动延迟那一刀撞车 */
+  const bootAt = now()
 
   const pushLastResult = (): boolean => {
     if (getUpdateCheckState() !== 'done') return false
-    const delivered = deps.push({ type: UPDATE_RESULT_MESSAGE_TYPE, result: getUpdateCheckResult() })
+    const delivered = deps.push({
+      type: UPDATE_RESULT_MESSAGE_TYPE,
+      result: getUpdateCheckResult(),
+      meta: getUpdateCheckMeta(),
+    })
     if (!delivered) {
       log.info('update', '更新检查结果未能下发子进程（服务不在位）——服务重启后会补发')
     }
     return delivered
   }
 
+  /** 跑一次并下发；在飞闸在此收口，异常只留痕不影响调用方 */
+  const runOnce = async (): Promise<void> => {
+    if (inFlight) return
+    inFlight = true
+    try {
+      await runCheck()
+      pushLastResult()
+    } catch (e) {
+      log.warn('update', `更新检查宿主异常（不影响主流程）：${errMsg(e)}`)
+    } finally {
+      inFlight = false
+    }
+  }
+
+  /** 距上次落定应等待的间隔：失败走退避，成功（或从未落定）走正常周期 */
+  const intervalOf = (): number => {
+    const meta = getUpdateCheckMeta()
+    if (meta.failures > 0) {
+      const idx = Math.min(meta.failures - 1, UPDATE_BACKOFF_MS.length - 1)
+      return UPDATE_BACKOFF_MS[idx]!
+    }
+    return UPDATE_RECHECK_INTERVAL_MS
+  }
+
+  const tick = (): void => {
+    if (inFlight) return
+    const meta = getUpdateCheckMeta()
+    const last = meta.checkedAt ?? bootAt
+    // 自动触发另设 5 分钟地板：退避档位最小也有 30 分钟，地板只防「落定后紧接着又被别的
+    // 触发源推一次」，与退避无关
+    const gap = Math.max(intervalOf(), UPDATE_AUTO_MIN_GAP_MS)
+    if (now() - last < gap) return
+    void runOnce()
+  }
+
   return {
     scheduleCheck(delayMs: number = UPDATE_CHECK_DELAY_MS): void {
-      // 本 app 生命周期只排一次：bootstrap 重跑（activate / 失败重试）不得重复出站——
-      // 检查结论在进程内是「一次」语义（原实现随 child 生命周期，现随 app 生命周期）
-      if (scheduled) return
-      scheduled = true
-      const timer = setTimeout(() => {
-        void runCheck()
-          .then(() => {
-            pushLastResult()
-          })
-          .catch((e) => {
-            log.warn('update', `更新检查宿主异常（不影响启动）：${errMsg(e)}`)
-          })
-      }, delayMs)
-      timer.unref?.()
+      // 启动那一刀只排一次：bootstrap 重跑（activate / 失败重试）不得重复出站
+      if (!scheduled) {
+        scheduled = true
+        const timer = setTimeout(() => {
+          void runOnce()
+        }, delayMs)
+        timer.unref?.()
+      }
+      // tick 同样只起一次；与启动那一刀并存（前者覆盖冷启动，后者覆盖长会话与唤醒补跑）
+      if (!ticker) {
+        ticker = setInterval(tick, UPDATE_CHECK_TICK_MS)
+        ticker.unref?.()
+      }
     },
     pushLastResult,
+    async checkNow(): Promise<UpdateCheckNowResult> {
+      if (process.env[UPDATE_CHECK_DISABLE_ENV] === '1') return { ok: false, reason: 'disabled' }
+      if (inFlight) return { ok: false, reason: 'checking' }
+      const meta = getUpdateCheckMeta()
+      if (meta.checkedAt !== null && now() - meta.checkedAt < UPDATE_MANUAL_MIN_GAP_MS) {
+        return { ok: false, reason: 'tooSoon' }
+      }
+      await runOnce()
+      const after = getUpdateCheckMeta()
+      return { ok: true, hasUpdate: getUpdateCheckResult() !== null, error: after.lastError }
+    },
+    stop(): void {
+      if (ticker) {
+        clearInterval(ticker)
+        ticker = null
+      }
+    },
   }
+}
+
+// ── 宿主单例（手动入口接线用）────────────────────────────
+// main 创建宿主后登记；ipc 层经 getter 取用——沿用 windows.ts 的「模块持状态 + ipc 直取」
+// 形态，不给 ipc.ts 加注入参数。未登记（dev 未起 / 尚未 bootstrap）时手动入口回「不可用」。
+
+let hostedCheck: UpdateCheckHost | null = null
+
+export function setUpdateCheckHost(next: UpdateCheckHost | null): void {
+  hostedCheck = next
+}
+
+export function getUpdateCheckHost(): UpdateCheckHost | null {
+  return hostedCheck
 }

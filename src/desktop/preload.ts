@@ -77,6 +77,13 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
    *  推平台结论（mac/linux 形态下载与安装面各自独立）。 */
   updateCapability: (): Promise<{ canDownload: boolean; canInstall: boolean }> =>
     ipcRenderer.invoke('desktop:update-capability'),
+  /** 立即跑一次更新检查（手动入口）。检查在主进程出站（net.fetch 受系统代理，与下载腿
+   *  同通道）；结果不下浮——渲染层收到回执后重读 `/api/app-info` 取正式结论。
+   *  `reason` 区分检查中 / 距上次过近 / 已禁用 / 宿主未就绪，前端据此给回执。 */
+  updateCheck: (): Promise<
+    | { ok: true; hasUpdate: boolean; error: string | null }
+    | { ok: false; reason: 'checking' | 'tooSoon' | 'disabled' | 'unavailable' }
+  > => ipcRenderer.invoke('desktop:update-check'),
   /** 阶段 55：下载便携包并校验（就绪后主进程持有「更新包就绪态」，供 updateApply 兑现）。
    *  进度经 onUpdateProgress 推送；返回值 = 本次下载的终态契约。 */
   updateDownload: (version: string): Promise<{ ok: true } | { ok: false; reason: string }> =>

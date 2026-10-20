@@ -61,7 +61,7 @@ import {
   runRecoverUpdateCli,
   runUpdateHelper,
 } from './update-helper.js' // 更新助手态 / 中断自愈态分流（见下）
-import { createUpdateCheckHost, scheduleUpdateMaintenance } from './update-controller.js' // 阶段 55 启动维护 + 更新检查宿主（检查归主进程，见 update-controller 注）
+import { createUpdateCheckHost, scheduleUpdateMaintenance, setUpdateCheckHost } from './update-controller.js' // 阶段 55 启动维护 + 更新检查宿主（检查归主进程，见 update-controller 注）
 
 // ── 更新助手态分流（阶段 55）──────────────────────────────
 /** 助手退出前等日志落盘的上限——盘面挂起时日志丢行可接受，助手被钉住退出前不可接受 */
@@ -579,9 +579,11 @@ async function bootstrap(): Promise<void> {
   scheduleAppDataTmpSweep()
   // 更新残留清扫（旧版本目录 / 旧版更新包；打包态才跑，见 update-controller 注）
   scheduleUpdateMaintenance()
-  // 更新检查宿主（延迟跑一次 + 结果下发子进程；检查走 net.fetch 与下载腿同通道受系统代理）
+  // 更新检查宿主（延迟跑一次 + 周期 tick + 结果下发子进程；检查走 net.fetch 与下载腿同通道
+  // 受系统代理）。登记进宿主单例，手动入口由 ipc 层经 getter 取用。
   if (!updateCheckHost) {
     updateCheckHost = createUpdateCheckHost({ push: (message) => serverManager.postMessage(message) })
+    setUpdateCheckHost(updateCheckHost)
   }
   updateCheckHost.scheduleCheck()
 }

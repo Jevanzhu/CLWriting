@@ -41,6 +41,8 @@ import {
   selfUpdateInstallCapable,
   startUpdateDownload,
 } from './update-controller.js' // 阶段 55：便携版自更新（能力/下载/应用三入口）
+import { getUpdateCheckHost } from './update-controller.js' // 手动检查入口：宿主单例由 main 登记
+import type { UpdateCheckReply } from './update-controller.js'
 import {
   canSwitchLibraryDir,
   currentWorkDir,
@@ -218,6 +220,13 @@ function registerUpdateIpc(): void {
     canDownload: selfUpdateDownloadCapable(),
     canInstall: selfUpdateInstallCapable(),
   }))
+  // 手动检查更新：跑在主进程（net.fetch 受系统代理，与下载腿同通道）。宿主未登记即
+  // 「未起来」——回 unavailable 而不是假装检查过，前端据此给「更新检查不可用」文案。
+  handleTrusted('desktop:update-check', async (): Promise<UpdateCheckReply> => {
+    const host = getUpdateCheckHost()
+    if (!host) return { ok: false, reason: 'unavailable' }
+    return host.checkNow()
+  })
   handleTrusted('desktop:update-download', (e, version: unknown) => {
     if (typeof version !== 'string' || version.trim() === '') return { ok: false as const, reason: '版本参数无效' }
     // 直接返回下载 Promise（不在本层 await——return-await 纪律：非 try 段不加 await）

@@ -9,7 +9,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { M, mkTmp, cleanupMainTmpDirs } from './main-fixtures.js'
 import {
   __getPendingUpdateForTest,
@@ -24,11 +24,15 @@ import {
   selfUpdateDownloadCapable,
   selfUpdateInstallCapable,
   startUpdateDownload,
+  UPDATE_CHECK_TICK_MS,
   UPDATE_DEV_FORCE_ENV,
+  UPDATE_MANUAL_MIN_GAP_MS,
+  UPDATE_RECHECK_INTERVAL_MS,
 } from '../../src/desktop/update-controller.js'
 import {
-  applyUpdateCheckResult,
   __resetUpdateCheckForTest,
+  applyUpdateCheckResult,
+  UPDATE_CHECK_DISABLE_ENV,
   UPDATE_RESULT_MESSAGE_TYPE,
 } from '../../src/update/check.js'
 import { updateCacheDir, updateCacheRoot, UPDATE_RESULT_FILENAME } from '../../src/update/cache.js'
@@ -596,7 +600,7 @@ describe('createUpdateCheckHost（主进程检查宿主：延迟跑一次 + 结�
     })
     h.scheduleCheck(0)
     await vi.waitFor(() => expect(pushed).toHaveLength(1))
-    expect(pushed[0]).toEqual({
+    expect(pushed[0]).toMatchObject({
       type: UPDATE_RESULT_MESSAGE_TYPE,
       result: {
         version: '1.2.3',
@@ -605,6 +609,8 @@ describe('createUpdateCheckHost（主进程检查宿主：延迟跑一次 + 结�
         checksumsUrl: null,
       },
     })
+    // 载荷随检查一并下发元信息（child 侧端点据此给「上次检查」）
+    expect(pushed[0]).toMatchObject({ meta: { lastError: null, failures: 0 } })
   })
 
   it('只排一次：重复 scheduleCheck（bootstrap 重跑形态）不二次出站', async () => {
@@ -676,6 +682,162 @@ describe('createUpdateCheckHost（主进程检查宿主：延迟跑一次 + 结�
       expect(pushed[0]).toMatchObject({ result: { version: '9.9.9' } })
     } finally {
       if (saved !== undefined) process.env['CLW_DISABLE_UPDATE_CHECK'] = saved
+    }
+  })
+})
+
+// 调度节奏（周期 / 节流 / 退避 / 手动入口）：全部走假时钟——真实定时器下 6 小时一档
+// 无法测，而这几条正是「开着应用不重启也能发现新版本」的全部依据。
+describe('createUpdateCheckHost 调度节奏（周期 / 节流 / 退避 / 手动入口）', () => {
+  let pushed: unknown[]
+  let runs: number
+  let savedDisable: string | undefined
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    // 全局 setup 把 CLW_DISABLE_UPDATE_CHECK 置 1（单测不打网的硬保证）——本组验的是调度
+    // 逻辑本身，须临时摘掉；disabled 用例自行置回。用例结束按原值还原。
+    savedDisable = process.env[UPDATE_CHECK_DISABLE_ENV]
+    delete process.env[UPDATE_CHECK_DISABLE_ENV]
+    pushed = []
+    runs = 0
+    __resetUpdateCheckForTest()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    if (savedDisable === undefined) delete process.env[UPDATE_CHECK_DISABLE_ENV]
+    else process.env[UPDATE_CHECK_DISABLE_ENV] = savedDisable
+  })
+
+  /** 打桩检查：计数 + 落一条「无新版」结果（pplyUpdateCheckResult(null) 即已检查且无新版） */
+  const counting = (opts: { fail?: boolean } = {}) =>
+    createUpdateCheckHost({
+      push: (message) => {
+        pushed.push(message)
+        return true
+      },
+      currentVersion: () => '1.0.0',
+      runCheck: async () => {
+        runs += 1
+        // 直接用生产写入路径（child 收到下发那条）造落定态，不另开测试钩子——
+        // 钩子数有全树锚，能用已有路径表达就不新增
+        applyUpdateCheckResult(null, {
+          checkedAt: Date.now(),
+          lastError: opts.fail ? 'network down' : null,
+          failures: opts.fail ? runs : 0,
+        })
+      },
+    })
+
+  it('手动入口绕过启动排程闸：scheduleCheck 已排过，checkNow 仍能再出站', async () => {
+    const h = counting()
+    h.scheduleCheck(0)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(runs).toBe(1)
+    // 启动那一刀已跑过且落定——scheduled 闸只该闸启动路径，不应拦住手动
+    await vi.advanceTimersByTimeAsync(UPDATE_MANUAL_MIN_GAP_MS + 1_000)
+    const r = await h.checkNow()
+    expect(r).toMatchObject({ ok: true })
+    expect(runs).toBe(2)
+    h.stop()
+  })
+
+  it('手动入口在最小间隔内回「刚刚检查过」且不出站', async () => {
+    const h = counting()
+    h.scheduleCheck(0)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(runs).toBe(1)
+    const r = await h.checkNow()
+    expect(r).toEqual({ ok: false, reason: 'tooSoon' })
+    expect(runs).toBe(1)
+    h.stop()
+  })
+
+  it('在飞期间手动入口回「检查中」而不是叠加第二次出站', async () => {
+    let release: (() => void) | null = null
+    const h = createUpdateCheckHost({
+      push: () => true,
+      currentVersion: () => '1.0.0',
+      runCheck: () =>
+        new Promise<void>((res) => {
+          release = () => {
+            runs += 1
+            applyUpdateCheckResult(null)
+            res()
+          }
+        }),
+    })
+    h.scheduleCheck(0)
+    await vi.advanceTimersByTimeAsync(0)
+    const r = await h.checkNow()
+    expect(r).toEqual({ ok: false, reason: 'checking' })
+    expect(release).not.toBeNull()
+    release!()
+    await vi.advanceTimersByTimeAsync(0)
+    h.stop()
+  })
+
+  it('周期到点再检查一次：推进 6 小时 + 1 个 tick 后共两次出站', async () => {
+    const h = counting()
+    h.scheduleCheck(0)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(runs).toBe(1)
+    await vi.advanceTimersByTimeAsync(UPDATE_RECHECK_INTERVAL_MS + UPDATE_CHECK_TICK_MS)
+    expect(runs).toBe(2)
+    h.stop()
+  })
+
+  it('未到周期不出站：推进 5 分钟仍只有启动那一次', async () => {
+    const h = counting()
+    h.scheduleCheck(0)
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+    expect(runs).toBe(1)
+    h.stop()
+  })
+
+  it('失败后走退避：连续四次失败按 4 小时档等，而不是仍按 6 小时', async () => {
+    const h = counting({ fail: true })
+    h.scheduleCheck(0)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(runs).toBe(1)
+    // 造出「已连续失败四次」的落定态：档位表 = 30m/1h/2h/4h…（index = failures-1），此即 4h 档
+    applyUpdateCheckResult(null, { checkedAt: Date.now(), lastError: 'network down', failures: 4 })
+    // 3 小时 59 分：未到 4 小时档
+    await vi.advanceTimersByTimeAsync(4 * 60 * 60 * 1000 - 60 * 1000)
+    expect(runs).toBe(1)
+    // 再过 2 分钟（跨过 4 小时档并含一个 tick）：触发
+    await vi.advanceTimersByTimeAsync(2 * 60 * 1000)
+    expect(runs).toBe(2)
+    h.stop()
+  })
+
+  it('一次成功即重置退避：失败三次后再成功，下一次按 6 小时正常周期', async () => {
+    const h = counting()
+    h.scheduleCheck(0)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(runs).toBe(1)
+    // 成功路径落定态 failures=0（counting 的 runCheck 已写），推进不足 6 小时不该出站
+    await vi.advanceTimersByTimeAsync(5 * 60 * 60 * 1000)
+    expect(runs).toBe(1)
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000 + UPDATE_CHECK_TICK_MS)
+    expect(runs).toBe(2)
+    h.stop()
+  })
+
+  it('开关关闭时手动入口回「已禁用」，不出站', async () => {
+    const saved = process.env['CLW_DISABLE_UPDATE_CHECK']
+    process.env['CLW_DISABLE_UPDATE_CHECK'] = '1'
+    try {
+      const h = counting()
+      const r = await h.checkNow()
+      expect(r).toEqual({ ok: false, reason: 'disabled' })
+      expect(runs).toBe(0)
+      h.stop()
+    } finally {
+      if (saved === undefined) delete process.env['CLW_DISABLE_UPDATE_CHECK']
+      else process.env['CLW_DISABLE_UPDATE_CHECK'] = saved
     }
   })
 })

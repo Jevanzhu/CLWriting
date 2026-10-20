@@ -34,6 +34,12 @@ declare global {
       /** 阶段 55：自更新能力闸（主进程按平台 + 打包态判定；渲染层不自行推平台结论）。
        *  canDownload = 应用内下载；canInstall = 换目录并重启（Windows 便携版专属）。 */
       updateCapability: () => Promise<{ canDownload: boolean; canInstall: boolean }>
+      /** 立即跑一次更新检查（手动入口）。检查在主进程出站（受系统代理），结果不下浮——
+       *  渲染层收到回执后重读 /api/app-info 取正式结论。reason 区分检查中 / 过近 / 已禁用 / 未就绪。 */
+      updateCheck: () => Promise<
+        | { ok: true; hasUpdate: boolean; error: string | null }
+        | { ok: false; reason: 'checking' | 'tooSoon' | 'disabled' | 'unavailable' }
+      >
       /** 阶段 55：下载便携包（进度经 onUpdateProgress 推送，返回值只给终态契约） */
       updateDownload: (version: string) => Promise<{ ok: true } | { ok: false; reason: string }>
       /** 阶段 55：取消在途下载（无在途时 no-op） */

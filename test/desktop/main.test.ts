@@ -223,7 +223,7 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
 })
 
 describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
-  it('注册面：20 handle + context-menu on', () => {
+  it('注册面：21 handle + context-menu on', () => {
     expect(Object.keys(M.ipcHandle).sort()).toEqual(
       [
         'desktop:get-current',
@@ -242,10 +242,11 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
         'desktop:set-titlebar-overlay',
         'desktop:show-in-folder',
         'desktop:switch-library',
-        // 阶段 55：便携版自更新五入口（能力闸 / 下载 / 取消 / 应用 / 打开所在文件夹）
+        // 阶段 55：便携版自更新六入口（能力闸 / 检查 / 下载 / 取消 / 应用 / 打开所在文件夹）
         'desktop:update-apply',
         'desktop:update-cancel',
         'desktop:update-capability',
+        'desktop:update-check',
         'desktop:update-download',
         'desktop:update-reveal',
       ].sort(),
