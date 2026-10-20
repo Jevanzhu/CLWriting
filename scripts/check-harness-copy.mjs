@@ -139,6 +139,62 @@ function readText(rel) {
   }
 }
 
+/**
+ * 副本校验器「装进来了」与「真在跑」的对账。
+ *
+ * 为什么需要这一条：副本整体替换（上游升版）会把新的 `verify-*.ts` 一起拷进来，但
+ * `run-gates.ts` 的门表是**上游声明的清单**——新增校验器若上游没有同时加进某个 mode，
+ * 文件在盘上、却没有任何模式会跑它。此时「副本完整」与「门全绿」两句话同时为真，而那
+ * 块面其实没人查。这是静默失去覆盖，与「门没配」长得一样。
+ *
+ * 判据两侧都取实文、不做声明：磁盘 = `scripts/harness/verify-*.ts` 文件清单；
+ * 接线 = `run-gates.ts` 里 `join(HARNESS, '…')` 的实参文本（gate 定义只此一种写法，
+ * `HARNESS` 常量专为该用途存在）。只读副本、不改副本——不动上游字节契约。
+ *
+ * 反向也判：接线指向一个盘上没有的文件，等于门在跑一个不存在的脚本。
+ *
+ * @param {readonly string[]} onDisk 盘上的 verify-*.ts 文件名（含扩展名）
+ * @param {readonly string[]} wired  run-gates.ts 里被 join(HARNESS, …) 引用的文件名
+ */
+export function problemsForVerifierWiring(onDisk, wired) {
+  const problems = []
+  const disk = new Set(onDisk)
+  const running = new Set(wired)
+  for (const name of [...disk].sort()) {
+    // 扩展名在门表里必须写全（join 不做模块解析），故按文件名整体对账
+    if (!running.has(name)) {
+      problems.push(
+        `${HARNESS_DIR}/${name} 在盘上但没有任何门跑它——副本带来了新校验器而 run-gates.ts 的门表` +
+          `没接线。要么在上游把它加进某个 mode 后刷新副本，要么在本仓门表里接线；` +
+          `「文件在位」不等于「这块面在查」`,
+      )
+    }
+  }
+  for (const name of [...running].sort()) {
+    if (!disk.has(name)) {
+      problems.push(
+        `${HARNESS_DIR}/run-gates.ts 接线的 ${name} 在盘上不存在——门会去跑一个没有的脚本，` +
+          `副本不完整，或门表指向了改名后的旧名`,
+      )
+    }
+  }
+  return problems
+}
+
+/**
+ * 从 run-gates.ts 正文抽出被接线的校验器文件名（纯函数，供直测）。
+ *
+ * 只认 `join(HARNESS, 'x')` 这一种实参形态：gate 定义的 args 是该常量唯一的使用面，
+ * 按形态取而不是全文搜 `verify-`，避免注释里提到的名字被当成接线。
+ */
+export function wiredVerifiersFrom(source) {
+  const out = []
+  for (const m of source.matchAll(/join\(\s*HARNESS\s*,\s*['"]([^'"]+)['"]\s*\)/g)) {
+    if (m[1] !== undefined) out.push(m[1])
+  }
+  return out
+}
+
 function main() {
   const problems = []
 
@@ -182,6 +238,20 @@ function main() {
   }
   problems.push(...problemsForManifestShapes(actual))
 
+  // 接线对账：盘上的校验器 must 都在门表里（见 problemsForVerifierWiring 头注）
+  let onDisk = []
+  try {
+    onDisk = readdirSync(join(root, HARNESS_DIR)).filter((name) => name.startsWith('verify-') && name.endsWith('.ts'))
+  } catch (error) {
+    problems.push(`${HARNESS_DIR} 读不到校验器清单：${error instanceof Error ? error.message : String(error)}`)
+  }
+  const gates = readText(`${HARNESS_DIR}/run-gates.ts`)
+  if (gates.error !== undefined) {
+    problems.push(gates.error)
+  } else {
+    problems.push(...problemsForVerifierWiring(onDisk, wiredVerifiersFrom(gates.text)))
+  }
+
   if (problems.length > 0) {
     console.error('check:harness-copy 失配：')
     for (const problem of problems) console.error(`  ${problem}`)
@@ -189,7 +259,8 @@ function main() {
   }
   console.log(
     `check:harness-copy 通过：副本版本 ${copy.text.trim()} 与 ${VERSION_JSON} 一致；` +
-      `${DECLARED_EMPTY.length} 份空判据门实文与申报一致。`,
+      `${DECLARED_EMPTY.length} 份空判据门实文与申报一致；` +
+      `${onDisk.length} 个校验器全部接线。`,
   )
 }
 
