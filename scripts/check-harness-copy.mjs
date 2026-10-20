@@ -262,6 +262,13 @@ function main() {
       `${DECLARED_EMPTY.length} 份空判据门实文与申报一致；` +
       `${onDisk.length} 个校验器全部接线。`,
   )
+  // 把「为什么空置」打到门的输出里：那四份 manifest 只能写 `{}`（各家解析器按白名单拒未知
+  // 字段，`{}` 是它们承认的「刻意空置」形态），所以理由无处落在文件里。此处的申报表是它
+  // 唯一的机器可读之家——顺带在每次跑门时复述一遍，读的人不必再去翻门源码或规范。
+  console.log(`空判据门申报（文件内只能写 \`{}\`，理由住本门申报表）:`)
+  for (const entry of DECLARED_EMPTY) {
+    console.log(`  ${entry.file} — ${entry.reason}`)
+  }
 }
 
 // 直跑判定读路径（不读 import.meta.main——旧 Node 上恒为假会静默退出 0）；

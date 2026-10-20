@@ -172,4 +172,20 @@ describe('真实仓库实跑', () => {
       JSON.parse(readRepoFile('scripts/harness/version.json')).version,
     )
   })
+
+  // 那四份 manifest 只能写 `{}`（各自解析器按字段白名单拒未知键，`{}` 是它们承认的「刻意
+  // 空置」形态），所以理由无处落在文件里。门输出是它唯一的机器可读之家——这条锚住「必须
+  // 打出来」：删掉打印逻辑或漏打某一份，读门的人就又回到「空置还是漏配」的原问题。
+  it('跑门时复述四份空置申报及其理由（文件内写不下的那部分）', () => {
+    const r = spawnSync(process.execPath, [scriptPath], { cwd: REPO_ROOT, encoding: 'utf8' })
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('空判据门申报')
+    for (const entry of declaredEntries) {
+      expect(r.stdout, `门输出未复述 ${entry.file} 的申报`).toContain(entry.file)
+      expect(r.stdout, `门输出未带 ${entry.file} 的理由`).toContain(entry.reason)
+    }
+    // 四份齐备而不是只打一部分：按申报条数核对输出里的 manifest 行
+    const lines = r.stdout.split('\n').filter((line) => line.trim().endsWith('.json') || /\.json — /.test(line))
+    expect(lines).toHaveLength(declaredEntries.length)
+  })
 })
