@@ -14,7 +14,7 @@ import { defineRoute } from './schema.js'
 import { reply } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
 import { statsSourceSignature } from './stats-signature.js'
-import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
+import { registerBookKeyedCache } from '../../../shared/cache-registry.js' // 书键缓存登记表（登记制单源）
 import { resolveBookOrReply } from '../book-context.js'
 import { aggregateCost, type CostStats } from '../../../ai/cost-stats.js'
 

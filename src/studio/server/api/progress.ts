@@ -15,7 +15,7 @@ import { join, resolve } from 'node:path'
 import { readChapterDir, readChapterDirSummary } from '../../../format/chapters.js'
 import { yieldToEventLoop } from '../../../async.js'
 import { createTtlProbeCache } from '../ttl-cache.js' // TTL+FIFO 缓存壳单源
-import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
+import { registerBookKeyedCache } from '../../../shared/cache-registry.js' // 书键缓存登记表（登记制单源）
 
 // ── 服务热路径全书扫描的逐块让出 ──────────────────────
 // 服务是 Electron 主进程内嵌的单进程 HTTP 服务，同步全书扫描在大书上单请求冻结事件

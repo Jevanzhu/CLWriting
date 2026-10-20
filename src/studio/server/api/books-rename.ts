@@ -54,7 +54,7 @@ import {
   recordPendingEventMigration,
   clearPendingEventMigration,
 } from './books-lifecycle.js'
-import { bookRootAliases } from '../cache-registry.js'
+import { bookRootAliases } from '../../../shared/cache-registry.js'
 import type { BookCtx } from './books.js'
 
 export let initialBook: string | undefined

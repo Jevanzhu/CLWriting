@@ -18,10 +18,14 @@
  * 红线：若将来某个 forgetFn 需要读另一缓存的中间态，「顺序无语义」不再成立——必须改为显式
  * 排序（本表引入 ordinal 或在聚合入口按序排序登记）并更新本论断。
  *
- * 位置取舍：按「零依赖、避免环」定位在 server 层（server 是失效编排的调用面所在）。ai 侧两条
- * 书键缓存（ai/calls.ts 的 forgetMigratedRoots、ai/rules/setting-rule.ts 的 forgetSettingCache）
- * 因 src/ai/** 零 studio 直连方向锁（test/governance/ai-studio-direction.test.ts）不能自登记，
- * 由聚合入口代登记——登记语义与其余相同，机器门照常对账。
+ * 位置取舍：住 `src/shared/`——本件零依赖（只碰 node:fs / node:path），而调用面横跨底座层
+ * （format/fs/document/cache/state）与组合根（studio/server），没有任何一层能「拥有」它。
+ * 放在 server 层会让底座反向依赖组合根（该边现由 test/governance/dependency-direction.test.ts
+ * 禁止）；`src/shared/` 是底座之间横向共享的合法位置，两侧都能引而不构成上下反转。
+ * ai 侧两条书键缓存（ai/calls.ts 的 forgetMigratedRoots、ai/rules/setting-rule.ts 的
+ * forgetSettingCache）因 src/ai/** 零 studio 直连方向锁（test/governance/
+ * ai-studio-direction.test.ts）不能自登记，由聚合入口代登记——登记语义与其余相同，
+ * 机器门照常对账。
  */
 
 import { realpathSync } from 'node:fs'

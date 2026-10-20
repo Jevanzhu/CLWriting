@@ -11,7 +11,7 @@ import { statSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { reply } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
-import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
+import { registerBookKeyedCache } from '../../../shared/cache-registry.js' // 书键缓存登记表（登记制单源）
 import { readKind, resolveBookOrReply } from '../book-context.js'
 import { scanChaptersAsync, aggregateStyleTrend, readBaseline, type ChapterSample } from '../../../metrics/style.js'
 import { sessionDbPath } from '../../../events/store.js'

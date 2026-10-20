@@ -48,6 +48,19 @@ const AI_LAYER = [
 ]
 
 /**
+ * 编辑器/底座模块禁止 import 的方向：AI 生成层 + `studio/`。
+ *
+ * 为什么 `studio/` 也要禁：`studio/server` 是**组合根**（把所有模块接起来的那一层），
+ * 底座层反过来依赖它就等于「下层决定上层的形状」——组合根再也无法整体替换，而这类边
+ * 在方向锁原先只锁「底座 → AI」时完全不会被发现（7 个底座文件同时 import
+ * `studio/server/cache-registry` 即此形态，长期无人察觉）。
+ *
+ * 底座模块确实需要共享的零依赖件，一律落 `src/shared/`（本仓的最低共享层）：
+ * 那是「底座之间横向共享」的合法位置，不构成上下反转。
+ * 判据分两条（AI 向走 KNOWN 白名单、studio 向零白名单），故此处只留说明，不再合成单表。
+ */
+
+/**
  * 已知例外（待治理）：编辑器/底座 → AI 的现存业务依赖。
  * 从白名单移除即视为已治理（第二个用例会校验 import 是否真消失）。
  */
@@ -55,6 +68,9 @@ const AI_LAYER = [
 const KNOWN = new Set<string>()
 
 const AI_RE = new RegExp(`from\\s+['"](?:\\.\\./)+(${AI_LAYER.join('|')})/`)
+
+/** 底座 → studio 的 import（组合根反向依赖；判据与 AI_RE 同构，只是目标集不同）。 */
+const STUDIO_RE = /from\s+['"](?:\.\.\/)+(studio)\//
 
 /** 递归收集目录下源码（.ts 排除 .d.ts + .vue SFC；排除 macOS ._ 垃圾）。 */
 function listSource(dir: string): string[] {
@@ -91,6 +107,27 @@ function scanViolations(): string[] {
         if (!KNOWN.has(`${rel}:${aiModule}`)) {
           violations.push(`${rel}:${aiModule}  ←  ${line.trim()}`)
         }
+      }
+    }
+  }
+  return violations
+}
+
+/**
+ * 扫描「底座 → studio 组合根」的 import。与 AI 向**分开判**：两类边的治理路径不同
+ * （AI 向靠端口反转/下沉，studio 向一律搬 `src/shared/`），混在一个违规列表里读者
+ * 分不出该按哪种改法处理。零白名单——这条边没有正当形态。
+ */
+function scanStudioViolations(): string[] {
+  const violations: string[] = []
+  for (const mod of EDITOR_BASE) {
+    const dir = join(root, 'src', mod)
+    if (!existsSync(dir)) continue
+    for (const file of listSource(dir)) {
+      const rel = relative(root, file).replaceAll('\\', '/')
+      const lines = scriptBlocks(rel, readFileSync(file, 'utf-8')).split('\n')
+      for (const line of lines) {
+        if (STUDIO_RE.test(line)) violations.push(`${rel}  ←  ${line.trim()}`)
       }
     }
   }
@@ -160,6 +197,29 @@ describe('G5 依赖方向守护', () => {
       }
     }
     expect(stale, 'KNOWN 白名单有条目已过时（对应 import 已治理，应移除以反映现状）:\n' + stale.join('\n')).toEqual([])
+  })
+
+  it('底座源码不 import studio/ 组合根（共享件一律落 src/shared/，不走上下反转）', () => {
+    const violations = scanStudioViolations()
+    expect(
+      violations,
+      '底座层出现 import studio/ 的边——studio/server 是组合根，底座反向依赖它会让组合根无法整体替换。' +
+        '确实需要共享的零依赖件请搬到 src/shared/（底座之间横向共享的合法位置）:\n' +
+        violations.join('\n'),
+    ).toEqual([])
+  })
+
+  it('studio 向判据自证：命中底座→studio 的边，且不误伤 src/shared/ 与同层相对引用', () => {
+    // 判据若写成「从底座能不能找到到 studio 的路径」就会把 shared 也判进来；
+    // 这里钉的是说明符层面的判据，故三个对照样本必须给出不同结论。
+    const probe = (spec: string): boolean => STUDIO_RE.test(`import { x } from '${spec}'`)
+    expect(probe('../studio/server/cache-registry.js')).toBe(true)
+    expect(probe('../../studio/server/api/books.js')).toBe(true)
+    // 搬去 shared 之后不再是违规（这正是本条的治理出口）
+    expect(probe('../shared/cache-registry.js')).toBe(false)
+    // 同层/下层相对引用不受影响
+    expect(probe('./chapters.js')).toBe(false)
+    expect(probe('../format/words.js')).toBe(false)
   })
 
   it('web-next 跨包 import 只准落 src/shared/**（含 .vue；其余后端目录一律禁）', () => {

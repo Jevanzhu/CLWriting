@@ -23,7 +23,7 @@ import { runSpec } from '../../../ai/tasks/spec.js'
 import { RELATION_MINE_SPEC } from '../../../ai/tasks/specs.js'
 import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // 长任务门控包装 + 生成失败状态映射单源（走 ctx.gate 实例）
 import { createTtlProbeCache } from '../ttl-cache.js'
-import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
+import { registerBookKeyedCache } from '../../../shared/cache-registry.js' // 书键缓存登记表（登记制单源）
 import { yieldToEventLoop } from '../../../async.js' // 扫描段让出原语（rhythm/progress 同源）
 import { sigStatFor } from './rhythm.js' // （SRV 域）：size:mtimeMs 签名单源（原本地同构副本收敛）
 import type { RealmSystem } from '../../../format/types.js'

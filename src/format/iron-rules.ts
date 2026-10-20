@@ -2,7 +2,7 @@
  * 文风铁律配置解析（方案：消除 format→check 循环依赖）。
  *
  * 从 文风铁律.md 解析可量化硬约束阈值 + 反和解硬禁词（#5 第 8 节）。
- * 纯文本解析、零依赖（登记制改版：唯一外部出边 = ../studio/server/cache-registry.js
+ * 纯文本解析、零依赖（登记制改版：唯一外部出边 = ../shared/cache-registry.js
  * 零依赖登记表叶子件，无环）——format 基础层可安全引用（check/count.js 反向依赖 format，
  * 不可在 format 内 import check）。
  */
@@ -15,7 +15,7 @@ import { readBannedEntryWords, parseBannedWordsLine } from './style-entry.js'
 import { isMdFileName } from './filename.js'
 import { statFingerprint } from '../fs/hash.js' // stat 指纹单源
 import { isCoarseMtimeNs } from '../fs/mtime-precision.js' // 低精度 mtime 卷降级判据单源
-import { registerBookKeyedCache } from '../studio/server/cache-registry.js' // 书键缓存登记表（登记制单源）
+import { registerBookKeyedCache } from '../shared/cache-registry.js' // 书键缓存登记表（登记制单源）
 
 /** 文风铁律可量化硬约束（parseIronRules 输出） */
 export interface IronRules {

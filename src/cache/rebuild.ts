@@ -31,7 +31,7 @@ import { walkMdEach } from '../fs/walk-md.js'
 import { platformCaseFold } from '../fs/safe-path.js'
 import { ensureIncrementalAutoVacuum, reclaimFreedSpaceSync } from '../fs/sqlite-vacuum.js'
 import { isCoarseMtimeNs } from '../fs/mtime-precision.js'
-import { registerBookKeyedCache } from '../studio/server/cache-registry.js' // 书键缓存登记表（登记制单源）
+import { registerBookKeyedCache } from '../shared/cache-registry.js' // 书键缓存登记表（登记制单源）
 import { log, errMsg } from '../log/index.js'
 // -（全量代码）：基础两类单源自 install/data.ts（该模块仅
 // type-only import format/types，无环），与 check/runner enabledLeadTypes 共用同一符号

@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply, replyError, parseRequestUrl } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
-import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
+import { registerBookKeyedCache } from '../../../shared/cache-registry.js' // 书键缓存登记表（登记制单源）
 import { dirSignature } from '../dir-signature.js'
 import { resolveBookOrReply } from '../book-context.js'
 import {

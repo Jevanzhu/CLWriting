@@ -31,7 +31,7 @@ import { openSessionStoreAsync, bookHash } from '../../../events/store.js'
 import { recordForeshadowChanges } from '../../../events/chain-bridge.js'
 import { log, errMsg } from '../../../log/index.js' // 伏笔观测层失败留痕；errMsg 三目收编
 import { createSerialChainMap } from '../serial-chain.js' // per-book 串行链四胞胎通用件
-import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
+import { registerBookKeyedCache } from '../../../shared/cache-registry.js' // 书键缓存登记表（登记制单源）
 import type { TaskGate, TaskGateInjected } from './task-gate.js' // 结构操作忙闸单源（闸实例经组装根注入；structureBusyGuarded 为模块级助手，显式接闸）
 import type { DriverHost } from '../driver-port.js' // driver 经组装根注入
 

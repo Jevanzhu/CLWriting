@@ -23,7 +23,7 @@ import { readFile as readFileAsync, stat as statAsync } from 'node:fs/promises'
 import { sep } from 'node:path'
 import { platformCaseFold } from './safe-path.js'
 import { isCoarseMtimeNs } from './mtime-precision.js'
-import { registerBookKeyedCache } from '../studio/server/cache-registry.js' // 书键缓存登记表（登记制单源）
+import { registerBookKeyedCache } from '../shared/cache-registry.js' // 书键缓存登记表（登记制单源）
 
 const MD_TEXT_CACHE_MAX = 4096
 let mdTextCacheMax = MD_TEXT_CACHE_MAX
