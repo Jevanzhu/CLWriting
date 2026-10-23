@@ -87,7 +87,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.135.0",
     "font-list": "^2.1.0",
-    "openai": "^7.36.0",
+    "openai": "^7.39.0",
     "yauzl": "3.4.0"
   }
 }
