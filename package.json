@@ -73,7 +73,7 @@
     "happy-dom": "^20.14.6",
     "pinia": "^4.1.0",
     "prettier": "^3.9.10",
-    "tsup": "^8.0.0",
+    "tsup": "^9.0.0",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.71.2",
