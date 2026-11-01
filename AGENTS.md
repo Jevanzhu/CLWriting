@@ -6,8 +6,8 @@
 
 - 子 agent 派发上限：单波 ≤5（在途 ≤5），超量拆多波顺序派发。
 - 纪律条落点：作者一次性纪律指令只落本正本；文档操作链与操作规程细则落 `05-规范/` 现行规范档，本正本只留指针；常规批记档照旧。
-- 判据展开：本正本写纪律条目，展开与理由住 skill 副本 `.agents/skills/`（随上游版本整体替换；采用面与升级见规范第十节）——工程流程、门禁、注释卫生、测试可靠性、评审、派活判据、客户端加载机制 = `project-harness/references/`（`agent-work.md` / `client-loading.md` / `comment-hygiene.md` / `test-reliability.md` / `doc-governance.md` / `doc-lifecycle.md` / `gates.md` / `pre-push.md`），决策记录的格式与归档 = `agent-notes/`；所装副本版本见 `scripts/harness/version.json`。
-- **工作语言**：中文；**指令面永不配对**——本正本、`CLAUDE.md`、`docs/AGENTS.md` 与决策记录的机制说明各一份，需要双语的知识住 `docs/` 与 `.agents/notes/` 的对照面（判据 = `project-harness/references/language-policy.md`）；换语言 = 整棵树的显式迁移，非逐文件漂移。
+- 判据展开：本正本写纪律条目，展开与理由住 skill 副本 `.agents/skills/`（随上游版本整体替换；采用面与升级见规范第十节）——工程流程、门禁、注释卫生、测试可靠性、评审、派活判据、客户端加载机制 = `dsh-project-harness/references/`（`agent-work.md` / `client-loading.md` / `comment-hygiene.md` / `test-reliability.md` / `doc-governance.md` / `doc-lifecycle.md` / `gates.md` / `pre-push.md`），决策记录的格式与归档 = `dsh-project-harness/references/`（archiving.md、history.md）；所装副本版本见 `scripts/harness/version.json`。
+- **工作语言**：中文；**指令面永不配对**——本正本、`CLAUDE.md`、`docs/AGENTS.md` 与决策记录的机制说明各一份，需要双语的知识住 `docs/` 与 `.agents/notes/` 的对照面（判据 = `dsh-project-harness/references/language-policy.md`）；换语言 = 整棵树的显式迁移，非逐文件漂移。
 - 提交说明纪律：commit 及对外文案不引作者指令原文，决策以结论转述。
 - 注释纪律：注释只写代码作用与需要说明的东西（约束 / 不变量 / 语义 / 平台差 / 同步关系）；不写来历与出处（这份代码来自哪里、借鉴于哪里），修复史归 git。
 - 发版批纯度：挂账项与待拍板先各自成批收口；发版批只做版号与出包，不夹带。
@@ -22,7 +22,7 @@
 
 ## 测试分层与测试量
 
-- **先判该不该写**：一条改动 = 一条回退即变红的用例，给不出判据就不写；已覆盖的不补测；断言只锚对外可观察面（锚面清单与理由 → `project-harness/references/test-reliability.md`）。
+- **先判该不该写**：一条改动 = 一条回退即变红的用例，给不出判据就不写；已覆盖的不补测；断言只锚对外可观察面（锚面清单与理由 → `dsh-project-harness/references/test-reliability.md`）。
 - **并入优先**：新用例加进同域既有档，不为单例新开档；碎片档并档。
 - **L0 零测试面**：纯文档/注释/用户数据/纯类型面——不跑测试，回复声明改动面。
 - **L1 中间刀（跑最窄面）**：只跑改过/新增档（`npx vitest run <档>`）；跨域或动共享模块才升域目录/全量。`npm run test:related` 走传递闭包、非叶子档两百档起，非默认；动前端加 `npm run typecheck:web-next`；路径错会静默空跑（wrapper 已防呆）。

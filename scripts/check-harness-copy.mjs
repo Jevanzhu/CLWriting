@@ -4,7 +4,7 @@
  *
  * 两件文档已声明、此前只靠自律的事，本门升级为机器可判：
  *
- *   1. **副本版本**：`.agents/skills/VERSION`（副本版本号单源）与
+ *   1. **副本版本**：`.agents/skills/dsh-project-harness/VERSION`（副本版本号单源）与
  *      `scripts/harness/version.json`（安装来源版本）必须相等。上游替换副本后忘了
  *      刷新 version.json，「手上这一套装的是哪一版」就答错——而两个号都写在文档里，
  *      错的正是被查的那一处。
@@ -26,7 +26,7 @@ import { REPO_ROOT as root } from './repo-root.mjs'
 
 const HARNESS_DIR = 'scripts/harness'
 const VERSION_JSON = `${HARNESS_DIR}/version.json`
-const COPY_VERSION = '.agents/skills/VERSION'
+const COPY_VERSION = '.agents/skills/dsh-project-harness/VERSION'
 
 /**
  * 空判据门申报：文件 → 申报的空置形状与理由。

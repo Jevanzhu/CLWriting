@@ -39,7 +39,7 @@ describe('副本版本对账：两处版本号必须一致且像版本号', () =
   it('不一致 → 点名两侧的值（副本换版而 version.json 未刷新即此形）', () => {
     const problems = problemsForCopyVersion('0.1.9', '0.1.8')
     expect(problems).toHaveLength(1)
-    expect(problems[0]).toContain('.agents/skills/VERSION 是 0.1.9')
+    expect(problems[0]).toContain('.agents/skills/dsh-project-harness/VERSION 是 0.1.9')
     expect(problems[0]).toContain('scripts/harness/version.json 是 0.1.8')
   })
 
@@ -168,7 +168,7 @@ describe('真实仓库实跑', () => {
       if (entry.shape === 'empty-object') expect(keys).toEqual([])
       else expect(parsed).toEqual({ claims: [] })
     }
-    expect(readFileSync(join(REPO_ROOT, '.agents', 'skills', 'VERSION'), 'utf8').trim()).toBe(
+    expect(readFileSync(join(REPO_ROOT, '.agents', 'skills', 'dsh-project-harness', 'VERSION'), 'utf8').trim()).toBe(
       JSON.parse(readRepoFile('scripts/harness/version.json')).version,
     )
   })

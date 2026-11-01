@@ -92,7 +92,7 @@ const SCAN_EXTS = new Set(['.ts', '.tsx', '.mts', '.cts', '.vue', '.js', '.mjs',
 const EXCLUDED_DIRS = new Set(['node_modules'])
 
 /**
- * 豁免路径（相对仓库根）。`scripts/harness/` 是 project-harness 校验器副本面：
+ * 豁免路径（相对仓库根）。`scripts/harness/` 是 dsh-project-harness 校验器副本面：
  * 随上游整体替换（bootstrap --force），注释风格随来源——含上游用作分区的手绘
  * 分隔注释行，形态上与本门的「切除后残形」判据撞车。本门管本仓手写的叙述面；
  * 副本面纳入只会产出「副本不合本仓注释口径」的假红，其行为由 check:harness 实跑

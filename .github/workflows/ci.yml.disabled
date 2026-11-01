@@ -1,0 +1,398 @@
+name: CI
+
+on:
+  # W-P2-14：恢复自动触发（发布门不再名存实亡）。分支限 main/dev + 指向 main 的 PR，避免特性分支频繁跑。
+  # 2026-08-28 两步收窄：先摘 dev push 腿（频推期全矩阵逐推跑过重），再摘 PR 腿改全手动
+  # （CI 一度只走 workflow_dispatch，验证责任回到本地 npm test，合入门槛不变）。
+  # 2026-08-29 R74-5：恢复指向 main 的 PR 腿（自动门恢复最小面——合入门重新自动跑）。
+  # R49-36：补回 push main 腿——上一行挂账的「push 腿频推期结束后恢复」至此兑现，
+  # main 直推恢复全矩阵背书。push（refs/heads/main）与 PR（refs/pull/*/merge）ref 不同，
+  # concurrency 组互不相扰；组内语义两触发各自成立（PR 连推连取消，push 腿不取消，见下）。
+  # 触发面/门分工批（2026-09-22）：push 补 tags 腿——作者口径「CI 走 main，打 tag 才触发」
+  # 落为双面：main 直推照旧全矩阵背书，tag 推送把发布物的 CI 背书收进本工作流。同批
+  # desktop.yml 里与本文命令级重复的门（audit / tsc / vue-tsc / lint / 单测两腿 / 四 check
+  # / soak / mac 腿 e2e·release-smoke）摘净，门责任单源化到此处；desktop.yml 的 release job
+  # 前置「同 commit CI 全绿门」把移交验成门禁（不靠自律，CI 停用即彼处报红）。
+  # 语义要点：branches 与 tags 两过滤互不抑制，push 命中任一即触发；tags 只认 v* 前缀
+  #（正式版与 rc 均命中），且 tag 触发的运行读的是 tag 所指提交上的本文件。
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# R72-13（二十轮 H-4）：并发组 + 最小权限——同 ref 新跑取消未完成旧跑（PR 连推连取消，
+# push 腿不取消防长跑被抖动反复杀）；GITHUB_TOKEN 收敛只读（本工作流只
+# checkout/build/upload，无发布面写操作；upload-artifact 走运行时独立 token 不受影响）。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: ${{ matrix.os }} · Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    # R66-39（十四轮）：10 分钟无数据背书偏紧——慢机偶发超时以超时红呈现（报告 §五）。
+    # 放宽到 20（≈2× 余量）作过渡值，待 CI 实跑时长数据回填后再校准。
+    # F-7（二十九轮批 F）：20→30——job 级超时为全矩阵共享，win 腿（npm ci ×2 +
+    # build:all + 全量单测）在 20 分钟预算上易触顶假红，取最慢腿背书放宽。
+    # 阶段 44：30→45——vitest 5 后 CI win 腿（2 核 · maxWorkers 2）全量单跑实测
+    # ~14min（Desktop 首轮实录 837s）+ checkout/npm ci ~5min；win 腿自带「首跑红
+    # 同命令重跑一次」兜底（R0911-G-P1-1d），重跑形态需双跑预算 28min+5min > 30——
+    # 首轮 dispatch win 腿 28.3min 撞顶取消实证。45 覆盖双跑形态。
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # G4-1（2026-08-16）：typecheck/单测扩 ubuntu；e2e 已迁 ubuntu（R66-38），
+        # mac 腿保留验证 Electron 相关面（devDependencies 二进制/tsup 桌面产物构建）。
+        # R69-6（十七轮，= 阶段 21 J4）：补 windows-latest 腿（仅 Node 24 控成本）——
+        # 按 win 适配 D4 拍板口径「win 仅 typecheck+build+单测（e2e 仍 mac/ubuntu）」：
+        # 本 job 其余步（lint/packaging/counts/knowledge/pack）纯 Node 脚本顺带背书。
+        # 重评-35（全库代码重评审 2026-09-05）：win 平台守卫 skipIf(win32) 家族随测试批
+        # 演进增减，数量以全库实测为准，勿在注释钉值（旧注释钉「45 处」已账实漂移）；
+        # win npm ci/构建较慢，20 分钟超时为首跑观察值（J0 打包前以本腿为 win 持续门），F-7 已放宽到 30。
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        # 24=LTS / 26=Current（25 奇数线已 EOL）。engines >=24；node:sqlite 自 v23.4.0 起免 flag，两版均零 flag 可用。
+        node: [24, 26]
+        exclude:
+          - os: windows-latest
+            node: 26
+    steps:
+      # G406（0918四轮修复批）：第三方 action 全量改 commit SHA 钉版（尾注 # v4 保留主版本
+      # 可读性）——浮动 major tag 指向可被上游移动，门逻辑可被静默换血（供应链面）；SHA
+      # 为 2026-09-18 各 repo releases/tags/v4 实取，git ref 与 commit 端点双源核验。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          # dd-P3（E-P3-2）：npm 缓存——两条 lockfile 都入键，web-next 单独升级依赖也能正确失效
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            src/studio/web-next/package-lock.json
+
+      - name: 装依赖
+        run: npm ci
+
+      - name: 装前端依赖（web-next node_modules）
+        run: npm --prefix src/studio/web-next ci
+
+      # G401（0918四轮修复批）：CI 无依赖漏洞扫描门——根包与 web-next 子包各扫一次
+      # （--audit-level=high 只拦高危以上，low/moderate 噪声不进门）。存量高危已由清链批
+      # 024f8726 清零（root 仅余 vitest 族 moderate、web-next 归零，全 dev 链），观察期
+      # 收口翻 blocker：新增 high 及以上即红（四轮-G401「连续绿后翻 blocker」兑现）。
+      - name: 依赖漏洞扫描（npm audit ≥high，根包）
+        run: npm audit --audit-level=high
+      - name: 依赖漏洞扫描（npm audit ≥high，web-next 子包）
+        run: npm --prefix src/studio/web-next audit --audit-level=high
+
+      - name: 类型检查（tsc --noEmit 零错）
+        run: npm run typecheck
+
+      - name: 前端类型检查（vue-tsc）
+        run: npm --prefix src/studio/web-next run typecheck
+
+      # R67-3（十五轮）：lint 门接线——package.json 的 lint 脚本此前只在本地跑，
+      # ci.yml 全文无 lint 步骤，与 coverage 门「只在本地生效」同款名存实亡判例。
+      # 射程随 P3-4 批 6 扩到 TS 全量（含 web-next）+ .vue SFC：TS 块接双 tsconfig
+      # 工程（类型感知规则可用），.vue 接 eslint-plugin-vue essential 档。存量违规
+      # 以 eslint-suppressions.json 计数抑制冻结——规则一律 error，新增即红。
+      # 堆帽（rc.3 发版批）：类型感知 lint 走双 tsconfig 工程，内存随文件数单调涨——
+      # 本地 win 腿二分实测峰值旧生代 ≈2.5GB（1024/2048 帽下 eslint 以 exit 134 崩，
+      # 即 V8 堆耗尽 SIGABRT；2560 起全绿）。Node 默认堆帽按宿主内存推导，macos runner
+      # 内存小于 ubuntu/win 腿、默认帽落在 ≈2GB，该腿因此必崩（rc.3 tag 首跑实录：
+      # macos 双 Node 腿 step 10 全 134，同日 ubuntu/win 腿同门全绿——非规则违规，
+      # 是跑不动）。本步显式给 3072 留余量；作用域限本步，测试步 worker 仍走默认帽。
+      - name: lint 门（eslint）
+        env:
+          NODE_OPTIONS: --max-old-space-size=3072
+        run: npm run lint
+
+      # 抑制表收敛步：lint 门只保「新增违规即红」，不保「已修复的旧条目被清掉」——
+      # 计数式抑制的松弛点（改动存量使命中数下降后再新增同规则违规，计数仍可能不超）
+      # 及失效条目残留在表里，都要靠 `--prune-suppressions` 重写归一后与仓库比对才可见。
+      # 断言 = prune 后 git diff 为空：表已忘删旧条目（或有人手改出非规范序列化）即红。
+      # 文件为该步输入与产物，工作树被重写属预期——CI 不提交，只校验。
+      - name: 抑制表收敛门（prune 后 diff 空）
+        env:
+          NODE_OPTIONS: --max-old-space-size=3072
+        run: |
+          npm run lint:prune
+          git diff --exit-code -- eslint-suppressions.json || {
+            echo "::error::eslint-suppressions.json 含可收敛条目（旧违规已修但抑制未清）或非规范序列化——本地跑 npm run lint:prune 后随批提交"
+            exit 1
+          }
+
+      # P3-4 另一半：格式化门。只检查不改写（CI 不改仓库）——本地 `npm run format`
+      # 一键归一化。红了即格式回退。
+      - name: 格式化门（prettier --check）
+        run: npm run format:check
+
+      - name: 构建（src + web-next → dist，发布资产门）
+        run: npm run build:all
+
+      - name: 发布产物门（dist/web/index.html + package.main 必须存在）
+        run: node -e "const fs=require('fs');const p=require('./package.json');for(const f of ['dist/web/index.html',p.main]){if(!fs.existsSync(f)){console.error(f+' 缺失,发布包不完整');process.exit(1)}}"
+
+      # CC-P1-7：打包资源门——resources/ 缺席打包清单时打包态 AI 链路必挂（dev 形态测不出）
+      - name: 打包资源门（check:packaging）
+        run: npm run check:packaging
+
+      # 复评P2：npm 包清单实跑门——本机 Node 25/npm 11 pack 无具体错误退出 1 悬而未决，
+      # 在发布底座 Node 24 上以退出码实证 files 清单可打包（dry-run 不产 tarball）
+      # R40-49（四十轮）：--ignore-scripts 复用本 job 上方「构建（build:all）」产物——
+      # package.json 的 prepack=build:all，pack 默认生命周期钩子会把同 job 已建产物整轮
+      # 重复构建（CI 时长浪费，无正确性影响）。清单门只验 files 清单与产物在位；产物由
+      # 同 job 同命令（build:all）产出，门语义不变，不改 job 依赖/矩阵
+      - name: npm pack 清单门（Node 24）
+        if: matrix.node == 24
+        run: npm pack --dry-run --ignore-scripts
+
+      # dd-P2（E-P2-1）：覆盖率阈值门接线——vitest.config 的 thresholds（语句/分支/函数/行）
+      # 此前只在本地 test:coverage 生效，CI 从不跑 → 门名存实亡。单腿跑覆盖（v8 插桩有开销），
+      # 其余腿维持纯 npm test；coverage run 本身执行全部用例，不额外重复跑。
+      - name: 测试（含 node:sqlite smoke）
+        run: npm test
+        # 注意须 ${{ }} 包裹：裸 if 以 ! 开头会被 YAML 解析为标签（gg批0：CI 工作流启动级失败的根因）
+        # R0911-G-P1-1d：win 腿拆到下方专用步（收尾竞态重跑兜底），其余非覆盖腿维持原样
+        if: ${{ !(matrix.os == 'ubuntu-latest' && matrix.node == 24) && matrix.os != 'windows-latest' }}
+      # R0911-G-P1-1d（2026-09-11 CI 红族之四）：win 腿测试步「收尾竞态重跑一次」兜底。
+      # 成因只按形态记（机制细节不进门）：win 腿间歇形态 = 用例本身零红（输出无 FAIL 行）、
+      # 进程收尾期以非零码退出。旧注记按 tinypool/ERR_IPC_CHANNEL_CLOSED 归因——现装
+      # vitest 5.0.1 依赖树已无 tinypool，包名级成因不可复核，勿再按包名表述。
+      # 重跑判据（P2 修复）：首跑输出含用例失败行（`FAIL  test/x.test.ts`）→ 真失败，立即
+      # exit 1 不重跑（真失败必须首报，不被重跑延后/洗白）；仅「非零退出且零 FAIL 行」才
+      # 同命令重跑一次——重跑绿 = 该次首跑被吸收（首跑退出码 + 零 FAIL 行写进 step summary，
+      # 洗白可见可累计）；重跑仍非零 = exit 1 步红，真失败不吞、只延后一轮。
+      # ubuntu/macos 腿无此竞态族记录，不加重试（保持失败首报的排障效率）。
+      # 上游根治后本兜底可撤。
+      - name: 测试（win 腿，R0911-G-P1-1d 收尾竞态重跑一次兜底）
+        if: matrix.os == 'windows-latest'
+        # G402（0918四轮修复批）：pwsh 重跑逻辑抽本地 composite action（.github/actions/
+        # win-vitest-retry）——此前各腿逐行复制同段 pwsh、漂移隐患；单源收编后本步只接线
+        #（批次号经 warning-title 传参），判据与文案以 action 为正本。
+        uses: ./.github/actions/win-vitest-retry
+        with:
+          warning-title: R0911-G-P1-1d
+      - name: 测试 + 覆盖率阈值门（ubuntu·24 腿）
+        run: npm run test:coverage
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 24
+
+      # R72-14（二十轮 H-11）：coverage 腿报告工件化——阈值红时 html/json-summary 有现场
+      # 可查（此前只跑门不留档，复现只能在本地另跑）
+      # R44-4（四十四轮）：补 always()——隐式 success() 使工件恰在阈值红（其设计场景）
+      # 时不传，与注释宣称相反；同文件 playwright trace 的 if: failure() / desktop.yml
+      # 的 if: always() && … 为仓内正确先例。vitest.config 已同步补 reportOnFailure: true
+      #（用例红形态下 coverage/ 目录也要产出，见 R44-4 注记）。
+      - name: 上传覆盖率报告（ubuntu·24 腿）
+        if: ${{ always() && matrix.os == 'ubuntu-latest' && matrix.node == 24 }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
+
+      # X-P2-16：README 数字对账门——「账实对照」从自律升级为门禁，失配即红
+      - name: README 数字对账（check:counts）
+        run: npm run check:counts
+
+      # P2-29：知识层 manifest 对账门——「CI 只相信正式知识层」从注释升级为门禁
+      #（知识层/_manifest.json 与实际文件任一失配即红，改素材漏登记/漏更新不再静默）
+      - name: 知识层 manifest 对账（check:knowledge）
+        run: npm run check:knowledge
+
+      # 2026-09-19：文档篇幅门——索引面只写结论 + 指针、根 README 是对外介绍面禁项目进展，
+      # 从自律升级为门禁（check-counts X-P2-16 先例）；防历批实录回弹到索引面。
+      - name: 文档篇幅门（check:docs）
+        run: npm run check:docs
+
+      # 2026-09-26：源码注释门——注释只留约束 / 不变量 / 平台差 / 语义说明，修复史正本 = git
+      # 历史；批号标签、轮次、日期戳、评审过程词出现在 src 注释即红（与 check:docs 同款
+      #「纪律升门禁」）。扫描器是逐字符状态机，字符串 / 模板串 / 正则字面量内容一律不判为
+      # 注释，故本门不碰生产字面量（历史事故的机器化防线）。test/ 不入扫描面——测试文件
+      # 头注释留批号是允许形态。
+      - name: 源码注释门（check:comments）
+        run: npm run check:comments
+
+      # 2026-10-17：eslint 抑制台账只减不增门——suppressions 是存量债台账，不是
+      # 新违规的垃圾桶；总量超过基线上限即红（重基线须同步改脚本常量并留理由）。
+      - name: 抑制台账上限门（check:suppressions）
+        run: npm run check:suppressions
+
+      # 2026-10-14：链面门（dsh-project-harness 校验器副本，判据与采用面见 05-规范/文档操作链）——
+      # Markdown 链接与锚点、一句一行、文档链索引与篇数对账三合一；扫描面与槽位声明住
+      # scripts/harness/ 的 markdown-patterns.json 与 doc-index.manifest.json，链上存量硬换行
+      # 挂 baseline.json 债务台账。本步与自建六 check（含下方采用面申报对账门）、下方决策记录门
+      # 合为「八 check」（AGENTS.md 恒常纪律）。
+      - name: 链面门（check:harness）
+        run: npm run check:harness
+
+      # 2026-10-16：采用面申报对账门（自建第六 check，判据与申报表见 05-规范/文档操作链 §八）——
+      # 副本版本号两处一致 + 四份空判据门实文与申报一致。与自建五 check、上方链面门、下方
+      # 决策记录门合为「八 check」（AGENTS.md 恒常纪律）。
+      - name: 采用面申报对账门（check:harness-copy）
+        run: npm run check:harness-copy
+
+      # 2026-10-14：决策记录门（agent-notes 校验器副本，判据与语料声明见 05-规范/文档操作链 §九）——
+      # 路径 / 命名 / 头部 / 骨架与归档封存三合一；归档门以 PR base 提交为受信基线（浅检出下
+      # 仍可读），push / tag / 手动触发退回本次提交自身（与本地默认同口径）。勿传空串：显式
+      # 提供却读不到的 ref 是硬错误，浅检出不得变成静默跳过。
+      - name: 决策记录门（check:notes）
+        env:
+          HARNESS_ARCHIVE_BASE_REF: ${{ github.event.pull_request.base.sha || github.sha }}
+        run: npm run check:notes
+
+      # W-P2-14：删三死步——test:rc-path 脚本已不存在；dist/cli.js 无此产物（tsup 只出 dist/desktop/*，
+      # 已并入上方发布产物门查 package.main）；「零第三方依赖断言」与 dependencies 3 项矛盾。
+
+  # e2e job（M11 E1 恢复）：playwright 跑 web-next 动线 e2e（test/e2e/，release-smoke 另走 test:e2e:release），独立 job 不阻塞 build-test。
+  e2e:
+    name: e2e · playwright
+    # R66-38（十四轮）：mac → ubuntu——本 job 全链只碰 chromium + Node HTTP（globalSetup 起
+    # studio server、release-smoke 起编译产物 server-main.js，均不启动 Electron 壳），
+    # 「Electron 面须 mac」的理由不成立；macos runner 计费 10× 于 linux，纯惯例性浪费。
+    runs-on: ubuntu-latest
+    # R66-39（十四轮）：与 build-test 同款放宽——build:all + e2e 全量 spec 串行（workers:1）+
+    # release-smoke 二次构建，10 分钟慢机易触顶。20 为过渡值，待实跑数据校准。
+    # R0910-W（2026-09-10）：20→25——本轮补 Electron 集成冒烟（apt 装系统依赖 + xvfb 起
+    # 真壳）与 soak 步，release-smoke 的 build:all 之上再叠 ~1-2 分钟，取 25 留余量。
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            src/studio/web-next/package-lock.json
+
+      - name: 装依赖
+        run: npm ci
+
+      - name: 装前端依赖（web-next node_modules）
+        run: npm --prefix src/studio/web-next ci
+
+      # --with-deps：ubuntu 上确保 chromium 系统库齐备（runner 镜像通常预装，此处幂等兜底）
+      # R0911-G-P3-5（2026-09-11 全量重评 GLM-5.3 修复批）：浏览器层缓存——每跑重下
+      # chromium ~130MB；--with-deps 的 apt 侧幂等，命中缓存时 install 秒级 no-op。
+      # 0918独立重评修复批（D003）：键由 hashFiles(lockfile) 改 OS+workflow+playwright
+      # 版本写死（1.61.1 对照根 package.json @playwright/test ^1.61.1，升版须同步改）
+      # + restore-keys 前缀兜底，键式对齐 desktop.yml（R0916-6 修的锁文件哈希键缺陷：
+      # 任意锁文件改动都会换键致 ~130MB 整包重下，与 playwright 是否升级无关；前缀兜底
+      # 换版时恢复旧缓存只补差量浏览器）。键含 github.workflow 体现本工作流身份，
+      # 与 desktop.yml（Desktop Build）缓存互不串用。
+      # G407（0918四轮修复批）：键内版本改从根 lock 动态提取进 step output（下方 pwver
+      # 步）——「写死 1.61.1 对照 ^1.61.1、升版须同步改」的双真相源缺陷就此销账；键式
+      # 改 pw-<ver>-<os>-<workflow>（workflow 身份保留），web-next 子包 lock 无
+      # @playwright/test，playwright 由根 lock 统一管理（实态已核）。
+      - name: 取 playwright 版本（根 lock 单一真相源）
+        id: pwver
+        run: echo "v=$(node -e "console.log(require('./package-lock.json').packages['node_modules/@playwright/test'].version)")" >> "$GITHUB_OUTPUT"
+      - name: 缓存 playwright chromium
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ steps.pwver.outputs.v }}-${{ runner.os }}-${{ github.workflow }}
+          restore-keys: |
+            pw-${{ runner.os }}-${{ github.workflow }}-
+      - name: 装 playwright chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: 跑 e2e（build:web + playwright test）
+        run: npm run test:e2e
+
+      # dd-P2（E-P2-3）：发布冒烟接线——dist/desktop/server-main.js 起真实编译产物验证
+      # （此前仅本地手跑，CI 从不验发布形态；打包资源门只查文件存在不验可启动）
+      - name: 发布冒烟（release-smoke，build:all + 编译产物起服）
+        run: npm run test:e2e:release
+
+      # 0918独立重评修复批（D004）：PR 级真 asar 打包冒烟——check-packaging.mjs 只做静态
+      # 配置面校验（files 清单/资源对账/排除项锚定），真打包校验此前靠发布前手动
+      # build:desktop:dir（check-packaging.mjs 头注自认）。本步复用上一「发布冒烟」步的
+      # build:all 产物（electron-builder --dir 只做打包段不重复构建；首跑 electron zip
+      # ~100MB 下载，runner 级无缓存与 desktop.yml 同口径），对 ubuntu 解包态产物做最小
+      # 断言：linux-unpacked 在位 + resources/app.asar 在位 + asar 清单抽查（main 入口在、
+      # resources/prompts/ 在、node_modules 不在——仓内无 packaged-app-smoke 通用脚本，
+      # 断言用 npx asar list 内联；断言面本地 mac 已实跑核验：asar list 行形态
+      # `/dist/desktop/main.js` 等，见 2026-09-18 修复批记录）。CI ubuntu 无签名障碍
+      #（electron-builder.yml mac.identity 仅 darwin 腿消费）。
+      - name: asar 打包冒烟（electron-builder --dir + 清单断言）
+        run: |
+          set -eu
+          npx electron-builder --dir --publish never
+          APP_DIR=dist-electron/linux-unpacked
+          test -d "$APP_DIR" || { echo "::error::--dir 未产出 $APP_DIR——打包段失败"; exit 1; }
+          ASAR="$APP_DIR/resources/app.asar"
+          test -f "$ASAR" || { echo "::error::缺 $ASAR——asar 打包关闭/失败，打包态主进程不可载"; exit 1; }
+          npx asar list "$ASAR" > /tmp/asar-list.txt
+          grep -qx "/dist/desktop/main.js" /tmp/asar-list.txt || { echo "::error::asar 缺 main 入口 /dist/desktop/main.js——打包态无法启动"; exit 1; }
+          grep -q "^/resources/prompts/" /tmp/asar-list.txt || { echo "::error::asar 缺 resources/prompts/——打包态内置 prompt/技巧包全不可读（CC-P1-7）"; exit 1; }
+          if grep -q "^/node_modules" /tmp/asar-list.txt; then
+            echo "::error::node_modules 混入 asar——0917清库修复批排除项（'!node_modules/**'）失效，装机体回涨"
+            exit 1
+          fi
+          echo "asar 冒烟通过：linux-unpacked + app.asar 在位；main 入口与 resources/prompts/ 在包内；node_modules 未混入（asar 共 $(wc -l < /tmp/asar-list.txt) 条目）"
+
+      # R0910-W（2026-09-10）：Electron 集成冒烟接入 PR/push 门——此前本 job 全链只碰
+      # chromium + Node HTTP（mock driver），从不启动 Electron 壳；唯一 Electron 覆盖
+      # 是 desktop.yml 的 25s 存活冒烟（仅 tag 推送触发）。真实崩溃（src/desktop/main.ts
+      # 的 closed 清理监听在销毁态 webContents 上抛错 → 关窗链短路/退出异常）因此可随 PR
+      # 合入。本步以 CLW_SMOKE_WINDOW_CYCLE=1 驱动真实建窗→关窗→标记（契约见 main.ts），
+      # 不依赖 studio server 就绪；dist 由上一「发布冒烟」步的 build:all 产出。
+      # 系统库逐个容错安装：22.04→24.04 间 libgtk-3/libasound2 有 t64 更名，候选名任一
+      # 装成即过；装后显式核对（xvfb-run / GTK / NSS 至少各一在位），缺则 fail-fast 报人话，
+      # 不把「库没装齐」伪装成后续冒烟超时。
+      - name: 装 Electron 系统依赖（xvfb + GTK/NSS/ALSA）
+        run: |
+          sudo apt-get update
+          for p in xvfb libgtk-3-0 libgtk-3-0t64 libnss3 libgbm1 libxss1 libasound2 libasound2t64; do
+            sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y "$p" || true
+          done
+          command -v xvfb-run >/dev/null || { echo "::error::xvfb 未安装成功"; exit 1; }
+          ldconfig -p | grep -q 'libgtk-3' || { echo "::error::libgtk-3 未安装成功"; exit 1; }
+          ldconfig -p | grep -q 'libnss3' || { echo "::error::libnss3 未安装成功"; exit 1; }
+          # R0911-G-P3-6（2026-09-11 全量重评 GLM-5.3 修复批）：核对面补齐 libgbm/libasound
+          # ——apt 循环 `|| true` 容错安装时装失败此前静默（装 7 包只核对 3），Electron
+          # 缺 GPU/ALSA 库以非零退/挂死收场，伪装成后面冒烟步的超时红，指因错层。
+          ldconfig -p | grep -q 'libgbm' || { echo "::error::libgbm 未安装成功（Electron GPU 合成必需）"; exit 1; }
+          ldconfig -p | grep -q 'libasound' || { echo "::error::libasound 未安装成功（Electron 音频栈必需）"; exit 1; }
+
+      - name: Electron 集成冒烟（真实建窗→关窗，xvfb）
+        run: xvfb-run -a npm run smoke:electron
+
+      # R0910-W（2026-09-10）：有界 soak/泄漏门——「200 万字不崩」此前全仓无内存断言
+      #（grep memoryUsage|heapUsed = 0 命中），线性泄漏回归无门可拦。独立脚本
+      #（test/soak/soak.ts，故意不带 .test. 以不进 README 计数套件）反复跑有界纯路径 +
+      # --expose-gc 断增长上界（详见脚本头注）；gc 不可用则干净 SKIP。无系统依赖，纯 Node。
+      # R0912（重评-0911c P3）：脚本在 --expose-gc 丢失时 SKIP 且 exit 0——只看退出码
+      # 门会假绿，故断言输出含 [soak] OK（SKIP/FAIL 均判红：内存门必须真跑）。
+      # R0912-3 P2-4：旧断言 grep -q 是「至少一个 OK」——段 1 通过即真，其后 RAG 段
+      # 失败仍步绿（假绿洞）；且步未设 shell，默认 bash -e 无 pipefail，soak 非零退出
+      # 被 tee 吞。修法 = 显式 shell: bash（GH Actions 即 -eo pipefail，teed 退出码
+      # 不再被吞）+ OK 行数恰等于段数断言（补段须同步改此断言，fail-closed）。
+      # G408（0918四轮修复批）：段数不再本文件硬编码——改两段式，先 soak.ts --plan
+      # 提计划数（单一真相源，与 desktop.yml soak 门同源），再真跑比对 OK 行数；
+      # 补段只改 soak.ts PLAN_SEGMENTS 一处，两把 yml 免同步（断言 fail-closed 不变）。
+      - name: 有界内存/soak 门（--expose-gc）
+        shell: bash
+        run: |
+          SOAK_N=$(node --import tsx test/soak/soak.ts --plan | sed -n 's/^plan: \([0-9]\{1,\}\)$/\1/p')
+          [ -n "$SOAK_N" ] || { echo "::error::soak --plan 未输出计划数（应含 plan: N 行）——计数提取失败，按 fail-closed 处理"; exit 1; }
+          npm run soak | tee /tmp/soak-output.log
+          OK_N=$(grep -c '\[soak\] OK' /tmp/soak-output.log || true)
+          [ "$OK_N" -eq "$SOAK_N" ] || { echo "::error::soak 门 OK 行数=${OK_N} ≠ 计划段数=${SOAK_N}（段清单以 soak.ts PLAN_SEGMENTS 为准，勿在本文案枚举段数——五轮重评修复批 H102：原硬编码「应为 5」与 G408 动态计数源脱钩，补段后成假信息，desktop.yml 同款门已是不枚举口径；段失败/SKIP/退出码非零均不得步绿；计数源 = soak.ts --plan，补段只改 soak.ts PLAN_SEGMENTS）——内存门假绿拦截"; exit 1; }
+
+      - name: 上传 trace（失败时）
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-trace
+          path: test-results/
+          retention-days: 7

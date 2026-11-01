@@ -25,7 +25,8 @@ tmp/
 # 上游版本整体替换。属「跟随来源风格」面（同下方 .d.ts 一类）：纳入格式化只产出无人
 # 阅读的 diff，并在下次同步时被整体回滚。入库与否由 .gitignore 定，本行只管格式化射程。
 .agents/
-# project-harness 校验器副本面（scripts/harness/）：与 .agents/ 同性质——随上游版本
+.codebuddy/
+# dsh-project-harness 校验器副本面（scripts/harness/）：与 .agents/ 同性质——随上游版本
 # 整体替换的副本，与上游字节一致是它的契约（本地改过的门表也只在升级面保留，不走
 # 格式化）。纳入格式化会在下次同步时被整体回滚，且本地门表编辑会被重排。入库与否由
 # .gitignore 定，本行只管格式化射程。
