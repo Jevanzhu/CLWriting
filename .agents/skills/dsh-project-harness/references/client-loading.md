@@ -35,7 +35,7 @@ DSH 的文件系统 provider 按 rank 扫描固定根，rank 数值小的先被�
 
 **同名冲突的裁决。** 同一层内按上表的 rank 升序先到先得，被遮蔽的一方只在客户端日志留一条 warn；跨层时近作用域（agent preset 层）整体遮蔽全局层。要让某个技能的副本压过共享根里的同名技能，才用 `<项目根>/.dsh/skills`（rank 100）；没有压制需求时放 `.dsh/skills` 只是失去跨客户端共享。
 
-**`~/.agents` 可能整棵不存在。** `agentsHome` 的解析优先级是显式配置、`$DSH_AGENTS_HOME`、`~/.agents`；解析只计算路径，不创建目录。所以文档里的命令一律写 `<skill-dir>`，不写死 `~/.agents/skills/...`：`<skill-dir>` 是解析后实际安装的那份副本目录（本仓的说明写 `<repo>/.agents/skills/project-harness`）。缺失的根会被客户端轮询直到它出现，不算错误。
+**`~/.agents` 可能整棵不存在。** `agentsHome` 的解析优先级是显式配置、`$DSH_AGENTS_HOME`、`~/.agents`；解析只计算路径，不创建目录。所以文档里的命令一律写 `<skill-dir>`，不写死 `~/.agents/skills/...`：`<skill-dir>` 是解析后实际安装的那份副本目录（本仓的说明写 `<repo>/.agents/skills/dsh-project-harness`）。缺失的根会被客户端轮询直到它出现，不算错误。
 
 ## 目录里放什么
 
@@ -60,13 +60,13 @@ DSH 的文件系统 provider 按 rank 扫描固定根，rank 数值小的先被�
 
 **客户端的上限与截断。** 客户端配置 `catalogDescriptionMaxLength`，默认 500、最小 3；它先对描述做规范化——`/\s+/g` 折叠为单空格、再 trim——长度按 JS 字符串 `.length` 计。规范化后超过上限时，保留前 `maxLength - 3` 个字符并补 `...`，尾部被截掉。所以默认值 500 不是自选预算，而是「默认配置下整句可见」的边界：尾部触发词一旦被截，模型看到的是半句话，自动路由失效；按名调用不受影响——名字不截断，用户 `/name` 与显式点名仍能加载。把描述压进默认值以内则是每个采用方都能自己做到的修法：调大 `catalogDescriptionMaxLength` 是全局设置，会把目录每一条一起撑长，按轮次付固定上下文成本，采用方通常也不控这个配置。
 
-**触发词前置、中英双写。** 中文任务词与英文 `Use when ...` 都应落在前半段，尾部只放补充信息，因为尾部是第一个被截掉的。中英双写不是装饰：同一任务可能以中文或英文提出，触发词只写一种语言，另一种语言的任务就路由不到。本仓两个 `SKILL.md` 的 frontmatter 是这条形态的实例：中文触发词在前，英文触发句在后，整段规范化后不超过上限。
+**触发词前置、中英双写。** 中文任务词与英文 `Use when ...` 都应落在前半段，尾部只放补充信息，因为尾部是第一个被截掉的。中英双写不是装饰：同一任务可能以中文或英文提出，触发词只写一种语言，另一种语言的任务就路由不到。本仓 `SKILL.md` 的 frontmatter 是这条形态的实例：中文触发词在前，英文触发句在后，整段规范化后不超过上限。
 
 **自检的度量。** 客户端量的是规范化后的长度：取 description 的值（`>-` 块标量把换行折叠为空格），套 `value.replace(/\s+/g, ' ').trim()`，再取 `.length`。本仓把这条自检做成门禁：`verify-skill-catalog.ts` 按 manifest 声明的上限逐个检查，超限时报告实测长度与上限。
 
 **阈值只有一个声明点。** 本仓的上限住在 `scripts/harness/skill-catalog.manifest.json` 的 `maxDescriptionLength`；门禁、正文与这份参考档都指过去，不在这里另写一份预算数字。若采用方把客户端的 `catalogDescriptionMaxLength` 调小，manifest 也要跟着调小——否则门禁绿而目录仍在截断，绿灯不再代表「完整可见」。
 
-**门禁判什么。** `verify-skill-catalog.ts`（源码布局 `skills/project-harness/scripts/verify-skill-catalog.ts`，安装副本落在 `scripts/harness/`）检查：声明的根存在；根下每个技能档有可读 frontmatter、`name` 合法且与目录包名一致、`description` 归一后不超过 manifest 上限；声明了根却扫到零个技能档判红——「扫了个空」不算通过。触发词够不够、描述是否准确它判不了，那落在评审。
+**门禁判什么。** `verify-skill-catalog.ts`（源码布局 `skills/dsh-project-harness/scripts/verify-skill-catalog.ts`，安装副本落在 `scripts/harness/`）检查：声明的根存在；根下每个技能档有可读 frontmatter、`name` 合法且与目录包名一致、`description` 归一后不超过 manifest 上限；声明了根却扫到零个技能档判红——「扫了个空」不算通过。触发词够不够、描述是否准确它判不了，那落在评审。
 
 ## 加载了却没照做：四种断点
 

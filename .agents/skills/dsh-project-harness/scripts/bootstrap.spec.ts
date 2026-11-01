@@ -3,9 +3,9 @@
  * repository that looked installed but could not run a single gate:
  *
  *   - a verifier left out of the copy list, so the copied gate dies on import
- *   - the paired skill missing, so the Agent Note gates cannot start at all
+ *   - an incomplete skill copy, so the Agent Note gates cannot start at all
  *
- * Run with: node --test skills/project-harness/scripts/bootstrap.spec.ts
+ * Run with: node --test skills/dsh-project-harness/scripts/bootstrap.spec.ts
  */
 
 import assert from 'node:assert/strict'
@@ -205,8 +205,8 @@ describe('bootstrapping a fresh repository', () => {
   })
 
   test('records the bundle version, so the target can say what it installed', () => {
-    const version = readFileSync(join(SKILL_ROOT, '..', 'VERSION'), 'utf8').trim()
-    assert.match(version, /^\d+\.\d+\.\d+$/, `skills/VERSION holds ${JSON.stringify(version)}`)
+    const version = readFileSync(join(SKILL_ROOT, 'VERSION'), 'utf8').trim()
+    assert.match(version, /^\d+\.\d+\.\d+$/, `VERSION holds ${JSON.stringify(version)}`)
     assert.deepEqual(JSON.parse(readFileSync(join(target, 'scripts/harness/version.json'), 'utf8')), { version })
     assert.match(result.stdout ?? '', new RegExp(`harness bootstrap: v${version.replaceAll('.', '\\.')},`))
   })
@@ -220,7 +220,7 @@ describe('bootstrapping a fresh repository', () => {
     assert.equal(run.status, 0, String(run.stderr))
     assert.match(run.stdout ?? '', /^ {2}\+ scripts[\\/]harness[\\/]version\.json$/m)
     assert.deepEqual(JSON.parse(readFileSync(record, 'utf8')), {
-      version: readFileSync(join(SKILL_ROOT, '..', 'VERSION'), 'utf8').trim(),
+      version: readFileSync(join(SKILL_ROOT, 'VERSION'), 'utf8').trim(),
     })
   })
 
@@ -379,9 +379,8 @@ describe('upgrading with --force', () => {
     assert.equal(result.status, 0, String(result.stderr))
     for (const entry of readdirSync(join(target, 'scripts/harness'))) {
       if (!entry.endsWith('.ts')) continue
-      const shipped = [join(SKILL_ROOT, 'scripts', entry), join(SKILL_ROOT, '..', 'agent-notes', 'scripts', entry)]
-        .find(candidate => existsSync(candidate))
-      assert.ok(shipped !== undefined, `${entry} sits in the target but ships in neither skill`)
+      const shipped = join(SKILL_ROOT, 'scripts', entry)
+      assert.ok(existsSync(shipped), `${entry} sits in the target but ships in the skill`)
       assert.equal(
         readFileSync(join(target, 'scripts/harness', entry), 'utf8'),
         readFileSync(shipped, 'utf8'),
@@ -625,22 +624,23 @@ describe('adopting a repository whose comments already carry history', () => {
   })
 })
 
-describe('a partial installation', () => {
-  test('refuses to bootstrap when the paired agent-notes skill is absent', () => {
-    // Reproduce a lone `project-harness` copy: both skills ship together, so this is
-    // the shape a manual partial install takes.
+describe('an incomplete skill copy', () => {
+  test('refuses to bootstrap when a verifier is missing', () => {
+    // The copied run-gates.ts calls every verifier, so a copy missing one would hand
+    // the target gates that die on MODULE_NOT_FOUND.
     const isolated = tracked()
-    cpSync(SKILL_ROOT, join(isolated, 'project-harness'), { recursive: true })
+    cpSync(SKILL_ROOT, join(isolated, 'skill'), { recursive: true })
+    rmSync(join(isolated, 'skill/scripts/aliases.ts'))
     const target = tracked()
-    const run = spawnSync(process.execPath, [join(isolated, 'project-harness/scripts/bootstrap.ts'), '--target', target], {
+    const run = spawnSync(process.execPath, [join(isolated, 'skill/scripts/bootstrap.ts'), '--target', target], {
       encoding: 'utf8',
     })
     assert.equal(run.status, 1)
     // The guard's own message, start to finish. Asserting only the first line let a
     // template-literal syntax error in the closing lines masquerade as this refusal.
-    assert.match(run.stderr ?? '', /missing the paired `agent-notes` skill/)
-    assert.match(run.stderr ?? '', /verify-agent-note-format\.ts not found/)
-    assert.match(run.stderr ?? '', /copy both directories side by side/)
+    assert.match(run.stderr ?? '', /this skill copy is incomplete/)
+    assert.match(run.stderr ?? '', /aliases\.ts not found/)
+    assert.match(run.stderr ?? '', /Re-copy the whole skill directory/)
     assert.doesNotMatch(run.stderr ?? '', /ReferenceError|is not defined|SyntaxError/)
     // It must refuse before creating anything, not after.
     assert.equal(existsSync(join(target, 'scripts/harness/run-gates.ts')), false)

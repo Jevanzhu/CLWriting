@@ -4,7 +4,7 @@
  * selects it. Every rule is therefore exercised in both directions — a loadable catalog
  * passes, and each single break turns it red.
  *
- * Run with: node --test skills/project-harness/scripts/verify-skill-catalog.spec.ts
+ * Run with: node --test skills/dsh-project-harness/scripts/verify-skill-catalog.spec.ts
  */
 
 import assert from 'node:assert/strict'

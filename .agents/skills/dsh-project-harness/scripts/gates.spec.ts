@@ -2,7 +2,7 @@
  * Negative-control tests for the Agent Note gates: every rule must reject a tree that
  * violates it. A gate that passes both ways guards nothing.
  *
- * Run with: node --test skills/agent-notes/scripts/gates.spec.ts
+ * Run with: node --test skills/dsh-project-harness/scripts/gates.spec.ts
  */
 
 import { spawnSync } from 'node:child_process'

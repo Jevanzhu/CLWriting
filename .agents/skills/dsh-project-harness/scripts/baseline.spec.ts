@@ -5,7 +5,7 @@
  * The refusal path calls `process.exit`, so it is exercised against a real fixture
  * repository through a child process rather than in-process.
  *
- * Run with: node --test skills/project-harness/scripts/baseline.spec.ts
+ * Run with: node --test skills/dsh-project-harness/scripts/baseline.spec.ts
  */
 
 import assert from 'node:assert/strict'

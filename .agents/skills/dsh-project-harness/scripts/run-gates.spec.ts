@@ -3,7 +3,7 @@
  * A gate that reports a green aggregate while a gate silently never ran is the failure
  * mode these tests exist to prevent.
  *
- * Run with: node --test skills/project-harness/scripts/run-gates.spec.ts
+ * Run with: node --test skills/dsh-project-harness/scripts/run-gates.spec.ts
  */
 
 import assert from 'node:assert/strict'

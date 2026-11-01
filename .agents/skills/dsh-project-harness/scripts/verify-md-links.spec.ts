@@ -5,7 +5,7 @@
  * exclusion rule is exercised as a pair: the excluded path must not be reported, and
  * its visible sibling must be.
  *
- * Run with: node --test skills/project-harness/scripts/verify-md-links.spec.ts
+ * Run with: node --test skills/dsh-project-harness/scripts/verify-md-links.spec.ts
  */
 
 import assert from 'node:assert/strict'

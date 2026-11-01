@@ -18,11 +18,13 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { BASELINE_REL } from './baseline.ts'
 import { countDocWords } from './doc-words.ts'
-import type { ClassSlot, LifecycleSlot, Locale } from '../../agent-notes/scripts/aliases.ts'
+// Type-only: stripped at run time, so the single-skill layout — which carries the
+// aliases beside this script, with no sibling directory to resolve — never loads this
+// path. Turning it into a runtime import would break that layout.
+import type { ClassSlot, LifecycleSlot, Locale } from './aliases.ts'
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const SKILL_ROOT = resolve(SCRIPT_DIR, '..')
-const AGENT_NOTES_SKILL = resolve(SKILL_ROOT, '../agent-notes/scripts')
 const HARNESS_DIR = 'scripts/harness'
 
 /**
@@ -33,8 +35,8 @@ const HARNESS_DIR = 'scripts/harness'
  */
 const GATE_TABLE = 'run-gates.ts'
 
-/** The bundle version file, one level above this skill's directory. */
-const VERSION_FILE = resolve(SKILL_ROOT, '..', 'VERSION')
+/** The bundle version file, inside this skill's directory so a single-copy install carries it. */
+const VERSION_FILE = join(SKILL_ROOT, 'VERSION')
 
 /**
  * The version of the bundle these verifiers were copied from. A copy without the
@@ -62,42 +64,41 @@ const BASELINE_GATES: ReadonlyArray<readonly [gate: string, file: string]> = [
 ]
 
 /**
- * Verifier files copied into the target repository, paired with their source directory.
- *
- * `paired` marks the verifiers that live in the sibling `agent-notes` skill. The
- * copied `run-gates.ts` invokes every one of them, so a missing pair does not degrade
- * gracefully — it produces a repository whose gates die with MODULE_NOT_FOUND. The
- * precondition is therefore checked up front and reported as an error, never skipped.
+ * Verifier files copied into the target repository, all read from this skill's own
+ * `scripts/` directory. The copied `run-gates.ts` invokes every one of them, so a
+ * missing file does not degrade gracefully — it produces a repository whose gates die
+ * with MODULE_NOT_FOUND. The precondition is therefore checked up front and reported
+ * as an error, never skipped.
  */
-const VERIFIER_FILES: ReadonlyArray<readonly [file: string, sourceDir: string, paired?: boolean]> = [
-  // Shared by every gate in both skills.
-  ['harness-root.ts', SCRIPT_DIR],
+const VERIFIER_FILES: readonly string[] = [
+  // Shared by every gate.
+  'harness-root.ts',
   // The shared scanners the text gates import.
-  ['surface.ts', SCRIPT_DIR],
-  ['markdown.ts', SCRIPT_DIR],
+  'surface.ts',
+  'markdown.ts',
   // The word-counting rule the budget gate and this script's seed both measure in.
-  ['doc-words.ts', SCRIPT_DIR],
+  'doc-words.ts',
   // The debt ledger every baseline-aware gate records into.
-  ['baseline.ts', SCRIPT_DIR],
-  // The Agent Note corpus gates, owned by the `agent-notes` skill.
-  ['aliases.ts', AGENT_NOTES_SKILL, true],
-  ['harness-config.ts', AGENT_NOTES_SKILL, true],
-  ['agent-note-tree.ts', AGENT_NOTES_SKILL, true],
-  ['pair-record.ts', AGENT_NOTES_SKILL, true],
-  ['archived-agent-notes.ts', AGENT_NOTES_SKILL, true],
-  ['verify-agent-note-format.ts', AGENT_NOTES_SKILL, true],
-  ['verify-agent-note-classification.ts', AGENT_NOTES_SKILL, true],
-  ['verify-archived-agent-notes.ts', AGENT_NOTES_SKILL, true],
+  'baseline.ts',
+  // The Agent Note corpus gates.
+  'aliases.ts',
+  'harness-config.ts',
+  'agent-note-tree.ts',
+  'pair-record.ts',
+  'archived-agent-notes.ts',
+  'verify-agent-note-format.ts',
+  'verify-agent-note-classification.ts',
+  'verify-archived-agent-notes.ts',
   // The repository-wide gates.
-  ['verify-comment-hygiene.ts', SCRIPT_DIR],
-  ['verify-doc-budgets.ts', SCRIPT_DIR],
-  ['verify-doc-claims.ts', SCRIPT_DIR],
-  ['verify-doc-index.ts', SCRIPT_DIR],
-  ['verify-md-links.ts', SCRIPT_DIR],
-  ['verify-md-wrap.ts', SCRIPT_DIR],
-  ['verify-skill-catalog.ts', SCRIPT_DIR],
-  ['verify-test-hygiene.ts', SCRIPT_DIR],
-  ['run-gates.ts', SCRIPT_DIR],
+  'verify-comment-hygiene.ts',
+  'verify-doc-budgets.ts',
+  'verify-doc-claims.ts',
+  'verify-doc-index.ts',
+  'verify-md-links.ts',
+  'verify-md-wrap.ts',
+  'verify-skill-catalog.ts',
+  'verify-test-hygiene.ts',
+  'run-gates.ts',
 ]
 
 /**
@@ -140,9 +141,9 @@ const BUDGET_CANDIDATES = ['AGENTS.md', 'docs/AGENTS.md', 'README.md', 'docs/arc
 const BUDGET_HEADROOM = 1.15
 
 /**
- * The Agent Note tree's language-driven names, loaded from the sibling skill at run
- * time. A static import would fail before this script's own missing-skill check could
- * explain the problem, and duplicating the tables would let the two drift.
+ * The Agent Note tree's language-driven names, loaded at run time from the aliases
+ * table beside this script. A static import would fail before this script's own
+ * completeness check could explain the problem.
  */
 interface NoteTreeNames {
   LIFECYCLE_SLOTS: readonly LifecycleSlot[]
@@ -153,7 +154,7 @@ interface NoteTreeNames {
 }
 
 async function loadNoteTreeNames(): Promise<NoteTreeNames> {
-  return await import(pathToFileURL(join(AGENT_NOTES_SKILL, 'aliases.ts')).href) as unknown as NoteTreeNames
+  return await import(pathToFileURL(join(SCRIPT_DIR, 'aliases.ts')).href) as unknown as NoteTreeNames
 }
 
 /** The archive's own instruction file, required by the archive gate; its path follows the corpus language. */
@@ -288,22 +289,18 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  // The paired verifiers are a precondition, not a nice-to-have: the copied
-  // `run-gates.ts` runs all of them, so a target built without them has gates that
-  // cannot start. Both skills ship together from this repository; a partial copy is
-  // therefore a mistake worth failing on, not a configuration worth supporting.
-  const missingPaired = VERIFIER_FILES
-    .filter(([, sourceDir, paired]) => paired === true)
-    .filter(([file, sourceDir]) => !existsSync(join(sourceDir, file)))
-  if (missingPaired.length > 0) {
-    console.error(`bootstrap: this build is missing the paired \`agent-notes\` skill (expected at ${AGENT_NOTES_SKILL}):`)
-    for (const [file, sourceDir] of missingPaired) console.error(`  ${file} not found in ${sourceDir}`)
+  // The verifiers are a precondition, not a nice-to-have: the copied `run-gates.ts`
+  // runs all of them, so a target built without them has gates that cannot start. A
+  // copy missing one is therefore a mistake worth failing on, not a configuration
+  // worth supporting.
+  const missingVerifiers = VERIFIER_FILES.filter(file => !existsSync(join(SCRIPT_DIR, file)))
+  if (missingVerifiers.length > 0) {
+    console.error(`bootstrap: this skill copy is incomplete (expected the verifiers in ${SCRIPT_DIR}):`)
+    for (const file of missingVerifiers) console.error(`  ${file} not found`)
     console.error(`
-Refusing to continue: the verifiers copied from that skill are called by the copied
-run-gates.ts, so the target would end up with gates that die on MODULE_NOT_FOUND.
-The two skills are installed as a pair: copy both directories side by side into the
-target repository's .agents/skills/ (<repo>/.agents/skills/agent-notes and
-<repo>/.agents/skills/project-harness).`)
+Refusing to continue: run-gates.ts calls every one of these, so the target would end up
+with gates that die on MODULE_NOT_FOUND. Re-copy the whole skill directory
+(${SKILL_ROOT}) from its source repository and run again.`)
     process.exit(1)
   }
 
@@ -388,8 +385,8 @@ target repository's .agents/skills/ (<repo>/.agents/skills/agent-notes and
 
   // 3. Copy the verifiers so gates run in a fresh clone with no skill installed, and
   // record the bundle version they came from alongside them.
-  for (const [file, sourceDir] of VERIFIER_FILES) {
-    const source = join(sourceDir, file)
+  for (const file of VERIFIER_FILES) {
+    const source = join(SCRIPT_DIR, file)
     const rel = join(HARNESS_DIR, file)
     const abs = join(options.target, rel)
     if (existsSync(abs) && !options.force) {

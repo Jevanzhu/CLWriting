@@ -3,7 +3,7 @@
  * a token-only count reads a Chinese paragraph as a single word, so an English-sized
  * ceiling would pass Chinese documents at any length — green while bounding nothing.
  *
- * Run with: node --test skills/project-harness/scripts/verify-doc-budgets.spec.ts
+ * Run with: node --test skills/dsh-project-harness/scripts/verify-doc-budgets.spec.ts
  */
 
 import assert from 'node:assert/strict'

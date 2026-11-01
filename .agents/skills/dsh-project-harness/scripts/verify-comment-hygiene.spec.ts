@@ -5,7 +5,7 @@
  * inside a string, template, or regex is content, not narration. Every rule is shown
  * red once, every boundary green once.
  *
- * Run with: node --test skills/project-harness/scripts/verify-comment-hygiene.spec.ts
+ * Run with: node --test skills/dsh-project-harness/scripts/verify-comment-hygiene.spec.ts
  */
 
 import assert from 'node:assert/strict'

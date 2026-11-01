@@ -4,7 +4,7 @@
  * shrinks. So every rule is shown red once, every boundary that must stay legal — an
  * environment gate, a `.only` quoted in a string, a non-test file — is shown green once.
  *
- * Run with: node --test skills/project-harness/scripts/verify-test-hygiene.spec.ts
+ * Run with: node --test skills/dsh-project-harness/scripts/verify-test-hygiene.spec.ts
  */
 
 import assert from 'node:assert/strict'

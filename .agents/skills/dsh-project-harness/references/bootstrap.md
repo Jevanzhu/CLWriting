@@ -7,7 +7,7 @@ node <skill-dir>/scripts/bootstrap.ts --target <repo> --dry-run
 node <skill-dir>/scripts/bootstrap.ts --target <repo>
 ```
 
-`<skill-dir>` 是已安装副本 `<repo>/.agents/skills/project-harness`（本仓源码布局为 `skills/project-harness`）。不要写死 `~/.agents/skills/...`：用户级技能根可能整棵不存在，逐字执行会 ENOENT。
+`<skill-dir>` 是已安装副本 `<repo>/.agents/skills/dsh-project-harness`（本仓源码布局为 `skills/dsh-project-harness`）。不要写死 `~/.agents/skills/...`：用户级技能根可能整棵不存在，逐字执行会 ENOENT。
 
 中文语料在第一次铺的时候声明语言，别等铺完再改：
 
@@ -118,6 +118,6 @@ skill 更新后，用 `--force` 重跑可以刷新 `scripts/harness/` 下的校�
 
 升级是**行为变化**，不只是代码刷新：同一份文档在旧版过得了门、在新版可能过不了（口径会变），而描述门的行为、或说明「为什么不接某道门」的文档写的是旧行为却不自知；复制进仓库的起步文档里承诺的命令（「跑这个模式」）同样如此。碰到改门禁的版本，这些陈述要同批核对更正——它们是行为的副本，副本不会自己更新。
 
-升级后确认装的是哪一版：`scripts/harness/version.json` 记录复制这些校验器时 skill 的版本，`bootstrap` 的输出行里也会打印。版本号只住在 `skills/VERSION` 一处，两个 skill 一起发版、共用一号；凡是改动 `scripts/`、`SKILL.md`、`references/`、`templates/` 下任何文件，都同批动它——采用方据此回答「我这个仓库装的是哪一版」，而这一问只在出问题时才有人问。
+升级后确认装的是哪一版：`scripts/harness/version.json` 记录复制这些校验器时 skill 的版本，`bootstrap` 的输出行里也会打印。版本号只住在 skill 目录自己的 `VERSION` 一处，随目录一起复制，所以单拷这一个目录也能回答「装的是哪一版」；凡是改动 `scripts/`、`SKILL.md`、`references/`、`templates/` 下任何文件，都同批动它——这一问只在出问题时才有人问。
 
 把「校验器副本已按本地需要修改」这件事记在 `scripts/harness/README.md` 里，否则下次升级会丢掉你的改动；写进门表的采用面不在此列——那是声明，升级不覆盖。

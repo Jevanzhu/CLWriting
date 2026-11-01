@@ -4,7 +4,7 @@
  * re-checks arithmetic. Each rule is shown red once and its boundary green once, and the
  * commands used as sources are real commands run against the fixture repository.
  *
- * Run with: node --test skills/project-harness/scripts/verify-doc-claims.spec.ts
+ * Run with: node --test skills/dsh-project-harness/scripts/verify-doc-claims.spec.ts
  */
 
 import assert from 'node:assert/strict'
